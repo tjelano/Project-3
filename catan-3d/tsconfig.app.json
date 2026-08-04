@@ -22,5 +22,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Node CLI script — real process/network I/O, no DOM. Typechecked instead
+  // under tsconfig.node.json, which has Node types and no DOM lib.
+  "exclude": ["src/multiplayer/testNetworkSync.ts"]
 }

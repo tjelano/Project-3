@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Billboard } from '@react-three/drei'
 import { type Biome } from '../data/hexBoard'
 import { createSeededRandom } from '../utils/seededRandom'
 import { RECESS_DEPTH, getTileTerrain, scatterPoint, terrainPoint, type TileTerrain } from '../three/hexTerrain'
@@ -430,10 +431,20 @@ export function NumberToken({ value }: { value: number }) {
       <mesh material={TOKEN_MATERIAL} castShadow receiveShadow>
         <cylinderGeometry args={[TOKEN_RADIUS, TOKEN_RADIUS * 0.94, TOKEN_HEIGHT, 28]} />
       </mesh>
-      <mesh position={[0, TOKEN_HEIGHT / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
-        <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
-      </mesh>
+      {/* Billboarded rather than flush-painted on the token's flat top: a
+          fixed-flat chit reads upside down from the far side of the table
+          the instant the camera swings to face another seat — expected for
+          a real physical token, but exactly the readability problem the
+          seating camera rig makes visible. Matches the port rate badge in
+          PortMarkers.tsx, which was already billboarded for the same
+          reason. Lifted slightly higher than the old flush offset (0.004)
+          to clear the token's curved rim now that it's not flat against it. */}
+      <Billboard position={[0, TOKEN_HEIGHT / 2 + 0.03, 0]}>
+        <mesh>
+          <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
+          <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
+        </mesh>
+      </Billboard>
     </group>
   )
 }

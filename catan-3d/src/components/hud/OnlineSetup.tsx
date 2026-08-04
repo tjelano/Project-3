@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { isSupabaseConfigured } from '../../lib/supabaseClient'
 import { generateRoomCode, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
+import { loadMatchSnapshot } from '../../multiplayer/matchSnapshot'
 import type { GameStartInfo } from './StartScreen'
 
 type OnlineMode = 'choose' | 'host' | 'join' | 'lobby'
@@ -20,6 +21,10 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
   const [isHost, setIsHost] = useState(false)
+  // True while checking whether roomCodeInput already has a match in
+  // progress — a real network round-trip, so Join Room needs its own
+  // pending state rather than assuming the check is instant.
+  const [joinChecking, setJoinChecking] = useState(false)
 
   // Only becomes non-null once a room is actually chosen — presence tracking
   // (and therefore the Realtime connection itself) only opens at that point.
@@ -32,9 +37,13 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   )
 
   const { players, status, broadcastGameStarted } = useRoomChannel(roomCode, self, {
-    onGameStarted: (names) => {
+    onGameStarted: (names, hostName) => {
       if (!roomCode) return
-      onStart({ playerCount: names.length, names, online: { roomCode, localPlayerName: selfName } })
+      onStart({
+        playerCount: names.length,
+        names,
+        online: { roomCode, localPlayerName: selfName, isHost: selfName === hostName },
+      })
     },
   })
 
@@ -136,15 +145,36 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
         />
         <button
           type="button"
-          disabled={!selfName.trim() || roomCodeInput.length !== 4}
-          onClick={() => {
+          disabled={!selfName.trim() || roomCodeInput.length !== 4 || joinChecking}
+          onClick={async () => {
+            setJoinChecking(true)
+            // A match already saved under this code means the game is
+            // already running (or was, before everyone disconnected) — skip
+            // the lobby entirely and resume straight into it, rather than
+            // dropping the reconnecting player into an empty "waiting for
+            // host" screen for a host who already started playing.
+            const snapshot = await loadMatchSnapshot(roomCodeInput)
+            setJoinChecking(false)
+            if (snapshot) {
+              onStart({
+                playerCount: snapshot.playerNames.length,
+                names: snapshot.playerNames,
+                online: {
+                  roomCode: roomCodeInput,
+                  localPlayerName: selfName,
+                  isHost: selfName === snapshot.hostName,
+                },
+                snapshot,
+              })
+              return
+            }
             setRoomCode(roomCodeInput)
             setIsHost(false)
             setMode('lobby')
           }}
           className={`mt-2 ${PRIMARY_BUTTON_CLASS}`}
         >
-          Join Room
+          {joinChecking ? 'Checking…' : 'Join Room'}
         </button>
         <button type="button" onClick={() => setMode('choose')} className={SECONDARY_BUTTON_CLASS}>
           Back
@@ -187,8 +217,12 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
           disabled={!isFull}
           onClick={() => {
             const names = players.map((player) => player.name)
-            broadcastGameStarted(names)
-            onStart({ playerCount: names.length, names, online: { roomCode: roomCode!, localPlayerName: selfName } })
+            broadcastGameStarted(names, selfName)
+            onStart({
+              playerCount: names.length,
+              names,
+              online: { roomCode: roomCode!, localPlayerName: selfName, isHost: true },
+            })
           }}
           className={`mt-1 ${PRIMARY_BUTTON_CLASS}`}
         >

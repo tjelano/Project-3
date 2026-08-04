@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LocalSetup } from './LocalSetup'
 import { OnlineSetup } from './OnlineSetup'
+import type { MatchSnapshot } from '../../multiplayer/matchSnapshot'
 
 type SetupMode = 'local' | 'online'
 
@@ -10,8 +11,13 @@ export interface GameStartInfo {
   // Present only for Online Multiplayer matches. localPlayerName identifies
   // which of `names` this specific browser controls — App.tsx resolves it
   // to a Player.id once the (identical, seeded-by-roomCode) player list is
-  // built, since createInitialPlayers assigns ids in `names` order.
-  online?: { roomCode: string; localPlayerName: string }
+  // built, since createInitialPlayers assigns ids in `names` order. isHost
+  // is re-derived from the snapshot on a reconnect, not assumed from which
+  // UI flow (Host vs Join) the browser happened to use this time.
+  online?: { roomCode: string; localPlayerName: string; isHost: boolean }
+  // Present when rejoining a match already in progress — App.tsx restores
+  // exactly this saved state instead of building a fresh game.
+  snapshot?: MatchSnapshot
 }
 
 const TAB_CLASS = (active: boolean) =>

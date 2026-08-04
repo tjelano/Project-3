@@ -17,6 +17,7 @@ import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
 import { useRoomChannel, type RoomPlayer } from './multiplayer/useRoomChannel'
+import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { buildHexBoard } from './data/hexBoard'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
@@ -77,6 +78,12 @@ function App() {
     roomCode: string
     localPlayerId: number
     localPlayerName: string
+    // Re-derived from the snapshot on every reconnect (localPlayerName ===
+    // snapshot.hostName), not assumed from whether this browser used the
+    // Host or Join UI flow THIS time — a reloaded host rejoins through
+    // Join like anyone else, and still needs to be recognized as host so
+    // autosaving doesn't silently stop the moment they refresh the page.
+    isHost: boolean
   } | null>(null)
 
   const [tiles, setTiles] = useState(() => buildHexBoard())
@@ -1130,7 +1137,11 @@ function App() {
 
   // Shared reset: reshuffles the board and dev deck once, deriving the new
   // Robber position from that exact same board shuffle so they can't desync.
-  const resetGame = (count: number, names?: string[], online?: { roomCode: string; localPlayerName: string }) => {
+  const resetGame = (
+    count: number,
+    names?: string[],
+    online?: { roomCode: string; localPlayerName: string; isHost: boolean },
+  ) => {
     // Seeded by the room code for online matches, so every client's
     // independent buildHexBoard() call lands on the IDENTICAL tile layout —
     // without this, dice-roll totals could match perfectly while each
@@ -1159,6 +1170,7 @@ function App() {
             roomCode: online.roomCode,
             localPlayerId: resolvedNames.indexOf(online.localPlayerName) + 1,
             localPlayerName: online.localPlayerName,
+            isHost: online.isHost,
           }
         : null,
     )
@@ -1183,8 +1195,57 @@ function App() {
     setSetupSettlementVertexId(null)
   }
 
+  // Rejoining a match already in progress: hydrate every piece of state
+  // directly from the saved snapshot instead of building a fresh game.
+  // tiles are the one exception — deliberately recomputed, not read from
+  // the snapshot, since buildHexBoard(roomCode) is already guaranteed to
+  // reproduce the identical board (see resetGame's comment on why this
+  // matters), and trusting a live derivation over a stored copy is safer.
+  const restoreFromSnapshot = (
+    snapshot: MatchSnapshot,
+    online: { roomCode: string; localPlayerName: string; isHost: boolean },
+  ) => {
+    const freshTiles = buildHexBoard(online.roomCode)
+    setTiles(freshTiles)
+    setPlayerCount(snapshot.playerNames.length)
+    setPlayerNames(snapshot.playerNames)
+    setPlayers(snapshot.players)
+    setOnlineInfo({
+      roomCode: online.roomCode,
+      localPlayerId: snapshot.playerNames.indexOf(online.localPlayerName) + 1,
+      localPlayerName: online.localPlayerName,
+      isHost: online.isHost,
+    })
+    setSettlements(snapshot.settlements)
+    setRoads(snapshot.roads)
+    setCurrentPlayerIndex(snapshot.currentPlayerIndex)
+    setRobberTileId(snapshot.robberTileId)
+    setGamePhase(snapshot.gamePhase)
+    setSetupStepIndex(snapshot.setupStepIndex)
+    setSetupStage(snapshot.setupStage)
+    setSetupSettlementVertexId(snapshot.setupSettlementVertexId)
+    setLastRoll(snapshot.lastRoll)
+    setDevDeck(snapshot.devDeck)
+    setWinner(snapshot.winner)
+    setLongestRoadHolderId(snapshot.longestRoadHolderId)
+    setLargestArmyHolderId(snapshot.largestArmyHolderId)
+    setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
+    setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
+    setRobberMoveFromKnight(snapshot.robberMoveFromKnight)
+    setBanner(null)
+    setPendingTrade(null)
+    setDevCardPicker(null)
+    setDiceRoll(null)
+    setIsRolling(false)
+    setBoardInstance((n) => n + 1)
+  }
+
   const startGame = (info: GameStartInfo) => {
-    resetGame(info.playerCount, info.names, info.online)
+    if (info.snapshot && info.online) {
+      restoreFromSnapshot(info.snapshot, info.online)
+    } else {
+      resetGame(info.playerCount, info.names, info.online)
+    }
     setGameStarted(true)
   }
 
@@ -1198,6 +1259,60 @@ function App() {
     resetGame(playerCount)
     setGameStarted(false)
   }
+
+  // Host-only, online-only: after any state-settling change, persist a full
+  // snapshot so a reload — this browser's own, or the match resuming after
+  // everyone had disconnected — has something to restore from. Broad
+  // dependency list is deliberate: this is meant to fire on essentially
+  // every meaningful game event (dice, builds, robber, dev cards, turns),
+  // and React's own change-detection is a more reliable way to guarantee
+  // that than manually instrumenting every mutation site individually.
+  useEffect(() => {
+    if (!onlineInfo?.isHost || !gameStarted) return
+    const snapshot: MatchSnapshot = {
+      hostName: onlineInfo.localPlayerName,
+      playerNames,
+      players,
+      settlements,
+      roads,
+      currentPlayerIndex,
+      robberTileId,
+      gamePhase,
+      setupStepIndex,
+      setupStage,
+      setupSettlementVertexId,
+      lastRoll,
+      devDeck,
+      winner,
+      longestRoadHolderId,
+      largestArmyHolderId,
+      devCardPlayedThisTurn,
+      freeRoadsRemaining,
+      robberMoveFromKnight,
+    }
+    saveMatchSnapshot(onlineInfo.roomCode, snapshot)
+  }, [
+    onlineInfo,
+    gameStarted,
+    playerNames,
+    players,
+    settlements,
+    roads,
+    currentPlayerIndex,
+    robberTileId,
+    gamePhase,
+    setupStepIndex,
+    setupStage,
+    setupSettlementVertexId,
+    lastRoll,
+    devDeck,
+    winner,
+    longestRoadHolderId,
+    largestArmyHolderId,
+    devCardPlayedThisTurn,
+    freeRoadsRemaining,
+    robberMoveFromKnight,
+  ])
 
   if (!gameStarted) {
     return (

@@ -76,10 +76,17 @@ export interface MonopolyPlayedPayload {
 
 interface GameStartedPayload {
   names: string[]
+  // Carried explicitly rather than inferred (e.g. "names[0]") so every
+  // client — not just the host — knows definitively who the host is from
+  // the moment the match starts. That identity gets persisted into every
+  // match snapshot, which is what lets a reloaded host still be recognized
+  // as host after rejoining through the ordinary Join flow, where they'd
+  // otherwise look like just another player.
+  hostName: string
 }
 
 export interface RoomChannelHandlers {
-  onGameStarted?: (names: string[]) => void
+  onGameStarted?: (names: string[], hostName: string) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
   onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
@@ -156,7 +163,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
 
     channel.on<GameStartedPayload>('broadcast', { event: 'game-started' }, ({ payload }) => {
-      handlersRef.current.onGameStarted?.(payload.names)
+      handlersRef.current.onGameStarted?.(payload.names, payload.hostName)
     })
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
       handlersRef.current.onDiceRolled?.(payload)
@@ -211,8 +218,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     // genuinely changes.
   }, [roomCode, self])
 
-  const broadcastGameStarted = (names: string[]) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'game-started', payload: { names } })
+  const broadcastGameStarted = (names: string[], hostName: string) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'game-started', payload: { names, hostName } })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })

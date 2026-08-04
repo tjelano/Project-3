@@ -1,0 +1,79 @@
+import { getSupabaseClient } from '../lib/supabaseClient'
+import type { Building, DevCardType, Player } from '../game/types'
+import type { GamePhase, SetupStage } from '../App'
+
+const TABLE = 'match_snapshots'
+
+/**
+ * Everything needed to fully re-derive game state on another browser —
+ * deliberately NOT everything App.tsx holds. tiles/graph/ports are omitted
+ * on purpose: they're already a pure, deterministic function of the room
+ * code (buildHexBoard(roomCode)), so persisting them would just be a second
+ * copy of the same bytes that could theoretically drift from the real
+ * source of truth. Recomputing them locally on restore is both smaller and
+ * safer than trusting a stored copy.
+ */
+export interface MatchSnapshot {
+  hostName: string
+  playerNames: string[]
+  players: Player[]
+  settlements: Record<string, Building>
+  roads: Record<string, number>
+  currentPlayerIndex: number
+  robberTileId: string
+  gamePhase: GamePhase
+  setupStepIndex: number
+  setupStage: SetupStage
+  setupSettlementVertexId: string | null
+  lastRoll: number | null
+  devDeck: DevCardType[]
+  winner: Player | null
+  longestRoadHolderId: number | null
+  largestArmyHolderId: number | null
+  devCardPlayedThisTurn: boolean
+  freeRoadsRemaining: number
+  robberMoveFromKnight: boolean
+}
+
+/**
+ * Fire-and-forget by design: a failed save (table not created yet, a
+ * network hiccup) must never interrupt the game the host is actively
+ * playing. Errors are logged, not thrown or surfaced to the player.
+ */
+export function saveMatchSnapshot(roomCode: string, snapshot: MatchSnapshot): void {
+  let client
+  try {
+    client = getSupabaseClient()
+  } catch (err) {
+    console.error('[Catan] Supabase not configured, skipping snapshot save:', err)
+    return
+  }
+  void client
+    .from(TABLE)
+    .upsert({ room_code: roomCode, snapshot, updated_at: new Date().toISOString() })
+    .then(({ error }) => {
+      if (error) console.error('[Catan] Failed to save match snapshot:', error)
+    })
+}
+
+/**
+ * Returns null on ANY failure — missing table, RLS not configured, no row
+ * for this code, network error — rather than throwing. The caller's
+ * fallback in every case is the same: fall through to the normal lobby
+ * flow, which already handles "this is a brand new room" correctly.
+ */
+export async function loadMatchSnapshot(roomCode: string): Promise<MatchSnapshot | null> {
+  let client
+  try {
+    client = getSupabaseClient()
+  } catch (err) {
+    console.error('[Catan] Supabase not configured, cannot check for an existing match:', err)
+    return null
+  }
+  const { data, error } = await client.from(TABLE).select('snapshot').eq('room_code', roomCode).maybeSingle()
+  if (error) {
+    console.error('[Catan] Failed to look up an existing match snapshot:', error)
+    return null
+  }
+  return (data?.snapshot as MatchSnapshot | undefined) ?? null
+}

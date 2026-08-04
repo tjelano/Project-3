@@ -172,11 +172,20 @@ function App() {
     setCurrentPlayerIndex(nextIndex)
   }
 
+  // Whether the CURRENTLY animating roll is this client's own (a real
+  // click) or mirroring another player's DICE_ROLLED broadcast. This is
+  // what applyRollResult reads to decide whether to call endTurn() — NOT
+  // currentPlayerIndex, which can already have raced ahead by the time a
+  // mirrored roll's physics animation finishes settling. See the comment
+  // on that endTurn() call for the exact bug this prevents.
+  const localRollRef = useRef(true)
+
   // Shared by a local Roll Dice click AND by mirroring another player's
   // DICE_ROLLED broadcast — both just need the 3D dice to animate toward
   // the same (d1, d2), after which handleDiceSettled/applyRollResult below
   // runs identically regardless of which client actually rolled.
-  const beginDiceAnimation = (d1: number, d2: number) => {
+  const beginDiceAnimation = (d1: number, d2: number, isLocal: boolean) => {
+    localRollRef.current = isLocal
     setIsRolling(true)
     setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
   }
@@ -402,7 +411,7 @@ function App() {
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
-    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
+    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1], false),
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
     onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId),
@@ -714,7 +723,7 @@ function App() {
     if (onlineInfo) {
       broadcastDiceRolled({ dice: [d1, d2], total: d1 + d2, playerId: players[currentPlayerIndex].id })
     }
-    beginDiceAnimation(d1, d2)
+    beginDiceAnimation(d1, d2, true)
   }
 
   const applyRollResult = (total: number) => {
@@ -782,7 +791,22 @@ function App() {
       setBanner(null)
     }
 
-    endTurn()
+    // Only the client whose OWN roll this was drives the turn forward.
+    // Each client's dice physics is an independent real-time simulation —
+    // settle timing isn't guaranteed to match across devices/frame rates —
+    // so a mirrored roll's animation can still be running when the actor's
+    // TURN_PASSED broadcast (sent the instant THEIR animation settles,
+    // fully independent of anyone else's) already arrives and advances
+    // currentPlayerIndex. If this mirrored call still read currentPlayerIndex
+    // to decide "is it my turn ending", it would see the ALREADY-ADVANCED
+    // value, wrongly conclude the turn was just handed to ME, and bounce it
+    // straight back to whoever actually rolled — the exact bug that made a
+    // 2-player match skip Player 1 and loop forever on Player 2. Reading
+    // localRollRef instead is immune to that: it was fixed the moment this
+    // roll started, before any race was possible.
+    if (!onlineInfo || localRollRef.current) {
+      endTurn()
+    }
   }
 
   const handleDiceSettled = () => {
@@ -1356,6 +1380,8 @@ function App() {
             currentPlayerIndex={currentPlayerIndex}
             playerCount={players.length}
             isOnline={!!onlineInfo}
+            localPlayerId={onlineInfo?.localPlayerId ?? null}
+            activePlayerId={players[currentPlayerIndex]?.id ?? null}
             controlsRef={controlsRef}
           />
           <BoardFrame />

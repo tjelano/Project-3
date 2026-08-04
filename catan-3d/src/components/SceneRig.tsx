@@ -67,10 +67,15 @@ const BLOOM_THRESHOLD = 0.96
 const BLOOM_INTENSITY = 0.28
 
 // --- Table-seat camera lock -------------------------------------------
-// Online matches only: the camera swings to face whoever currently holds
-// the turn, a synchronized "spectator" cut every client sees together —
-// not each player's own personal seat, which would mean nobody ever
-// watches the active player's side of the board.
+// Online matches only: the camera swings to face MY OWN seat the instant
+// the turn becomes mine. Deliberately NOT a synchronized "spectator" cut
+// that follows every turn pass regardless of whose it is — that was the
+// first version of this rig, and playtesting a real match showed exactly
+// the problem: every player's screen would wrench around on EVERY single
+// turn pass anywhere in the match, including ones between two opponents
+// that had nothing to do with them. Gating on "did the turn just become
+// mine" means watching an opponent's turn feels like sitting still at the
+// table, and the camera only ever moves for a reason that's actually mine.
 const CAMERA_SEAT_LERP_RATE = 2.2 // higher = snappier swing between seats
 const SEAT_SNAP_EPSILON = 0.002 // radians; below this, stop driving the camera and hand control back
 
@@ -88,10 +93,24 @@ interface SceneRigProps {
   currentPlayerIndex: number
   playerCount: number
   isOnline: boolean
+  // null for local Pass & Play (no seat-lock at all — see the isOnline
+  // guard below). activePlayerId is whoever's turn it currently is;
+  // localPlayerId is who THIS browser controls. The swing arms only when
+  // they become equal on a turn change, never merely because the active
+  // player changed to someone else.
+  localPlayerId: number | null
+  activePlayerId: number | null
   controlsRef: RefObject<OrbitControlsImpl | null>
 }
 
-export function SceneRig({ currentPlayerIndex, playerCount, isOnline, controlsRef }: SceneRigProps) {
+export function SceneRig({
+  currentPlayerIndex,
+  playerCount,
+  isOnline,
+  localPlayerId,
+  activePlayerId,
+  controlsRef,
+}: SceneRigProps) {
   // Tracks the seat we were last driving toward, so a genuine turn change
   // (not just this component re-rendering) is what arms a new swing.
   const prevPlayerIndexRef = useRef(currentPlayerIndex)
@@ -102,7 +121,13 @@ export function SceneRig({ currentPlayerIndex, playerCount, isOnline, controlsRe
 
     if (currentPlayerIndex !== prevPlayerIndexRef.current) {
       prevPlayerIndexRef.current = currentPlayerIndex
-      transitioningRef.current = true
+      // Arm the swing ONLY when the turn just became mine. An opponent
+      // passing to another opponent still updates prevPlayerIndexRef above
+      // (so a later turn landing on me is still detected as a genuine
+      // change), it just never drives the camera.
+      if (localPlayerId != null && activePlayerId === localPlayerId) {
+        transitioningRef.current = true
+      }
     }
     if (!transitioningRef.current) return
 

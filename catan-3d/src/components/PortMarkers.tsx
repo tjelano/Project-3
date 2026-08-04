@@ -107,6 +107,18 @@ function PortMarker({ port }: { port: Port }) {
           anchorY="middle"
           outlineWidth={0.006}
           outlineColor="#0b1220"
+          // troika-three-text's WebGL glyph-atlas generator (generateSDF_GL)
+          // hard-requires ANGLE_instanced_arrays. Brave's anti-fingerprinting
+          // WebGL hardening can report that extension as unavailable even on
+          // a GPU that supports it, and troika's own JS-worker fallback for
+          // that failure path throws too — an uncaught rejection that broke
+          // every Text glyph on the board. Forcing the worker-thread SDF
+          // path from the start skips WebGL for glyph generation entirely.
+          //
+          // Drei's TextProps typing predates this troika instance property,
+          // so it isn't in the .d.ts even though Text.js forwards it at
+          // runtime — cast narrowly here rather than widen drei's types.
+          {...({ gpuAccelerateSDF: false } as Record<string, unknown>)}
         >
           {portLabel(port.type)}
         </Text>

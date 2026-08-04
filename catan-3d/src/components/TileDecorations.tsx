@@ -428,6 +428,14 @@ export function NumberToken({ value }: { value: number }) {
         color={isHot ? '#a32020' : '#2b2b2b'}
         anchorX="center"
         anchorY="middle"
+        // See the matching comment in PortMarkers.tsx: troika's WebGL SDF
+        // path can throw an uncaught rejection when ANGLE_instanced_arrays
+        // is reported missing (observed on Brave). This runs on every one
+        // of the 18 tiles at first mount, making it the likely source of a
+        // fully black canvas. Forcing the worker-thread fallback avoids it.
+        // Cast narrowly: drei's TextProps typing predates this troika
+        // instance property, even though Text.js forwards it at runtime.
+        {...({ gpuAccelerateSDF: false } as Record<string, unknown>)}
       >
         {String(value)}
       </Text>

@@ -20,6 +20,10 @@ const DEV_CARD_PICKER_COPY: Record<DevCardPickerMode, { title: string; subtitle:
 interface GameHudProps {
   players: Player[]
   currentPlayerIndex: number
+  // Always true for local Pass & Play. For Online Multiplayer, true only on
+  // the browser whose seat currently holds the turn — everyone else's
+  // action buttons stay locked until they hear a TURN_PASSED broadcast.
+  isMyTurn: boolean
   lastRoll: number | null
   onRollDice: () => void
   gamePhase: GamePhase
@@ -49,6 +53,7 @@ interface GameHudProps {
 export function GameHud({
   players,
   currentPlayerIndex,
+  isMyTurn,
   lastRoll,
   onRollDice,
   gamePhase,
@@ -80,16 +85,23 @@ export function GameHud({
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
   const pickerBlocked = !!devCardPicker
-  const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked
+  const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
-    gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && devDeckCount > 0
+    gamePhase === 'playing' &&
+    !isRolling &&
+    gameActive &&
+    !tradeBlocked &&
+    !pickerBlocked &&
+    devDeckCount > 0 &&
+    isMyTurn
   const canPlayDevCards =
     gamePhase === 'playing' &&
     !isRolling &&
     gameActive &&
     !tradeBlocked &&
     !pickerBlocked &&
-    !devCardPlayedThisTurn
+    !devCardPlayedThisTurn &&
+    isMyTurn
   const statusLabel = pickerBlocked
     ? 'Choose your resources…'
     : tradeBlocked
@@ -147,7 +159,7 @@ export function GameHud({
       <RollDiceButton
         lastRoll={lastRoll}
         onRoll={onRollDice}
-        disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked}
+        disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
       {devCardPicker && (

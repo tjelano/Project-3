@@ -4,12 +4,22 @@ import { OnlineSetup } from './OnlineSetup'
 
 type SetupMode = 'local' | 'online'
 
+export interface GameStartInfo {
+  playerCount: number
+  names: string[]
+  // Present only for Online Multiplayer matches. localPlayerName identifies
+  // which of `names` this specific browser controls — App.tsx resolves it
+  // to a Player.id once the (identical, seeded-by-roomCode) player list is
+  // built, since createInitialPlayers assigns ids in `names` order.
+  online?: { roomCode: string; localPlayerName: string }
+}
+
 const TAB_CLASS = (active: boolean) =>
   `flex-1 rounded-md py-2 font-body text-[11px] tracking-[0.1em] uppercase transition-colors ${
     active ? 'bg-gold text-board-navy' : 'text-white/60 hover:text-white'
   }`
 
-export function StartScreen({ onStart }: { onStart: (playerCount: number, names: string[]) => void }) {
+export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => void }) {
   const [mode, setMode] = useState<SetupMode>('local')
 
   return (

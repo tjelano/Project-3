@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { isSupabaseConfigured } from '../../lib/supabaseClient'
 import { generateRoomCode, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
+import type { GameStartInfo } from './StartScreen'
 
 type OnlineMode = 'choose' | 'host' | 'join' | 'lobby'
 
@@ -12,7 +13,7 @@ const PRIMARY_BUTTON_CLASS =
 const SECONDARY_BUTTON_CLASS =
   'mt-1 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70'
 
-export function OnlineSetup({ onStart }: { onStart: (playerCount: number, names: string[]) => void }) {
+export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => void }) {
   const [mode, setMode] = useState<OnlineMode>('choose')
   const [selfName, setSelfName] = useState('')
   const [targetCount, setTargetCount] = useState(3)
@@ -30,8 +31,11 @@ export function OnlineSetup({ onStart }: { onStart: (playerCount: number, names:
     [mode, roomCode, selfName, isHost, targetCount],
   )
 
-  const { players, status, broadcastGameStarted } = useRoomChannel(roomCode, self, (names) => {
-    onStart(names.length, names)
+  const { players, status, broadcastGameStarted } = useRoomChannel(roomCode, self, {
+    onGameStarted: (names) => {
+      if (!roomCode) return
+      onStart({ playerCount: names.length, names, online: { roomCode, localPlayerName: selfName } })
+    },
   })
 
   if (!isSupabaseConfigured()) {
@@ -184,7 +188,7 @@ export function OnlineSetup({ onStart }: { onStart: (playerCount: number, names:
           onClick={() => {
             const names = players.map((player) => player.name)
             broadcastGameStarted(names)
-            onStart(names.length, names)
+            onStart({ playerCount: names.length, names, online: { roomCode: roomCode!, localPlayerName: selfName } })
           }}
           className={`mt-1 ${PRIMARY_BUTTON_CLASS}`}
         >

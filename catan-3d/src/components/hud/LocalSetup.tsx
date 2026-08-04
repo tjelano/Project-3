@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { GameStartInfo } from './StartScreen'
 
 // Namespaced so it can't collide with any other app sharing this origin.
 const LOCAL_PLAYER_NAME_KEY = 'catan3d.localPlayerName'
@@ -13,7 +14,7 @@ function readSavedLocalPlayerName(): string {
   }
 }
 
-export function LocalSetup({ onStart }: { onStart: (playerCount: number, names: string[]) => void }) {
+export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void }) {
   const [playerCount, setPlayerCount] = useState(3)
   // Sized to 4 regardless of the current count, so switching the dropdown
   // never discards a name already typed into a slot. Slot 0 is "this
@@ -36,7 +37,7 @@ export function LocalSetup({ onStart }: { onStart: (playerCount: number, names: 
     } catch {
       // Same non-fatal storage failure as above — proceed regardless.
     }
-    onStart(playerCount, activeNames)
+    onStart({ playerCount, names: activeNames })
   }
 
   return (

@@ -12,8 +12,24 @@ export interface RoomPlayer {
 
 export type RoomConnectionStatus = 'connecting' | 'connected' | 'error'
 
+export interface DiceRolledPayload {
+  dice: [number, number]
+  total: number
+  playerId: number
+}
+
+export interface TurnPassedPayload {
+  nextPlayerIndex: number
+}
+
 interface GameStartedPayload {
   names: string[]
+}
+
+export interface RoomChannelHandlers {
+  onGameStarted?: (names: string[]) => void
+  onDiceRolled?: (payload: DiceRolledPayload) => void
+  onTurnPassed?: (payload: TurnPassedPayload) => void
 }
 
 /**
@@ -24,35 +40,39 @@ interface GameStartedPayload {
  *    full existing roster immediately on sync, unlike Broadcast, whose
  *    messages only reach clients that were already subscribed when sent —
  *    Broadcast alone would silently drop anyone who joined late.
- *  - Broadcast is the general "send/receive live game payload events" wire
- *    the brief asked for. Used here for the host's game-started signal; the
- *    same channel is what later phases would layer dice-roll / building-
- *    placement events onto, rather than opening a second connection.
+ *  - Broadcast is the general "send/receive live game payload events" wire:
+ *    used by the lobby for the host's game-started signal, and now by the
+ *    match itself for DICE_ROLLED / TURN_PASSED — the same channel and
+ *    connection handle every phase of a room's life.
+ *
+ * One instance of this hook is used in the lobby (OnlineSetup) and a SEPARATE
+ * instance is used for the whole match (App, once gameStarted flips true) —
+ * both bind to the identical `room:<code>` topic, so the second subscription
+ * picks up exactly where the first left off. This is deliberate, not an
+ * oversight: handing a live channel reference down from an unmounting lobby
+ * component into App would need much more machinery than briefly
+ * resubscribing to the same topic, which Realtime supports natively.
  */
-export function useRoomChannel(
-  roomCode: string | null,
-  self: RoomPlayer | null,
-  onGameStarted: (names: string[]) => void,
-) {
+export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null, handlers: RoomChannelHandlers) {
   const [players, setPlayers] = useState<RoomPlayer[]>([])
   const [status, setStatus] = useState<RoomConnectionStatus>('connecting')
   const channelRef = useRef<RealtimeChannel | null>(null)
 
-  // Ref rather than a dependency: onGameStarted is a fresh closure every
-  // render in the caller, and re-subscribing the channel on every render
-  // would drop and re-join presence constantly. Updated in its own effect —
-  // mutating a ref during render (rather than in an effect or handler) is
-  // unsafe, since render can be discarded or re-run by React at any time.
-  const onGameStartedRef = useRef(onGameStarted)
+  // Ref rather than a dependency: handlers is a fresh object every render in
+  // the caller, and re-subscribing the channel on every render would drop
+  // and re-join presence constantly. Updated in its own effect — mutating a
+  // ref during render (rather than in an effect or handler) is unsafe, since
+  // render can be discarded or re-run by React at any time.
+  const handlersRef = useRef(handlers)
   useEffect(() => {
-    onGameStartedRef.current = onGameStarted
+    handlersRef.current = handlers
   })
 
   useEffect(() => {
     if (!roomCode || !self) return
 
-    // Reset synchronously so the lobby never shows a stale roster from a
-    // previous room while the new subscription is still connecting.
+    // Reset synchronously so a new room's UI never shows a stale roster from
+    // a previous subscription while this one is still connecting.
     setStatus('connecting')
     setPlayers([])
 
@@ -76,7 +96,13 @@ export function useRoomChannel(
     })
 
     channel.on<GameStartedPayload>('broadcast', { event: 'game-started' }, ({ payload }) => {
-      onGameStartedRef.current(payload.names)
+      handlersRef.current.onGameStarted?.(payload.names)
+    })
+    channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
+      handlersRef.current.onDiceRolled?.(payload)
+    })
+    channel.on<TurnPassedPayload>('broadcast', { event: 'TURN_PASSED' }, ({ payload }) => {
+      handlersRef.current.onTurnPassed?.(payload)
     })
 
     channel.subscribe((subStatus) => {
@@ -104,6 +130,12 @@ export function useRoomChannel(
   const broadcastGameStarted = (names: string[]) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'game-started', payload: { names } })
   }
+  const broadcastDiceRolled = (payload: DiceRolledPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })
+  }
+  const broadcastTurnPassed = (payload: TurnPassedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TURN_PASSED', payload })
+  }
 
-  return { players, status, broadcastGameStarted }
+  return { players, status, broadcastGameStarted, broadcastDiceRolled, broadcastTurnPassed }
 }

@@ -13,8 +13,9 @@ import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
 import { PlayerHand3D } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
-import { StartScreen } from './components/hud/StartScreen'
+import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
+import { useRoomChannel, type RoomPlayer } from './multiplayer/useRoomChannel'
 import { buildHexBoard } from './data/hexBoard'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
@@ -66,6 +67,16 @@ function App() {
   // mid-session "Play Again" / "Return to Menu" reshuffles the board without
   // wiping the names players just typed in.
   const [playerNames, setPlayerNames] = useState<string[]>([])
+  // Non-null only for Online Multiplayer matches. localPlayerId is a
+  // Player.id (1-based), resolved once from the roster order at game start.
+  // Restarting or returning to menu clears this — there's no mechanism here
+  // to re-coordinate a rematch across separate browsers, so both flows drop
+  // back to a local-style reset rather than silently half-syncing.
+  const [onlineInfo, setOnlineInfo] = useState<{
+    roomCode: string
+    localPlayerId: number
+    localPlayerName: string
+  } | null>(null)
 
   const [tiles, setTiles] = useState(() => buildHexBoard())
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
@@ -141,15 +152,64 @@ function App() {
     return total - boughtThisTurn
   }
 
-  // The single place a turn passes to the next player: clears any unused
-  // free roads (a Road Building card's free placements don't carry over) and
-  // resets the incoming player's "bought this turn" dev card tracking.
-  const endTurn = () => {
-    const nextIndex = (currentPlayerIndex + 1) % players.length
+  // State mutation for passing the turn, factored out of endTurn() so both
+  // the acting client (endTurn, below, which also broadcasts) and receiving
+  // clients (onTurnPassed, right after) apply the IDENTICAL effect — the
+  // receiving side must never re-broadcast, or every client would echo
+  // TURN_PASSED back out and the count would multiply per round-trip.
+  const applyTurnAdvance = (nextIndex: number) => {
     setFreeRoadsRemaining(0)
     setDevCardPlayedThisTurn(false)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
+  }
+
+  // Shared by a local Roll Dice click AND by mirroring another player's
+  // DICE_ROLLED broadcast — both just need the 3D dice to animate toward
+  // the same (d1, d2), after which handleDiceSettled/applyRollResult below
+  // runs identically regardless of which client actually rolled.
+  const beginDiceAnimation = (d1: number, d2: number) => {
+    setIsRolling(true)
+    setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
+  }
+
+  // Reference-stable across renders that don't change it — useRoomChannel
+  // depends on this object directly (see OnlineSetup.tsx for why). Safe to
+  // key on the onlineInfo object itself (rather than its individual fields,
+  // as OnlineSetup.tsx must): onlineInfo already only gets a new reference
+  // when resetGame() actually calls setOnlineInfo, not on every render.
+  const roomSelf: RoomPlayer | null = useMemo(
+    () => (onlineInfo ? { name: onlineInfo.localPlayerName, isHost: false } : null),
+    [onlineInfo],
+  )
+
+  // A SEPARATE subscription from the lobby's (OnlineSetup unmounts, taking
+  // its channel with it, the instant gameStarted flips true) — both bind to
+  // the identical `room:<code>` topic, so this one picks up the match right
+  // where the lobby left off. Presence/roster tracking is incidental here;
+  // what this phase actually needs is the two broadcast listeners.
+  const { broadcastDiceRolled, broadcastTurnPassed } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
+    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
+    onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
+  })
+
+  // Local (non-online) games are always "your turn" — whoever is at the
+  // keyboard controls whichever player is active, same as it always has.
+  const isMyTurn = !onlineInfo || players[currentPlayerIndex]?.id === onlineInfo.localPlayerId
+
+  // The single place a turn passes to the next player: clears any unused
+  // free roads (a Road Building card's free placements don't carry over) and
+  // resets the incoming player's "bought this turn" dev card tracking. Only
+  // the player whose turn is actually ending broadcasts — every OTHER
+  // client's own endTurn() call (triggered by mirroring the same dice roll
+  // or robber move) fires too, but currentPlayerIndex won't match their own
+  // seat at that moment, so the guard below naturally silences them.
+  const endTurn = () => {
+    const nextIndex = (currentPlayerIndex + 1) % players.length
+    applyTurnAdvance(nextIndex)
+    if (onlineInfo && players[currentPlayerIndex]?.id === onlineInfo.localPlayerId) {
+      broadcastTurnPassed({ nextPlayerIndex: nextIndex })
+    }
   }
 
   // Recomputed whenever roads/settlements change — cheap given how few
@@ -452,11 +512,20 @@ function App() {
       warn("You can't roll right now.")
       return
     }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
 
+    // Authoritative: this client's roll is what everyone else mirrors, so
+    // it's generated and broadcast before this client's own animation even
+    // starts — no round-trip wait to see your own dice move.
     const d1 = rollD6()
     const d2 = rollD6()
-    setIsRolling(true)
-    setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
+    if (onlineInfo) {
+      broadcastDiceRolled({ dice: [d1, d2], total: d1 + d2, playerId: players[currentPlayerIndex].id })
+    }
+    beginDiceAnimation(d1, d2)
   }
 
   const applyRollResult = (total: number) => {
@@ -921,8 +990,13 @@ function App() {
 
   // Shared reset: reshuffles the board and dev deck once, deriving the new
   // Robber position from that exact same board shuffle so they can't desync.
-  const resetGame = (count: number, names?: string[]) => {
-    const freshTiles = buildHexBoard()
+  const resetGame = (count: number, names?: string[], online?: { roomCode: string; localPlayerName: string }) => {
+    // Seeded by the room code for online matches, so every client's
+    // independent buildHexBoard() call lands on the IDENTICAL tile layout —
+    // without this, dice-roll totals could match perfectly while each
+    // screen distributed resources from a completely different board. Local
+    // Pass & Play omits the seed and keeps its original random board.
+    const freshTiles = buildHexBoard(online?.roomCode)
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
@@ -932,6 +1006,22 @@ function App() {
     const resolvedNames = names ?? playerNames
     if (names) setPlayerNames(names)
     setPlayers(createInitialPlayers(count, resolvedNames))
+    // createInitialPlayers assigns ids in `resolvedNames` order (1-based),
+    // so this is the one place a client learns "which seat am I" — every
+    // client built its players array from the identical names array, so the
+    // mapping is guaranteed consistent without any further coordination.
+    // Restart / return-to-menu (no `online` arg) intentionally drops any
+    // online session rather than half-syncing a rematch nothing here
+    // actually coordinates across the other browsers.
+    setOnlineInfo(
+      online
+        ? {
+            roomCode: online.roomCode,
+            localPlayerId: resolvedNames.indexOf(online.localPlayerName) + 1,
+            localPlayerName: online.localPlayerName,
+          }
+        : null,
+    )
     setCurrentPlayerIndex(0)
     setLastRoll(null)
     setSettlements({})
@@ -953,8 +1043,8 @@ function App() {
     setSetupSettlementVertexId(null)
   }
 
-  const startGame = (count: number, names: string[]) => {
-    resetGame(count, names)
+  const startGame = (info: GameStartInfo) => {
+    resetGame(info.playerCount, info.names, info.online)
     setGameStarted(true)
   }
 
@@ -1019,12 +1109,16 @@ function App() {
             players={players}
             onBuildSettlement={buildSettlement}
             onBuildRoad={buildRoad}
-            locked={!!winner}
+            // Building/road placement isn't broadcast to other clients in
+            // this phase — locking it for whoever doesn't hold the turn
+            // stops a non-active online player from placing something only
+            // their own screen would ever see, not real network sync.
+            locked={!!winner || !isMyTurn}
           />
           <RobberLayer
             tiles={tiles}
             robberTileId={robberTileId}
-            isMovingRobber={gamePhase === 'moveRobber' && !winner}
+            isMovingRobber={gamePhase === 'moveRobber' && !winner && isMyTurn}
             onMoveRobber={moveRobber}
           />
           <PortMarkers ports={ports} />
@@ -1054,6 +1148,7 @@ function App() {
       <GameHud
         players={players}
         currentPlayerIndex={currentPlayerIndex}
+        isMyTurn={isMyTurn}
         lastRoll={lastRoll}
         onRollDice={rollDice}
         gamePhase={gamePhase}

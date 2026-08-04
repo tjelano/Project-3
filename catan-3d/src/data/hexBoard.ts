@@ -1,3 +1,5 @@
+import { createSeededRandom } from '../utils/seededRandom'
+
 export type Biome = 'forest' | 'pasture' | 'fields' | 'hills' | 'mountains' | 'desert'
 
 export const BIOME_COLORS: Record<Biome, string> = {
@@ -59,19 +61,27 @@ const BIOME_POOL: Biome[] = [
 // the desert lands it's automatically skipped.
 const NUMBER_POOL: number[] = [5, 3, 10, 6, 8, 4, 11, 9, 4, 12, 6, 2, 9, 3, 11, 5, 10, 8]
 
-function shuffle<T>(items: T[]): T[] {
+function shuffle<T>(items: T[], random: () => number): T[] {
   const result = [...items]
   for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    const j = Math.floor(random() * (i + 1))
     ;[result[i], result[j]] = [result[j], result[i]]
   }
   return result
 }
 
-export function buildHexBoard(): HexTileData[] {
+/**
+ * Online matches must pass `seed` (the room code) — every client calls this
+ * independently, and without a shared seed each would land on a completely
+ * different tile layout, silently corrupting resource distribution the
+ * instant dice rolls start syncing (same total, different tiles under it).
+ * Local Pass & Play omits it and keeps its original Math.random() board.
+ */
+export function buildHexBoard(seed?: string): HexTileData[] {
+  const random = seed ? createSeededRandom(seed) : Math.random
   const tiles: HexTileData[] = []
-  const biomeSequence = shuffle(BIOME_POOL)
-  const numberSequence = shuffle(NUMBER_POOL)
+  const biomeSequence = shuffle(BIOME_POOL, random)
+  const numberSequence = shuffle(NUMBER_POOL, random)
   let biomeIndex = 0
   let numberIndex = 0
 

@@ -77,8 +77,11 @@ export function SceneRig() {
         // the origin — well outside the old +/-7.5 frustum, which is exactly
         // why shadows were being guillotined near the top and bottom rails.
         // 11.5 covers the whole tray with margin for the mountain peaks.
-        // Map size raised to hold texel density over the larger volume.
-        shadow-mapSize={[3072, 3072]}
+        // Bounded to a standard 2048x2048 (down from 3072) — VSM renders the
+        // map twice (depth pass + blur pass), and 3072 pushed that pair past
+        // 100MB of VRAM on constrained/integrated GPUs, a plausible trigger
+        // for a silently lost WebGL context on some drivers.
+        shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-11.5}
         shadow-camera-right={11.5}
         shadow-camera-top={11.5}

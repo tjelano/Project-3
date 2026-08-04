@@ -112,6 +112,14 @@ function App() {
    */
   const [boardInstance, setBoardInstance] = useState(0)
 
+  // A lost WebGL context (GPU driver reset, VRAM pressure, tab backgrounded
+  // too long) does not throw — CanvasErrorBoundary can't catch it, and
+  // three's default recovery doesn't reliably re-run onBeforeCompile shader
+  // injections. Bumping this key forces a full Canvas remount, which is the
+  // one recovery path guaranteed to reinitialize every custom shader and
+  // GPU resource from scratch instead of leaving a permanently black canvas.
+  const [canvasInstance, setCanvasInstance] = useState(0)
+
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
 
   const warn = (text: string) => {
@@ -963,7 +971,32 @@ function App() {
   return (
     <div className="relative h-screen w-screen bg-board-navy">
       <CanvasErrorBoundary>
-        <Canvas shadows={{ type: THREE.VSMShadowMap }} camera={{ position: [0, 9, 7], fov: 50 }}>
+        <Canvas
+          key={canvasInstance}
+          shadows={{ type: THREE.VSMShadowMap }}
+          camera={{ position: [0, 9, 7], fov: 50 }}
+          // high-performance + failIfMajorPerformanceCaveat: false stop
+          // Chromium-family browsers (Brave in particular runs a stricter
+          // GPU-process budget than stock Chrome) from silently refusing a
+          // hardware-accelerated context — or handing back a software one —
+          // when they judge this scene "too heavy". antialias is explicit
+          // rather than left to the default so the choice is visible here.
+          gl={{ powerPreference: 'high-performance', antialias: true, failIfMajorPerformanceCaveat: false }}
+          onCreated={({ gl }) => {
+            const canvas = gl.domElement
+            // A lost context does not throw — it fires this DOM event.
+            // preventDefault() is required, or Chromium abandons the
+            // context permanently instead of allowing the restore below.
+            canvas.addEventListener('webglcontextlost', (event) => {
+              event.preventDefault()
+              console.error('[Catan] WebGL context lost — attempting recovery.')
+            })
+            canvas.addEventListener('webglcontextrestored', () => {
+              console.warn('[Catan] WebGL context restored — remounting the scene.')
+              setCanvasInstance((n) => n + 1)
+            })
+          }}
+        >
           <color attach="background" args={['#070c16']} />
           <SceneRig />
           <BoardFrame />

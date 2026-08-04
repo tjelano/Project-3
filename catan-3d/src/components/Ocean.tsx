@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { FRAME_INNER, WATER_OVERLAP, WATER_Y, WAVE_AMPLITUDE } from '../three/layout'
 import { createSeaMaterial } from '../three/materials'
@@ -53,6 +53,35 @@ const WAVE_GLSL = /* glsl */ `
 
 export function Ocean() {
   const shaderRef = useRef<THREE.WebGLProgramParametersWithUniforms | null>(null)
+  const { gl } = useThree()
+
+  // Shader compile/link failures in three.js do NOT throw a catchable JS
+  // exception — the broken program is silently left in place and nothing
+  // renders. `renderer.debug.onShaderError` is the one hook three exposes
+  // for this exact case (WebGLProgram.js checks LINK_STATUS and calls it
+  // instead of just logging, when it's set). If a driver ever rejects this
+  // custom vertex shader, we drop to a plain, uninjected physical material
+  // — a static but fully visible sea — rather than a permanently black
+  // plane with no error a React error boundary could ever have caught.
+  const [shaderFailed, setShaderFailed] = useState(false)
+
+  useEffect(() => {
+    const previous = gl.debug.onShaderError
+    gl.debug.onShaderError = (context, program, vertexShader, fragmentShader) => {
+      console.error(
+        '[Catan] Ocean wave shader failed to compile/link — falling back to a static sea material.',
+        {
+          vertexLog: context.getShaderInfoLog(vertexShader),
+          fragmentLog: context.getShaderInfoLog(fragmentShader),
+          programLog: context.getProgramInfoLog(program),
+        },
+      )
+      setShaderFailed(true)
+    }
+    return () => {
+      gl.debug.onShaderError = previous
+    }
+  }, [gl])
 
   const geometry = useMemo(() => {
     const geo = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, WATER_SEGMENTS, WATER_SEGMENTS)
@@ -63,6 +92,12 @@ export function Ocean() {
   const material = useMemo(() => {
     // Surface properties live in three/materials.ts; this file only adds motion.
     const mat = createSeaMaterial()
+
+    // Once a compile failure has been observed, skip the injection entirely
+    // on every subsequent (re)compile — a "beautiful standard material
+    // grid" per the fallback spec: same PBR surface, same flat-shaded
+    // facets, just without the GPU-side vertex displacement.
+    if (shaderFailed) return mat
 
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = { value: 0 }
@@ -88,7 +123,7 @@ export function Ocean() {
     }
 
     return mat
-  }, [])
+  }, [shaderFailed])
 
   useFrame(({ clock }) => {
     const shader = shaderRef.current

@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-board-navy: #0b1220;
+  --color-glass: rgba(15, 23, 42, 0.55);
+  --color-glass-border: rgba(255, 255, 255, 0.08);
+  /* Matched exactly to PALETTE.brass in src/three/materials.ts — the same
+     alloy as the waterline inlay milled into the tray. The HUD and the
+     tabletop have to read as one product, so this is the single source of
+     truth for gold and nothing should hardcode a different one. */
+  --color-gold: #c8a93e;
+  --color-gold-deep: #8a7228;
+
+  --color-resource-lumber: #2e7d32;
+  --color-resource-brick: #c1682b;
+  --color-resource-wool: #a4d65e;
+  --color-resource-grain: #f4c430;
+  --color-resource-ore: #78909c;
+
+  --color-player-1: #d0453f;
+  --color-player-2: #3d7fd1;
+  --color-player-3: #9b59b6;
+  --color-player-4: #2a9d8f;
+
+  --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-data: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --animate-veil-in: veil-in 0.5s ease-out both;
+  --animate-victory-in: victory-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+  --animate-gold-pulse: gold-pulse 2.2s ease-in-out infinite;
+}
+
+@utility glow-gold-sm {
+  box-shadow: 0 0 12px rgb(200 169 62 / 0.35);
+}
+
+@utility glow-gold {
+  box-shadow: 0 0 16px rgb(200 169 62 / 0.5);
+}
+
+@utility glow-gold-lift {
+  box-shadow: 0 10px 40px rgb(200 169 62 / 0.35);
+}
+
+@keyframes veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes victory-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gold-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 18px 2px rgb(200 169 62 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 34px 8px rgb(200 169 62 / 0.75);
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+#root {
+  width: 100%;
+  height: 100svh;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+}

@@ -294,6 +294,80 @@ function App() {
     if (endsTurn) endTurn()
   }
 
+  // Knight and Road Building are single-step plays — spend-plus-effect
+  // happens atomically, so the same function safely serves both the local
+  // actor (via playKnight/playRoadBuilding, after their own guards pass)
+  // and every receiving client (via onKnightPlayed/onRoadBuildingPlayed)
+  // with no risk of double-spending the card. spendDevCard is declared
+  // further down; see the note above applySettlementPlacement for why
+  // referencing it here, before its own declaration, is safe.
+  const applyKnightPlay = (playerId: number) => {
+    spendDevCard(playerId, 'knight')
+    setRobberMoveFromKnight(true)
+    const player = players.find((p) => p.id === playerId)
+    if (player) inform(`${player.name} played a Knight! Move the Robber.`)
+    setGamePhase('moveRobber')
+  }
+
+  const applyRoadBuildingPlay = (playerId: number) => {
+    spendDevCard(playerId, 'roadBuilding')
+    setFreeRoadsRemaining(2)
+    const player = players.find((p) => p.id === playerId)
+    if (player) inform(`${player.name} played Road Building — place 2 free roads.`)
+  }
+
+  // Year of Plenty and Monopoly are two-step: playYearOfPlenty/playMonopoly
+  // spend the card and open a picker; the actual resource choice — and the
+  // broadcast, since that choice is the whole payload — only exists once
+  // resolveDevCardPicker runs. These two apply functions are therefore the
+  // EFFECT only, not the spend: the local actor already spent the card back
+  // at play-time, so resolveDevCardPicker must not spend it again, while a
+  // receiving client (which never ran playYearOfPlenty/playMonopoly at all)
+  // spends it explicitly right before calling these — see the network
+  // handlers below.
+  const applyYearOfPlentyEffect = (playerId: number, picks: ResourceType[]) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== playerId) return p
+        const resources = { ...p.resources }
+        for (const resource of picks) resources[resource] += 1
+        return { ...p, resources }
+      }),
+    )
+    const player = players.find((p) => p.id === playerId)
+    const summary = picks.map((resource) => RESOURCE_LABELS[resource]).join(' and ')
+    if (player) inform(`${player.name} took ${summary} from the bank via Year of Plenty.`)
+  }
+
+  const applyMonopolyEffect = (playerId: number, resource: ResourceType) => {
+    let seized = 0
+    const victimNotes: string[] = []
+    setPlayers((prev) => {
+      const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
+      const byId = new Map(next.map((p) => [p.id, p]))
+      const currentEntry = byId.get(playerId)
+      if (!currentEntry) return prev
+      for (const p of next) {
+        if (p.id === playerId) continue
+        const amount = p.resources[resource]
+        if (amount <= 0) continue
+        victimNotes.push(`${amount} from ${p.name}`)
+        seized += amount
+        p.resources[resource] = 0
+        currentEntry.resources[resource] += amount
+      }
+      return next
+    })
+    const player = players.find((p) => p.id === playerId)
+    if (player) {
+      inform(
+        seized > 0
+          ? `${player.name} monopolized ${RESOURCE_LABELS[resource]} — seized ${seized} card${seized === 1 ? '' : 's'} (${victimNotes.join(', ')})!`
+          : `${player.name} played Monopoly on ${RESOURCE_LABELS[resource]}, but no one had any.`,
+      )
+    }
+  }
+
   // Reference-stable across renders that don't change it — useRoomChannel
   // depends on this object directly (see OnlineSetup.tsx for why). Safe to
   // key on the onlineInfo object itself (rather than its individual fields,
@@ -315,6 +389,10 @@ function App() {
     broadcastCityBuilt,
     broadcastRoadBuilt,
     broadcastRobberMoved,
+    broadcastKnightPlayed,
+    broadcastRoadBuildingPlayed,
+    broadcastPlentyPlayed,
+    broadcastMonopolyPlayed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
@@ -324,6 +402,19 @@ function App() {
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource, payload.endsTurn),
+    onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
+    onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
+    // These two receivers spend the card themselves — unlike the acting
+    // client, they never ran playYearOfPlenty/playMonopoly locally, so
+    // nothing has deducted it from their copy of the hand yet.
+    onPlentyPlayed: (payload) => {
+      spendDevCard(payload.playerId, 'yearOfPlenty')
+      applyYearOfPlentyEffect(payload.playerId, payload.picks)
+    },
+    onMonopolyPlayed: (payload) => {
+      spendDevCard(payload.playerId, 'monopoly')
+      applyMonopolyEffect(payload.playerId, payload.resource)
+    },
   })
 
   // Local (non-online) games are always "your turn" — whoever is at the
@@ -921,6 +1012,10 @@ function App() {
       warn("You can't play a development card right now.")
       return false
     }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return false
+    }
     if (devCardPlayedThisTurn) {
       warn('You may only play one development card per turn.')
       return false
@@ -932,12 +1027,15 @@ function App() {
     return true
   }
 
-  // Spends one card of the given type from the active player's hand and
-  // marks the turn's single play as used.
-  const spendDevCard = (type: DevCardType) => {
+  // Spends one card of the given type from the named player's hand and
+  // marks the turn's single play as used. Takes an explicit playerId
+  // (rather than assuming players[currentPlayerIndex]) so the same function
+  // works identically for the local actor and for a receiving client
+  // applying a remote play.
+  const spendDevCard = (playerId: number, type: DevCardType) => {
     setPlayers((prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
+      prev.map((p) =>
+        p.id === playerId
           ? {
               ...p,
               devCards: removeOne(p.devCards, type),
@@ -952,33 +1050,32 @@ function App() {
   const playKnight = () => {
     if (!canPlayDevCardNow('knight')) return
     const player = players[currentPlayerIndex]
-
-    spendDevCard('knight')
-    setRobberMoveFromKnight(true)
-    inform(`${player.name} played a Knight! Move the Robber.`)
-    setGamePhase('moveRobber')
+    applyKnightPlay(player.id)
+    if (onlineInfo) broadcastKnightPlayed({ playerId: player.id })
   }
 
   const playRoadBuilding = () => {
     if (!canPlayDevCardNow('roadBuilding')) return
     const player = players[currentPlayerIndex]
-
-    spendDevCard('roadBuilding')
-    setFreeRoadsRemaining(2)
-    inform(`${player.name} played Road Building — place 2 free roads.`)
+    applyRoadBuildingPlay(player.id)
+    if (onlineInfo) broadcastRoadBuildingPlayed({ playerId: player.id })
   }
 
   const playYearOfPlenty = () => {
     if (!canPlayDevCardNow('yearOfPlenty')) return
-
-    spendDevCard('yearOfPlenty')
+    const player = players[currentPlayerIndex]
+    // Spent here, at play-time, not in resolveDevCardPicker — the card
+    // commits the instant you choose to play it, before you've even picked
+    // resources. Nothing to broadcast yet: the payload IS the choice, and
+    // that doesn't exist until the picker is submitted below.
+    spendDevCard(player.id, 'yearOfPlenty')
     setDevCardPicker('yearOfPlenty')
   }
 
   const playMonopoly = () => {
     if (!canPlayDevCardNow('monopoly')) return
-
-    spendDevCard('monopoly')
+    const player = players[currentPlayerIndex]
+    spendDevCard(player.id, 'monopoly')
     setDevCardPicker('monopoly')
   }
 
@@ -990,7 +1087,9 @@ function App() {
   }
 
   // Resolves whichever picker is currently open (Year of Plenty or
-  // Monopoly) with the resource(s) the player picked in the modal.
+  // Monopoly) with the resource(s) the player picked in the modal. Only
+  // ever reachable by the local actor — devCardPicker is pure local UI
+  // state, never broadcast, so this modal never opens on another client.
   const resolveDevCardPicker = (picks: ResourceType[]) => {
     const mode = devCardPicker
     setDevCardPicker(null)
@@ -999,43 +1098,14 @@ function App() {
     const player = players[currentPlayerIndex]
 
     if (mode === 'yearOfPlenty') {
-      setPlayers((prev) =>
-        prev.map((p, index) => {
-          if (index !== currentPlayerIndex) return p
-          const resources = { ...p.resources }
-          for (const resource of picks) resources[resource] += 1
-          return { ...p, resources }
-        }),
-      )
-      const summary = picks.map((resource) => RESOURCE_LABELS[resource]).join(' and ')
-      inform(`${player.name} took ${summary} from the bank via Year of Plenty.`)
+      applyYearOfPlentyEffect(player.id, picks)
+      if (onlineInfo) broadcastPlentyPlayed({ playerId: player.id, picks })
       return
     }
 
     const resource = picks[0]
-    let seized = 0
-    const victimNotes: string[] = []
-    setPlayers((prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
-      const byId = new Map(next.map((p) => [p.id, p]))
-      const currentEntry = byId.get(player.id)!
-      for (const p of next) {
-        if (p.id === player.id) continue
-        const amount = p.resources[resource]
-        if (amount <= 0) continue
-        victimNotes.push(`${amount} from ${p.name}`)
-        seized += amount
-        p.resources[resource] = 0
-        currentEntry.resources[resource] += amount
-      }
-      return next
-    })
-
-    inform(
-      seized > 0
-        ? `${player.name} monopolized ${RESOURCE_LABELS[resource]} — seized ${seized} card${seized === 1 ? '' : 's'} (${victimNotes.join(', ')})!`
-        : `${player.name} played Monopoly on ${RESOURCE_LABELS[resource]}, but no one had any.`,
-    )
+    applyMonopolyEffect(player.id, resource)
+    if (onlineInfo) broadcastMonopolyPlayed({ playerId: player.id, resource })
   }
 
   const currentPlayerPortRates = Object.fromEntries(

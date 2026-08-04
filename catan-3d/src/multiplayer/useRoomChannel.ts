@@ -56,6 +56,24 @@ export interface RobberMovedPayload {
   endsTurn: boolean
 }
 
+export interface KnightPlayedPayload {
+  playerId: number
+}
+
+export interface RoadBuildingPlayedPayload {
+  playerId: number
+}
+
+export interface PlentyPlayedPayload {
+  playerId: number
+  picks: ResourceType[]
+}
+
+export interface MonopolyPlayedPayload {
+  playerId: number
+  resource: ResourceType
+}
+
 interface GameStartedPayload {
   names: string[]
 }
@@ -68,6 +86,10 @@ export interface RoomChannelHandlers {
   onCityBuilt?: (payload: CityBuiltPayload) => void
   onRoadBuilt?: (payload: RoadBuiltPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
+  onKnightPlayed?: (payload: KnightPlayedPayload) => void
+  onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
+  onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
+  onMonopolyPlayed?: (payload: MonopolyPlayedPayload) => void
 }
 
 /**
@@ -154,6 +176,18 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
       handlersRef.current.onRobberMoved?.(payload)
     })
+    channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onKnightPlayed?.(payload)
+    })
+    channel.on<RoadBuildingPlayedPayload>('broadcast', { event: 'ROAD_BUILDING_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onRoadBuildingPlayed?.(payload)
+    })
+    channel.on<PlentyPlayedPayload>('broadcast', { event: 'PLENTY_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onPlentyPlayed?.(payload)
+    })
+    channel.on<MonopolyPlayedPayload>('broadcast', { event: 'MONOPOLY_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onMonopolyPlayed?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -198,6 +232,18 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastRobberMoved = (payload: RobberMovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
   }
+  const broadcastKnightPlayed = (payload: KnightPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PLAYED', payload })
+  }
+  const broadcastRoadBuildingPlayed = (payload: RoadBuildingPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'ROAD_BUILDING_PLAYED', payload })
+  }
+  const broadcastPlentyPlayed = (payload: PlentyPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PLENTY_PLAYED', payload })
+  }
+  const broadcastMonopolyPlayed = (payload: MonopolyPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'MONOPOLY_PLAYED', payload })
+  }
 
   return {
     players,
@@ -209,5 +255,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCityBuilt,
     broadcastRoadBuilt,
     broadcastRobberMoved,
+    broadcastKnightPlayed,
+    broadcastRoadBuildingPlayed,
+    broadcastPlentyPlayed,
+    broadcastMonopolyPlayed,
   }
 }

@@ -173,6 +173,127 @@ function App() {
     setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
   }
 
+  // --- Structural placement mutations --------------------------------
+  // Trusted state mutations, no validation — shared by the local guarded
+  // handlers further down (buildSettlement, buildRoad, moveRobber, called
+  // only after their own guards pass) AND by the on*Built/onRobberMoved
+  // network handlers right below, which apply an already-validated remote
+  // action directly and must never re-run local validation against it.
+  //
+  // These reference grantResourcesForVertex, hasPlayerRoadAt, etc. before
+  // those functions' own declarations further down the file — safe, since
+  // none of these run until called from an event handler, by which point
+  // the whole component body (and every const in it) has finished
+  // initializing. Order of declaration among sibling function expressions
+  // in the same scope doesn't affect when they're safe to CALL.
+  const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean) => {
+    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              resources: isSetup ? p.resources : deductCost(p.resources, SETTLEMENT_COST),
+              settlementsRemaining: p.settlementsRemaining - 1,
+            }
+          : p,
+      ),
+    )
+    if (isSetup) {
+      const isSecondRound = setupStepIndex >= setupOrder.length / 2
+      if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
+      setSetupSettlementVertexId(vertexId)
+      setSetupStage('road')
+    }
+  }
+
+  const applyCityPlacement = (vertexId: string, playerId: number) => {
+    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'city' } }))
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              resources: deductCost(p.resources, CITY_COST),
+              settlementsRemaining: p.settlementsRemaining + 1,
+              citiesRemaining: p.citiesRemaining - 1,
+            }
+          : p,
+      ),
+    )
+  }
+
+  const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean) => {
+    setRoads((prev) => ({ ...prev, [edgeId]: playerId }))
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              resources: isSetup || isFreeRoad ? p.resources : deductCost(p.resources, ROAD_COST),
+              roadsRemaining: p.roadsRemaining - 1,
+            }
+          : p,
+      ),
+    )
+    if (isFreeRoad) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+
+    if (isSetup) {
+      const nextStepIndex = setupStepIndex + 1
+      // This step's settlement/road pairing is complete — don't let the
+      // vertex linger into the next step.
+      setSetupSettlementVertexId(null)
+      if (nextStepIndex >= setupOrder.length) {
+        setGamePhase('playing')
+        setCurrentPlayerIndex(0)
+        setSetupStepIndex(0)
+        setSetupStage('settlement')
+      } else {
+        setSetupStepIndex(nextStepIndex)
+        setCurrentPlayerIndex(setupOrder[nextStepIndex])
+        setSetupStage('settlement')
+      }
+    }
+  }
+
+  const applyRobberMove = (
+    tileId: string,
+    thiefId: number,
+    victimId: number | null,
+    stolenResource: ResourceType | null,
+    endsTurn: boolean,
+  ) => {
+    setRobberTileId(tileId)
+
+    let stealNote = ''
+    if (victimId != null && stolenResource != null) {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id === victimId) {
+            return { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] - 1 } }
+          }
+          if (p.id === thiefId) {
+            return { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] + 1 } }
+          }
+          return p
+        }),
+      )
+      const thief = players.find((p) => p.id === thiefId)
+      const victim = players.find((p) => p.id === victimId)
+      if (thief && victim) {
+        stealNote = ` ${thief.name} stole 1 ${RESOURCE_LABELS[stolenResource]} from ${victim.name}!`
+      }
+    } else if (victimId != null) {
+      const victim = players.find((p) => p.id === victimId)
+      if (victim) stealNote = ` ${victim.name} had nothing to steal.`
+    }
+
+    const tile = tileById.get(tileId)
+    if (tile) inform(`The Robber moves to ${BIOME_LABELS[tile.biome]}.${stealNote}`)
+    setGamePhase('playing')
+    if (endsTurn) endTurn()
+  }
+
   // Reference-stable across renders that don't change it — useRoomChannel
   // depends on this object directly (see OnlineSetup.tsx for why). Safe to
   // key on the onlineInfo object itself (rather than its individual fields,
@@ -186,11 +307,23 @@ function App() {
   // A SEPARATE subscription from the lobby's (OnlineSetup unmounts, taking
   // its channel with it, the instant gameStarted flips true) — both bind to
   // the identical `room:<code>` topic, so this one picks up the match right
-  // where the lobby left off. Presence/roster tracking is incidental here;
-  // what this phase actually needs is the two broadcast listeners.
-  const { broadcastDiceRolled, broadcastTurnPassed } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
+  // where the lobby left off.
+  const {
+    broadcastDiceRolled,
+    broadcastTurnPassed,
+    broadcastSettlementBuilt,
+    broadcastCityBuilt,
+    broadcastRoadBuilt,
+    broadcastRobberMoved,
+  } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
+    onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
+    onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId),
+    onRoadBuilt: (payload) =>
+      applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
+    onRobberMoved: (payload) =>
+      applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource, payload.endsTurn),
   })
 
   // Local (non-online) games are always "your turn" — whoever is at the
@@ -316,6 +449,10 @@ function App() {
       warn('Move the Robber before building.')
       return
     }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     if (isSetup && setupStage !== 'settlement') {
       warn('Place your road first.')
       return
@@ -341,22 +478,8 @@ function App() {
         return
       }
 
-      setSettlements((prev) => ({
-        ...prev,
-        [vertexId]: { ownerId: player.id, type: 'city' },
-      }))
-      setPlayers((prev) =>
-        prev.map((p, index) =>
-          index === currentPlayerIndex
-            ? {
-                ...p,
-                resources: deductCost(p.resources, CITY_COST),
-                settlementsRemaining: p.settlementsRemaining + 1,
-                citiesRemaining: p.citiesRemaining - 1,
-              }
-            : p,
-        ),
-      )
+      applyCityPlacement(vertexId, player.id)
+      if (onlineInfo) broadcastCityBuilt({ vertexId, playerId: player.id })
       return
     }
 
@@ -378,30 +501,8 @@ function App() {
       return
     }
 
-    setSettlements((prev) => ({
-      ...prev,
-      [vertexId]: { ownerId: player.id, type: 'settlement' },
-    }))
-    setPlayers((prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
-          ? {
-              ...p,
-              resources: isSetup ? p.resources : deductCost(p.resources, SETTLEMENT_COST),
-              settlementsRemaining: p.settlementsRemaining - 1,
-            }
-          : p,
-      ),
-    )
-
-    if (isSetup) {
-      const isSecondRound = setupStepIndex >= setupOrder.length / 2
-      if (isSecondRound) {
-        grantResourcesForVertex(vertexId, player.id)
-      }
-      setSetupSettlementVertexId(vertexId)
-      setSetupStage('road')
-    }
+    applySettlementPlacement(vertexId, player.id, isSetup)
+    if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
   }
 
   const buildRoad = (edgeId: string) => {
@@ -424,6 +525,10 @@ function App() {
     }
     if (gamePhase === 'moveRobber') {
       warn('Move the Robber before building.')
+      return
+    }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
       return
     }
     if (isSetup && setupStage !== 'road') {
@@ -461,38 +566,8 @@ function App() {
       return
     }
 
-    setRoads((prev) => ({ ...prev, [edgeId]: player.id }))
-    setPlayers((prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
-          ? {
-              ...p,
-              resources: isSetup || isFreeRoad ? p.resources : deductCost(p.resources, ROAD_COST),
-              roadsRemaining: p.roadsRemaining - 1,
-            }
-          : p,
-      ),
-    )
-    if (isFreeRoad) {
-      setFreeRoadsRemaining((prev) => prev - 1)
-    }
-
-    if (isSetup) {
-      const nextStepIndex = setupStepIndex + 1
-      // This step's settlement/road pairing is complete — don't let the
-      // vertex linger into the next step.
-      setSetupSettlementVertexId(null)
-      if (nextStepIndex >= setupOrder.length) {
-        setGamePhase('playing')
-        setCurrentPlayerIndex(0)
-        setSetupStepIndex(0)
-        setSetupStage('settlement')
-      } else {
-        setSetupStepIndex(nextStepIndex)
-        setCurrentPlayerIndex(setupOrder[nextStepIndex])
-        setSetupStage('settlement')
-      }
-    }
+    applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad)
+    if (onlineInfo) broadcastRoadBuilt({ edgeId, playerId: player.id, isFreeRoad })
   }
 
   // Triggered by the Roll Dice button: generates the total up front (it
@@ -604,15 +679,20 @@ function App() {
   const moveRobber = (tileId: string) => {
     if (winner) return
     if (gamePhase !== 'moveRobber') return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     if (tileId === robberTileId) {
       warn('The Robber must move to a new hex!')
       return
     }
 
-    const tile = tileById.get(tileId)
-    setRobberTileId(tileId)
-
-    // Steal 1 random resource from a random opponent touching the new hex.
+    // The steal target and stolen resource are both random, decided ONCE
+    // here and carried verbatim to applyRobberMove (and, when online, to
+    // every other client) — a receiver re-rolling these independently would
+    // almost certainly pick a different victim/resource than actually
+    // happened, corrupting resource state instead of mirroring it.
     const thief = players[currentPlayerIndex]
     const vertexIds = graph.tileVertexIds.get(tileId) ?? []
     const victimIds = new Set<number>()
@@ -621,58 +701,32 @@ function App() {
       if (building && building.ownerId !== thief.id) victimIds.add(building.ownerId)
     }
 
-    let stealNote = ''
+    let victimId: number | null = null
+    let stolenResource: ResourceType | null = null
     if (victimIds.size > 0) {
       const candidates = [...victimIds]
-      const victimId = candidates[Math.floor(Math.random() * candidates.length)]
+      victimId = candidates[Math.floor(Math.random() * candidates.length)]
       const victim = players.find((p) => p.id === victimId)
-
       if (victim) {
         const heldResources: ResourceType[] = []
         for (const resource of RESOURCE_ORDER) {
           for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
         }
-
         if (heldResources.length > 0) {
-          const stolen = heldResources[Math.floor(Math.random() * heldResources.length)]
-          setPlayers((prev) =>
-            prev.map((p) => {
-              if (p.id === victim.id) {
-                return {
-                  ...p,
-                  resources: {
-                    ...p.resources,
-                    [stolen]: p.resources[stolen] - 1,
-                  },
-                }
-              }
-              if (p.id === thief.id) {
-                return {
-                  ...p,
-                  resources: {
-                    ...p.resources,
-                    [stolen]: p.resources[stolen] + 1,
-                  },
-                }
-              }
-              return p
-            }),
-          )
-          stealNote = ` ${thief.name} stole 1 ${RESOURCE_LABELS[stolen]} from ${victim.name}!`
-        } else {
-          stealNote = ` ${victim.name} had nothing to steal.`
+          stolenResource = heldResources[Math.floor(Math.random() * heldResources.length)]
         }
       }
     }
 
-    if (tile) inform(`The Robber moves to ${BIOME_LABELS[tile.biome]}.${stealNote}`)
-    setGamePhase('playing')
-    if (robberMoveFromKnight) {
-      // A Knight card doesn't end the player's turn — they keep going.
-      setRobberMoveFromKnight(false)
-    } else {
-      endTurn()
-    }
+    // A Knight card doesn't end the player's turn — they keep going. This
+    // flag is actor-local bookkeeping (Knight plays aren't broadcast in
+    // this phase), so it's resolved into an explicit endsTurn value that
+    // travels WITH the move rather than relying on each receiver's own
+    // (possibly stale) copy of robberMoveFromKnight.
+    const endsTurn = !robberMoveFromKnight
+    applyRobberMove(tileId, thief.id, victimId, stolenResource, endsTurn)
+    if (robberMoveFromKnight) setRobberMoveFromKnight(false)
+    if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenResource, endsTurn })
   }
 
   const bankTrade = (give: ResourceType, receive: ResourceType) => {

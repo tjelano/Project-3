@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
+import type { ResourceType } from '../game/types'
 
 export interface RoomPlayer {
   name: string
@@ -22,6 +23,39 @@ export interface TurnPassedPayload {
   nextPlayerIndex: number
 }
 
+export interface SettlementBuiltPayload {
+  vertexId: string
+  playerId: number
+}
+
+export interface CityBuiltPayload {
+  vertexId: string
+  playerId: number
+}
+
+export interface RoadBuiltPayload {
+  edgeId: string
+  playerId: number
+  // Whether this road came from a free-placement effect (a Road Building
+  // card) rather than being paid for. Dev-card plays aren't broadcast in
+  // this phase, so a receiving client's own freeRoadsRemaining count can't
+  // be trusted to answer this — the actor has to say so explicitly, or a
+  // receiver could wrongly charge (or fail to charge) the builder.
+  isFreeRoad: boolean
+}
+
+export interface RobberMovedPayload {
+  tileId: string
+  thiefId: number
+  victimId: number | null
+  stolenResource: ResourceType | null
+  // Whether this move should end the mover's turn. False when it came from
+  // playing a Knight card (not broadcast in this phase either) — without
+  // this, a receiving client's own robberMoveFromKnight flag would be
+  // wrong and it would end the actor's turn when it shouldn't have.
+  endsTurn: boolean
+}
+
 interface GameStartedPayload {
   names: string[]
 }
@@ -30,6 +64,10 @@ export interface RoomChannelHandlers {
   onGameStarted?: (names: string[]) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
+  onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
+  onCityBuilt?: (payload: CityBuiltPayload) => void
+  onRoadBuilt?: (payload: RoadBuiltPayload) => void
+  onRobberMoved?: (payload: RobberMovedPayload) => void
 }
 
 /**
@@ -104,6 +142,18 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<TurnPassedPayload>('broadcast', { event: 'TURN_PASSED' }, ({ payload }) => {
       handlersRef.current.onTurnPassed?.(payload)
     })
+    channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, ({ payload }) => {
+      handlersRef.current.onSettlementBuilt?.(payload)
+    })
+    channel.on<CityBuiltPayload>('broadcast', { event: 'CITY_BUILT' }, ({ payload }) => {
+      handlersRef.current.onCityBuilt?.(payload)
+    })
+    channel.on<RoadBuiltPayload>('broadcast', { event: 'ROAD_BUILT' }, ({ payload }) => {
+      handlersRef.current.onRoadBuilt?.(payload)
+    })
+    channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
+      handlersRef.current.onRobberMoved?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -136,6 +186,28 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastTurnPassed = (payload: TurnPassedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TURN_PASSED', payload })
   }
+  const broadcastSettlementBuilt = (payload: SettlementBuiltPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'SETTLEMENT_BUILT', payload })
+  }
+  const broadcastCityBuilt = (payload: CityBuiltPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_BUILT', payload })
+  }
+  const broadcastRoadBuilt = (payload: RoadBuiltPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'ROAD_BUILT', payload })
+  }
+  const broadcastRobberMoved = (payload: RobberMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
+  }
 
-  return { players, status, broadcastGameStarted, broadcastDiceRolled, broadcastTurnPassed }
+  return {
+    players,
+    status,
+    broadcastGameStarted,
+    broadcastDiceRolled,
+    broadcastTurnPassed,
+    broadcastSettlementBuilt,
+    broadcastCityBuilt,
+    broadcastRoadBuilt,
+    broadcastRobberMoved,
+  }
 }

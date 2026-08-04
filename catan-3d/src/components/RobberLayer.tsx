@@ -9,16 +9,84 @@ const ROBBER_RADIUS = 0.22
 const ROBBER_HEIGHT = 0.34
 // Sits above where a number token would be, so it visually stacks on top —
 // matching how the physical robber piece covers the number chit in Catan.
+// This formula is untouched by the figurine redesign below: every part of
+// the new model is built relative to the same BASE reference point
+// (localY = -ROBBER_HEIGHT / 2) the old placeholder cylinder's bottom sat
+// at, so the clearance above the tile/token stays exactly what it was.
 const ROBBER_Y = TILE_HEIGHT / 2 + 0.12 + 0.05 + ROBBER_HEIGHT / 2 + 0.02
+
+// A stylized rogue figurine, built from a handful of low-poly primitives —
+// one shared material throughout (ROBBER_MATERIAL), so it reads as a single
+// stone/plastic token rather than a painted miniature. Every silhouette cue
+// comes from FORM, not color, matching how the game's other pieces (dice,
+// chits) stay monochrome and let geometry + sheen do the work.
+const BASE_Y = -ROBBER_HEIGHT / 2
+
+const TORSO_HEIGHT = ROBBER_HEIGHT * 0.6
+const TORSO_BOTTOM_R = ROBBER_RADIUS
+const TORSO_Y = BASE_Y + TORSO_HEIGHT / 2
+const TORSO_TOP_Y = BASE_Y + TORSO_HEIGHT
+
+const HEAD_RADIUS = ROBBER_RADIUS * 0.34
+const HEAD_Y = TORSO_TOP_Y + HEAD_RADIUS * 0.5
+
+const BRIM_RADIUS = ROBBER_RADIUS * 0.82
+const BRIM_HEIGHT = 0.035
+const BRIM_Y = HEAD_Y + HEAD_RADIUS * 0.35
+
+const CROWN_HEIGHT = ROBBER_HEIGHT * 0.3
+const CROWN_RADIUS = ROBBER_RADIUS * 0.36
+// Tilted and nudged off-center for a jaunty, worn-in silhouette rather than
+// a perfectly symmetrical hat — echoes the "asymmetrical" note on the sack.
+const CROWN_TILT = 0.22
+const CROWN_Y = BRIM_Y + BRIM_HEIGHT / 2 + CROWN_HEIGHT / 2 - 0.01
+
+// Loot sack: an icosahedron (inherently low-poly — 20 facets) squashed
+// non-uniformly so it reads as a lumpy bundle rather than a gemstone, slung
+// to one side and behind the torso at shoulder height.
+const SACK_RADIUS = ROBBER_RADIUS * 0.4
+const SACK_Y = TORSO_TOP_Y - TORSO_HEIGHT * 0.3
+const SACK_X = ROBBER_RADIUS * 0.6
+const SACK_Z = -ROBBER_RADIUS * 0.4
 
 function RobberToken({ tile }: { tile: HexTileData }) {
   return (
     <group position={[tile.x, ROBBER_Y, tile.z]}>
-      <mesh material={ROBBER_MATERIAL} castShadow receiveShadow>
-        <cylinderGeometry args={[ROBBER_RADIUS, ROBBER_RADIUS * 1.15, ROBBER_HEIGHT, 8]} />
+      {/* Cloak/torso: a tapered cone reads immediately as a hooded, cloaked
+          figure — the classic robed-rogue silhouette in a single shape. */}
+      <mesh position={[0, TORSO_Y, 0]} material={ROBBER_MATERIAL} castShadow receiveShadow>
+        <coneGeometry args={[TORSO_BOTTOM_R, TORSO_HEIGHT, 7]} />
       </mesh>
-      <mesh position={[0, ROBBER_HEIGHT / 2 + 0.05, 0]} material={ROBBER_MATERIAL} castShadow>
-        <sphereGeometry args={[ROBBER_RADIUS * 0.55, 8, 6]} />
+
+      {/* Head, tucked just under the hat brim. */}
+      <mesh position={[0, HEAD_Y, 0]} material={ROBBER_MATERIAL} castShadow>
+        <icosahedronGeometry args={[HEAD_RADIUS, 0]} />
+      </mesh>
+
+      {/* Wide-brimmed traveler's hat: a flat disc plus a tilted crown,
+          offset off-axis for character instead of a stiff, centered cone. */}
+      <mesh position={[0, BRIM_Y, 0]} material={ROBBER_MATERIAL} castShadow>
+        <cylinderGeometry args={[BRIM_RADIUS, BRIM_RADIUS * 0.9, BRIM_HEIGHT, 7]} />
+      </mesh>
+      <mesh
+        position={[CROWN_RADIUS * 0.3, CROWN_Y, 0]}
+        rotation={[0, 0, CROWN_TILT]}
+        material={ROBBER_MATERIAL}
+        castShadow
+      >
+        <coneGeometry args={[CROWN_RADIUS, CROWN_HEIGHT, 6]} />
+      </mesh>
+
+      {/* Bundle of stolen loot, slung over one shoulder — asymmetrical
+          scale so it reads as a soft, lumpy sack rather than a gem. */}
+      <mesh
+        position={[SACK_X, SACK_Y, SACK_Z]}
+        rotation={[0.3, 0.5, -0.2]}
+        scale={[0.95, 1.2, 0.8]}
+        material={ROBBER_MATERIAL}
+        castShadow
+      >
+        <icosahedronGeometry args={[SACK_RADIUS, 0]} />
       </mesh>
     </group>
   )

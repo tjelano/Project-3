@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { Text } from '@react-three/drei'
 import { type Biome } from '../data/hexBoard'
 import { createSeededRandom } from '../utils/seededRandom'
 import { RECESS_DEPTH, getTileTerrain, scatterPoint, terrainPoint, type TileTerrain } from '../three/hexTerrain'
@@ -11,6 +10,10 @@ import {
   TRUNK_MATERIAL,
   decorMaterial,
 } from '../three/materials'
+import { createLabelTexture } from '../three/textLabels'
+
+// The chit digit's world size — matches the troika fontSize this replaces.
+const CHIT_FONT_WORLD_SIZE = 0.27
 
 /**
  * Scatter assets for the sculpted tiles.
@@ -416,29 +419,21 @@ const TOKEN_Y = -RECESS_DEPTH + TOKEN_HEIGHT / 2
 export function NumberToken({ value }: { value: number }) {
   const isHot = value === 6 || value === 8
 
+  const label = useMemo(
+    () => createLabelTexture(String(value), { fontPx: 96, color: isHot ? '#a32020' : '#2b2b2b' }),
+    [value, isHot],
+  )
+  const labelScale = CHIT_FONT_WORLD_SIZE / label.fontPx
+
   return (
     <group position={[0, TOKEN_Y, 0]}>
       <mesh material={TOKEN_MATERIAL} castShadow receiveShadow>
         <cylinderGeometry args={[TOKEN_RADIUS, TOKEN_RADIUS * 0.94, TOKEN_HEIGHT, 28]} />
       </mesh>
-      <Text
-        position={[0, TOKEN_HEIGHT / 2 + 0.004, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.27}
-        color={isHot ? '#a32020' : '#2b2b2b'}
-        anchorX="center"
-        anchorY="middle"
-        // See the matching comment in PortMarkers.tsx: troika's WebGL SDF
-        // path can throw an uncaught rejection when ANGLE_instanced_arrays
-        // is reported missing (observed on Brave). This runs on every one
-        // of the 18 tiles at first mount, making it the likely source of a
-        // fully black canvas. Forcing the worker-thread fallback avoids it.
-        // Cast narrowly: drei's TextProps typing predates this troika
-        // instance property, even though Text.js forwards it at runtime.
-        {...({ gpuAccelerateSDF: false } as Record<string, unknown>)}
-      >
-        {String(value)}
-      </Text>
+      <mesh position={[0, TOKEN_HEIGHT / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
+        <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
+      </mesh>
     </group>
   )
 }

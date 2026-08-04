@@ -157,11 +157,11 @@ function emptyResources(): Resources {
   return { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }
 }
 
-export function createInitialPlayers(playerCount: number): Player[] {
+export function createInitialPlayers(playerCount: number, names?: string[]): Player[] {
   const colorTokens: PlayerColorToken[] = ['player-1', 'player-2', 'player-3', 'player-4']
   return colorTokens.slice(0, playerCount).map((colorToken, index) => ({
     id: index + 1,
-    name: `Player ${index + 1}`,
+    name: names?.[index]?.trim() || `Player ${index + 1}`,
     colorToken,
     resources: emptyResources(),
     settlementsRemaining: STARTING_SETTLEMENTS,

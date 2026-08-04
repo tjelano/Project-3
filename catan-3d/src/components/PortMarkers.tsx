@@ -1,23 +1,106 @@
-import { Billboard, Text } from '@react-three/drei'
+import { useMemo } from 'react'
+import { Billboard } from '@react-three/drei'
 import { TILE_HEIGHT } from '../data/hexBoard'
-import { WATER_Y } from '../three/layout'
+import { BASIN_Y } from '../three/layout'
 import type { Port } from '../data/boardGraph'
 import { RESOURCE_COLORS, RESOURCE_LABELS } from '../game/types'
-import { BRASS_MATERIAL, DOCK_WOOD_MATERIAL, decorMaterial } from '../three/materials'
+import { BRASS_MATERIAL, decorMaterial } from '../three/materials'
+import { createLabelTexture } from '../three/textLabels'
+
+// The badge text's world size — matches the troika fontSize this replaces.
+const BADGE_FONT_WORLD_SIZE = 0.1
 
 const GENERIC_PORT_COLOR = '#f2f2f2'
 // How far beyond the board edge the dock floats, into the open void.
 const DOCK_OFFSET = 0.55
 
-// Deck sits at the tile surface; the stilts run from just under it down past
-// the waterline so the pier is visibly founded in the sea rather than hovering.
-const STILT_LENGTH = TILE_HEIGHT / 2 - WATER_Y + 0.1
-const STILT_POSITIONS: [number, number][] = [
-  [-0.06, -0.34],
-  [0.06, -0.34],
-  [-0.06, 0.02],
-  [0.06, 0.02],
-]
+// Three close, warm-brown tones instead of one flat wood color — cycled by
+// index across every timber part so no two adjacent pieces match exactly,
+// the way individually-weathered boards actually look. decorMaterial() is
+// the same cached PBR "weathered resin" recipe (roughness 0.92, warm sheen)
+// used everywhere else on the board — only the base color varies.
+const WOOD_TONES = ['#6a4a30', '#5b4027', '#77563a']
+const woodTone = (i: number) => decorMaterial(WOOD_TONES[i % WOOD_TONES.length])
+
+// --- Walkway ----------------------------------------------------------
+// Local +Z is outward/seaward (see the rotation comment on PortMarker), so
+// DECK_SHORE_Z is the landward edge and DECK_TIP_Z the open-water edge —
+// everything else (piles, beams, bollards, the flag) is positioned relative
+// to these two, so the whole pier can never drift out of alignment with
+// itself even if the deck length or offset is retuned later.
+const DECK_WIDTH = 0.16
+const DECK_LENGTH = 0.62
+const DECK_CENTER_Z = -0.14
+const DECK_SHORE_Z = DECK_CENTER_Z - DECK_LENGTH / 2
+const DECK_TIP_Z = DECK_CENTER_Z + DECK_LENGTH / 2
+
+// Composite walkway: 4 distinct planks with real, visible gaps (not the
+// hairline seams of a single near-solid box) so each one casts its own
+// shadow line — the classic trick that reads as "boards", not "bench".
+const PLANK_COUNT = 4
+const PLANK_GAP = 0.012
+const PLANK_THICKNESS = 0.028
+const PLANK_WIDTH = (DECK_WIDTH - PLANK_GAP * (PLANK_COUNT - 1)) / PLANK_COUNT
+const PLANK_STEP = PLANK_WIDTH + PLANK_GAP
+const PLANK_X_POSITIONS = Array.from({ length: PLANK_COUNT }, (_, i) => (i - (PLANK_COUNT - 1) / 2) * PLANK_STEP)
+
+// --- Under-framing ------------------------------------------------------
+// Two beam layers per row "sandwich" the pile heads: an upper cap tight
+// under the deck, and a lower wale right where the piles are captured —
+// real pier framing, not a single rail the piles just happen to touch.
+// Beams run a hair wider than the deck (poking past its edge) the way real
+// timber framing does.
+const BEAM_WIDTH = DECK_WIDTH + 0.02
+const BEAM_THICKNESS = 0.024
+const BEAM_DEPTH = 0.045
+const UPPER_BEAM_Y = -0.03
+const LOWER_BEAM_Y = -0.075
+
+// --- Pilings --------------------------------------------------------------
+// Two rows of two piles each, inset from the deck's ends — positioned under
+// the beam rows above, since a pile that isn't under a beam isn't holding
+// anything up.
+const PILE_ROW_INSET = 0.08
+const PILE_X_OFFSET = 0.055
+const PILE_Z_POSITIONS = [DECK_SHORE_Z + PILE_ROW_INSET, DECK_TIP_Z - PILE_ROW_INSET]
+const STILT_POSITIONS: [number, number][] = PILE_Z_POSITIONS.flatMap(
+  (z): [number, number][] => [
+    [-PILE_X_OFFSET, z],
+    [PILE_X_OFFSET, z],
+  ],
+)
+const PILE_TOP_RADIUS = 0.026
+const PILE_BOTTOM_RADIUS = 0.02
+// Piles start just below the lower beam (visually captured between the two
+// beam layers) and run all the way to the basin floor — not merely deep
+// enough to stay wet at the lowest wave trough, but driven into the seabed
+// the way the brief asked for. Derived from BASIN_Y so it self-corrects if
+// the sea's depth is ever retuned, the same discipline layout.ts uses for
+// every other water-relative measurement on the board.
+const PILE_TOP_Y = LOWER_BEAM_Y - 0.015
+const STILT_LENGTH = TILE_HEIGHT / 2 + PILE_TOP_Y - BASIN_Y
+const PILE_CENTER_Y = PILE_TOP_Y - STILT_LENGTH / 2
+
+// --- Mooring bollards -------------------------------------------------
+// Small square-read posts at all four walkway corners, just outside the
+// plank edge — the detail that says "working cargo dock" rather than
+// "footbridge". Brass-capped to echo the flagpole's hardware language.
+const BOLLARD_RADIUS = 0.016
+const BOLLARD_HEIGHT = 0.065
+const BOLLARD_X = DECK_WIDTH / 2 + 0.022
+const BOLLARD_INSET = 0.06
+const BOLLARD_Y = PLANK_THICKNESS / 2 + BOLLARD_HEIGHT / 2
+const BOLLARD_POSITIONS: [number, number][] = [DECK_SHORE_Z + BOLLARD_INSET, DECK_TIP_Z - BOLLARD_INSET].flatMap(
+  (z): [number, number][] => [
+    [-BOLLARD_X, z],
+    [BOLLARD_X, z],
+  ],
+)
+
+// --- Flag & badge -------------------------------------------------------
+// Set at the extreme seaward tip, inset just enough that the pole base
+// stands on the last plank instead of overhanging open water.
+const FLAG_Z = DECK_TIP_Z - 0.05
 
 function portColor(type: Port['type']): string {
   return type === '3:1' ? GENERIC_PORT_COLOR : RESOURCE_COLORS[type]
@@ -36,51 +119,77 @@ function PortMarker({ port }: { port: Port }) {
   const dockZ = port.z + Math.cos(outwardAngle) * DOCK_OFFSET
   const color = portColor(port.type)
 
+  const label = useMemo(
+    () =>
+      createLabelTexture(portLabel(port.type), {
+        fontPx: 64,
+        color,
+        outlineColor: '#0b1220',
+        outlineWidthPx: 3,
+      }),
+    [port.type, color],
+  )
+  const labelScale = BADGE_FONT_WORLD_SIZE / label.fontPx
+
   return (
     <group position={[dockX, TILE_HEIGHT / 2, dockZ]} rotation={[0, outwardAngle, 0]}>
-      {/* Deck: three separate planks with hairline gaps between them. One
-          solid box reads as plastic; the gaps are what say "boards". */}
-      {[-0.048, 0, 0.048].map((x) => (
-        <mesh key={x} position={[x, 0, -0.15]} material={DOCK_WOOD_MATERIAL} castShadow receiveShadow>
-          <boxGeometry args={[0.042, 0.028, 0.55]} />
+      {/* Composite walkway: 4 distinct planks, real visible gaps between
+          them, each its own weathered tone. */}
+      {PLANK_X_POSITIONS.map((x, i) => (
+        <mesh key={x} position={[x, 0, DECK_CENTER_Z]} material={woodTone(i)} castShadow receiveShadow>
+          <boxGeometry args={[PLANK_WIDTH, PLANK_THICKNESS, DECK_LENGTH]} />
         </mesh>
       ))}
 
-      {/* Structural cross-beams under the deck, carrying it to the stilts. */}
-      {[-0.34, 0.02].map((z) => (
-        <mesh key={z} position={[0, -0.028, z]} material={DOCK_WOOD_MATERIAL} castShadow receiveShadow>
-          <boxGeometry args={[0.17, 0.026, 0.04]} />
-        </mesh>
+      {/* Under-framing: two beam layers per pile row, sandwiching the pile
+          heads between an upper cap (tight under the deck) and a lower
+          wale — real structural depth, not one flat rail. */}
+      {PILE_Z_POSITIONS.map((z, i) => (
+        <group key={z}>
+          <mesh position={[0, UPPER_BEAM_Y, z]} material={woodTone(i)} castShadow receiveShadow>
+            <boxGeometry args={[BEAM_WIDTH, BEAM_THICKNESS, BEAM_DEPTH]} />
+          </mesh>
+          <mesh position={[0, LOWER_BEAM_Y, z]} material={woodTone(i + 1)} castShadow receiveShadow>
+            <boxGeometry args={[BEAM_WIDTH, BEAM_THICKNESS, BEAM_DEPTH]} />
+          </mesh>
+        </group>
       ))}
 
-      {/* Stilts driven down into the water. Their length is derived from the
-          waterline so they always reach it — if the sea level is ever
-          retuned, the piers follow instead of dangling. */}
+      {/* Pilings: thick, slightly tapered columns driven straight down
+          through the beam sandwich, through the rolling wave surface, and
+          all the way to the basin floor. */}
       {STILT_POSITIONS.map(([x, z], i) => (
-        <mesh
-          key={i}
-          position={[x, -0.028 - STILT_LENGTH / 2, z]}
-          material={DOCK_WOOD_MATERIAL}
-          castShadow
-          receiveShadow
-        >
-          <cylinderGeometry args={[0.014, 0.016, STILT_LENGTH, 6]} />
+        <mesh key={i} position={[x, PILE_CENTER_Y, z]} material={woodTone(i)} castShadow receiveShadow>
+          <cylinderGeometry args={[PILE_TOP_RADIUS, PILE_BOTTOM_RADIUS, STILT_LENGTH, 7]} />
         </mesh>
       ))}
 
-      {/* flag pole */}
-      <mesh position={[0, 0.21, 0.12]} material={BRASS_MATERIAL} castShadow>
+      {/* Mooring bollards at the four walkway corners, each brass-capped to
+          echo the flagpole's hardware. */}
+      {BOLLARD_POSITIONS.map(([x, z], i) => (
+        <group key={`${x}-${z}`}>
+          <mesh position={[x, BOLLARD_Y, z]} material={woodTone(i + 2)} castShadow receiveShadow>
+            <cylinderGeometry args={[BOLLARD_RADIUS, BOLLARD_RADIUS * 1.1, BOLLARD_HEIGHT, 6]} />
+          </mesh>
+          <mesh position={[x, BOLLARD_Y + BOLLARD_HEIGHT / 2 + 0.006, z]} material={BRASS_MATERIAL} castShadow>
+            <sphereGeometry args={[BOLLARD_RADIUS * 0.7, 6, 5]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Flag pole, at the extreme seaward tip of the walkway. */}
+      <mesh position={[0, 0.21, FLAG_Z]} material={BRASS_MATERIAL} castShadow>
         <cylinderGeometry args={[0.011, 0.013, 0.42, 12]} />
       </mesh>
       {/* Finial — a small brass ball caps the pole rather than a raw cut. */}
-      <mesh position={[0, 0.425, 0.12]} material={BRASS_MATERIAL} castShadow>
+      <mesh position={[0, 0.425, FLAG_Z]} material={BRASS_MATERIAL} castShadow>
         <sphereGeometry args={[0.019, 8, 6]} />
       </mesh>
 
       {/* Flag in two folded segments: the second panel is angled back from
           the first, so the pennant reads as caught in the wind while staying
           completely static — no per-frame cost across nine ports. */}
-      <group position={[0.012, 0.335, 0.12]}>
+      <group position={[0.012, 0.335, FLAG_Z]}>
         <mesh position={[0.037, 0, 0.006]} material={decorMaterial(color)} castShadow>
           <boxGeometry args={[0.075, 0.085, 0.011]} />
         </mesh>
@@ -93,35 +202,17 @@ function PortMarker({ port }: { port: Port }) {
           <boxGeometry args={[0.062, 0.073, 0.011]} />
         </mesh>
       </group>
-      {/* floating rate badge — always faces the camera so it's readable
-          from any orbit angle */}
-      <Billboard position={[0, 0.55, 0.12]}>
+      {/* floating rate badge — always faces the camera, floats directly
+          above the flag it belongs to */}
+      <Billboard position={[0, 0.55, FLAG_Z]}>
         <mesh position={[0, 0, -0.01]}>
           <planeGeometry args={[0.5, 0.16]} />
           <meshBasicMaterial color="#0b1220" transparent opacity={0.72} />
         </mesh>
-        <Text
-          fontSize={0.1}
-          color={color}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.006}
-          outlineColor="#0b1220"
-          // troika-three-text's WebGL glyph-atlas generator (generateSDF_GL)
-          // hard-requires ANGLE_instanced_arrays. Brave's anti-fingerprinting
-          // WebGL hardening can report that extension as unavailable even on
-          // a GPU that supports it, and troika's own JS-worker fallback for
-          // that failure path throws too — an uncaught rejection that broke
-          // every Text glyph on the board. Forcing the worker-thread SDF
-          // path from the start skips WebGL for glyph generation entirely.
-          //
-          // Drei's TextProps typing predates this troika instance property,
-          // so it isn't in the .d.ts even though Text.js forwards it at
-          // runtime — cast narrowly here rather than widen drei's types.
-          {...({ gpuAccelerateSDF: false } as Record<string, unknown>)}
-        >
-          {portLabel(port.type)}
-        </Text>
+        <mesh>
+          <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
+          <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
+        </mesh>
       </Billboard>
     </group>
   )

@@ -183,14 +183,18 @@ export const BASIN_MATERIAL = new THREE.MeshStandardMaterial({
 
 export const DOCK_WOOD_MATERIAL = terrainMaterial('#6a4a30')
 
-// Robber: near-black felted stone, deliberately the least reflective object
-// on the board so it reads as a void moving across the landscape.
+// Robber: a weathered obsidian-slate figurine, carved from one dark stone
+// rather than painted — the token reads as a single material, and every
+// facet earns its shape purely from geometry + sheen. Lightened off pure
+// black (was #15151a) so the low-poly facets of the actual figurine catch
+// visible falloff under this scene's deliberately dim, moody rig — a truly
+// black material would read as a silhouette blob with no visible carving.
 export const ROBBER_MATERIAL = new THREE.MeshPhysicalMaterial({
-  color: '#15151a',
-  roughness: 0.95,
+  color: '#28262e',
+  roughness: 0.92,
   metalness: 0,
-  sheen: 0.4,
-  sheenRoughness: 0.8,
+  sheen: 0.5,
+  sheenRoughness: 0.75,
   sheenColor: new THREE.Color('#4a5a7a'),
   flatShading: true,
 })

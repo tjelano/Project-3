@@ -62,6 +62,10 @@ function rollD6() {
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
   const [playerCount, setPlayerCount] = useState(3)
+  // Kept at the App level (not just inside StartScreen's local state) so a
+  // mid-session "Play Again" / "Return to Menu" reshuffles the board without
+  // wiping the names players just typed in.
+  const [playerNames, setPlayerNames] = useState<string[]>([])
 
   const [tiles, setTiles] = useState(() => buildHexBoard())
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
@@ -917,12 +921,17 @@ function App() {
 
   // Shared reset: reshuffles the board and dev deck once, deriving the new
   // Robber position from that exact same board shuffle so they can't desync.
-  const resetGame = (count: number) => {
+  const resetGame = (count: number, names?: string[]) => {
     const freshTiles = buildHexBoard()
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
-    setPlayers(createInitialPlayers(count))
+    // Explicit names (a fresh Start Game submission) replace what's
+    // remembered; omitting the argument (restart / return-to-menu) reuses
+    // whatever was last entered, so those flows don't reset names to defaults.
+    const resolvedNames = names ?? playerNames
+    if (names) setPlayerNames(names)
+    setPlayers(createInitialPlayers(count, resolvedNames))
     setCurrentPlayerIndex(0)
     setLastRoll(null)
     setSettlements({})
@@ -944,8 +953,8 @@ function App() {
     setSetupSettlementVertexId(null)
   }
 
-  const startGame = (count: number) => {
-    resetGame(count)
+  const startGame = (count: number, names: string[]) => {
+    resetGame(count, names)
     setGameStarted(true)
   }
 

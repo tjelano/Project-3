@@ -1,13 +1,16 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import {
   DEV_CARD_ORDER,
   RESOURCE_ORDER,
   type DevCardType,
+  type Player,
   type ResourceType,
   type Resources,
 } from '../game/types'
+import { seatAngle, seatPosition } from '../three/seating'
+import { FRAME_OUTER } from '../three/layout'
 
 // --- Card art -------------------------------------------------------------
 // Imported statically rather than fetched by path string. Vite resolves each
@@ -101,6 +104,22 @@ interface CardSlot {
   key: CardKey
 }
 
+// One card object per physical card held. Resources first in fixed order,
+// then development cards, so a hand doesn't reshuffle as counts change — a
+// card you were about to hover shouldn't jump out from under the cursor.
+// Shared by the personal hand and every table-seat hand.
+function buildCardSlots(resources: Resources, devCards: DevCardType[]): CardSlot[] {
+  const out: CardSlot[] = []
+  for (const resource of RESOURCE_ORDER) {
+    for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
+  }
+  for (const dev of DEV_CARD_ORDER) {
+    const count = devCards.filter((card) => card === dev).length
+    for (let i = 0; i < count; i++) out.push({ id: `${dev}-${i}`, key: dev })
+  }
+  return out
+}
+
 interface CardLayout {
   x: number
   y: number
@@ -128,28 +147,37 @@ function HandCard({
   index,
   total,
   backTexture,
+  isOpponent = false,
 }: {
   cardKey: CardKey
   index: number
   total: number
   backTexture: THREE.Texture
+  // Authoritative texture gating: true for every hand except the local
+  // player's own. The real cardKey is still used for layout/count — only
+  // the material swaps — so an opponent's hand SIZE stays honest (public
+  // information in Catan) while its CONTENTS never touch a real texture,
+  // on any face, from any angle a spun camera could catch.
+  isOpponent?: boolean
 }) {
   const ref = useRef<THREE.Group>(null)
   const [hovered, setHovered] = useState(false)
   const glowRef = useRef(0)
+  // A ref, not a direct index into the memoized `materials` array — mutating
+  // a value straight off a useMemo return is flagged (react-hooks/
+  // immutability) even though animating a Three.js material's own property
+  // every frame is exactly the imperative pattern R3F's useFrame exists
+  // for. Routing the same mutation through a ref satisfies both: the
+  // material itself is still touched imperatively at 60fps, with no React
+  // state and no re-render, while the value that's actually MUTATED is a
+  // ref's .current — React's own sanctioned mutable escape hatch.
+  const glowMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null)
 
   const layout = useMemo(() => layoutFor(index, total), [index, total])
 
   // Materials are per-card instances (sharing only the cached textures) so
   // the hover glow lights ONE card rather than every card of that type.
   const materials = useMemo(() => {
-    const face = new THREE.MeshStandardMaterial({
-      map: loadCardTexture(CARD_ART[cardKey]),
-      roughness: 0.42,
-      metalness: 0.05,
-      emissive: new THREE.Color('#c8a93e'),
-      emissiveIntensity: 0,
-    })
     const back = new THREE.MeshStandardMaterial({
       map: backTexture,
       roughness: 0.5,
@@ -158,8 +186,25 @@ function HandCard({
     // Card edge: the pale core you see on cut card stock.
     const edge = new THREE.MeshStandardMaterial({ color: '#e8e2d2', roughness: 0.6 })
     // BoxGeometry group order: +X, -X, +Y, -Y, +Z, -Z.
+    if (isOpponent) {
+      // Both the "face" (+Z) and "back" (-Z) slots get the SAME back
+      // texture — there is no material index left holding the real
+      // artwork, so no viewing angle can ever reveal it.
+      return [edge, edge, edge, edge, back, back]
+    }
+    const face = new THREE.MeshStandardMaterial({
+      map: loadCardTexture(CARD_ART[cardKey]),
+      roughness: 0.42,
+      metalness: 0.05,
+      emissive: new THREE.Color('#c8a93e'),
+      emissiveIntensity: 0,
+    })
     return [edge, edge, edge, edge, face, back]
-  }, [cardKey, backTexture])
+  }, [cardKey, backTexture, isOpponent])
+
+  useEffect(() => {
+    glowMaterialRef.current = materials[4] as THREE.MeshStandardMaterial
+  }, [materials])
 
   useFrame((_, delta) => {
     const group = ref.current
@@ -182,7 +227,7 @@ function HandCard({
     group.scale.setScalar(s)
 
     glowRef.current += (targetGlow - glowRef.current) * k
-    ;(materials[4] as THREE.MeshStandardMaterial).emissiveIntensity = glowRef.current
+    if (glowMaterialRef.current) glowMaterialRef.current.emissiveIntensity = glowRef.current
   })
 
   return (
@@ -208,20 +253,7 @@ export function PlayerHand3D({ resources, devCards }: { resources: Resources; de
   const rootRef = useRef<THREE.Group>(null)
   const backTexture = useMemo(() => loadCardTexture(backArt), [])
 
-  // One card object per physical card held. Resources first in fixed order,
-  // then development cards, so the hand doesn't reshuffle as counts change —
-  // a card you were about to hover shouldn't jump out from under the cursor.
-  const cards = useMemo<CardSlot[]>(() => {
-    const out: CardSlot[] = []
-    for (const resource of RESOURCE_ORDER) {
-      for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
-    }
-    for (const dev of DEV_CARD_ORDER) {
-      const count = devCards.filter((card) => card === dev).length
-      for (let i = 0; i < count; i++) out.push({ id: `${dev}-${i}`, key: dev })
-    }
-    return out
-  }, [resources, devCards])
+  const cards = useMemo(() => buildCardSlots(resources, devCards), [resources, devCards])
 
   useFrame(({ camera }) => {
     const root = rootRef.current
@@ -242,5 +274,87 @@ export function PlayerHand3D({ resources, devCards }: { resources: Resources; de
         <HandCard key={card.id} cardKey={card.key} index={i} total={cards.length} backTexture={backTexture} />
       ))}
     </group>
+  )
+}
+
+// --- Table-seat hands (Online Multiplayer only) ----------------------------
+// Floats a fanned hand for EVERY player at their assigned seat around the
+// tray, world-space anchored (not camera-anchored like the personal hand
+// above) — the point is that they stay put as the camera swings between
+// seats, the way real hands would sit at fixed places around a table.
+const SEAT_RADIUS = FRAME_OUTER / 2 + 1.1 // just past the tray rim
+const SEAT_HAND_Y = 1.35 // floating height that reads clearly above the tray
+// A slight backward lean, like cards propped against an invisible holder —
+// simpler and just as readable as continuously re-orienting to match the
+// camera's live polar angle, which none of this scene's other decorations do.
+const SEAT_HAND_TILT = -0.32
+
+function SeatHand({
+  player,
+  seatIndex,
+  totalSeats,
+  isOpponent,
+  backTexture,
+}: {
+  player: Player
+  seatIndex: number
+  totalSeats: number
+  isOpponent: boolean
+  backTexture: THREE.Texture
+}) {
+  const cards = useMemo(() => buildCardSlots(player.resources, player.devCards), [player.resources, player.devCards])
+  const [x, z] = seatPosition(seatIndex, totalSeats, SEAT_RADIUS)
+  // Group rotation.y = seatAngle maps local +Z (the card face, per the
+  // BoxGeometry face order noted in HandCard) to point outward — toward
+  // wherever the camera has swung to face this seat. Same identity
+  // PortMarker's rotation comment derives, applied to the same angle used
+  // for this seat's position above.
+  const facing = seatAngle(seatIndex, totalSeats)
+
+  if (cards.length === 0) return null
+
+  return (
+    <group position={[x, SEAT_HAND_Y, z]} rotation={[SEAT_HAND_TILT, facing, 0]}>
+      {cards.map((card, i) => (
+        <HandCard
+          key={card.id}
+          cardKey={card.key}
+          index={i}
+          total={cards.length}
+          backTexture={backTexture}
+          isOpponent={isOpponent}
+        />
+      ))}
+    </group>
+  )
+}
+
+export function TableSeatHands({
+  players,
+  localPlayerId,
+}: {
+  players: Player[]
+  // null for local Pass & Play, where there's no "opponent" concept and no
+  // assigned seating — this whole feature stays off, matching how the
+  // camera seat-lock in SceneRig.tsx is also online-only.
+  localPlayerId: number | null
+}) {
+  const backTexture = useMemo(() => loadCardTexture(backArt), [])
+
+  if (localPlayerId == null) return null
+
+  return (
+    <>
+      {players.map((player, seatIndex) => (
+        <SeatHand
+          key={player.id}
+          player={player}
+          seatIndex={seatIndex}
+          totalSeats={players.length}
+          isOpponent={player.id !== localPlayerId}
+          backTexture={backTexture}
+        />
+      ))}
+    </>
   )
 }

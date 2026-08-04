@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -11,7 +11,8 @@ import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
-import { PlayerHand3D } from './components/PlayerHand3D'
+import { PlayerHand3D, TableSeatHands } from './components/PlayerHand3D'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
@@ -420,6 +421,21 @@ function App() {
   // Local (non-online) games are always "your turn" — whoever is at the
   // keyboard controls whichever player is active, same as it always has.
   const isMyTurn = !onlineInfo || players[currentPlayerIndex]?.id === onlineInfo.localPlayerId
+
+  // The personal camera-anchored hand shows YOUR OWN cards in an online
+  // match — not whoever's turn it currently is, which is what
+  // currentPlayerIndex means and is correct only for local Pass & Play,
+  // where everyone shares one screen and hands off the device each turn.
+  const localPlayer = onlineInfo
+    ? (players.find((p) => p.id === onlineInfo.localPlayerId) ?? players[currentPlayerIndex])
+    : players[currentPlayerIndex]
+
+  // Shared with SceneRig's camera seat-lock: drei's OrbitControls derives
+  // its internal spherical state from camera.position at the start of each
+  // update() call, so an external position write (there, not here) is
+  // adopted rather than fought — but only if update() is actually called
+  // afterward, which is what this ref is for.
+  const controlsRef = useRef<OrbitControlsImpl>(null)
 
   // The single place a turn passes to the next player: clears any unused
   // free roads (a Road Building card's free placements don't carry over) and
@@ -1221,7 +1237,12 @@ function App() {
           }}
         >
           <color attach="background" args={['#070c16']} />
-          <SceneRig />
+          <SceneRig
+            currentPlayerIndex={currentPlayerIndex}
+            playerCount={players.length}
+            isOnline={!!onlineInfo}
+            controlsRef={controlsRef}
+          />
           <BoardFrame />
           <Ocean />
           <CatanBoard tiles={tiles} />
@@ -1247,16 +1268,18 @@ function App() {
           />
           <PortMarkers ports={ports} />
           <Dice3D roll={diceRoll} onSettled={handleDiceSettled} />
-          {/* The active player's hand, held at the bottom of the viewport. */}
-          <PlayerHand3D
-            resources={players[currentPlayerIndex].resources}
-            devCards={players[currentPlayerIndex].devCards}
-          />
+          {/* Your own hand, held at the bottom of the viewport — localPlayer
+              is you in an online match, or whoever's turn it is locally. */}
+          <PlayerHand3D resources={localPlayer.resources} devCards={localPlayer.devCards} />
+          {/* Every player's hand floating at their table seat — no-ops
+              entirely for local Pass & Play (see TableSeatHands). */}
+          <TableSeatHands players={players} localPlayerId={onlineInfo?.localPlayerId ?? null} />
           {/* Constrained so the camera can never drop below the horizon (which
             exposed the underside of the board and the backfaces of every
             token), fly past the island, or dolly through geometry. Damping
             is what makes the orbit feel weighted rather than twitchy. */}
           <OrbitControls
+            ref={controlsRef}
             target={[0, 0, 0]}
             minPolarAngle={Math.PI / 6}
             maxPolarAngle={Math.PI / 2.35}

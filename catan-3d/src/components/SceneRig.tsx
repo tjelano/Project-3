@@ -1,5 +1,9 @@
+import { useRef, type RefObject } from 'react'
+import { useFrame } from '@react-three/fiber'
 import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer, N8AO, Vignette } from '@react-three/postprocessing'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { seatAngle } from '../three/seating'
 
 /**
  * CINEMATIC RIG — a museum vitrine at dusk.
@@ -62,7 +66,72 @@ const AO_INTENSITY = 1.05
 const BLOOM_THRESHOLD = 0.96
 const BLOOM_INTENSITY = 0.28
 
-export function SceneRig() {
+// --- Table-seat camera lock -------------------------------------------
+// Online matches only: the camera swings to face whoever currently holds
+// the turn, a synchronized "spectator" cut every client sees together —
+// not each player's own personal seat, which would mean nobody ever
+// watches the active player's side of the board.
+const CAMERA_SEAT_LERP_RATE = 2.2 // higher = snappier swing between seats
+const SEAT_SNAP_EPSILON = 0.002 // radians; below this, stop driving the camera and hand control back
+
+// Shortest signed angular distance from `from` to `to`, wrapped to
+// [-PI, PI] — without this, swinging from 350° to 10° would take the long
+// way around through 180° instead of the 20° hop through 0°.
+function wrapAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2)
+  if (delta > Math.PI) delta -= Math.PI * 2
+  if (delta < -Math.PI) delta += Math.PI * 2
+  return delta
+}
+
+interface SceneRigProps {
+  currentPlayerIndex: number
+  playerCount: number
+  isOnline: boolean
+  controlsRef: RefObject<OrbitControlsImpl | null>
+}
+
+export function SceneRig({ currentPlayerIndex, playerCount, isOnline, controlsRef }: SceneRigProps) {
+  // Tracks the seat we were last driving toward, so a genuine turn change
+  // (not just this component re-rendering) is what arms a new swing.
+  const prevPlayerIndexRef = useRef(currentPlayerIndex)
+  const transitioningRef = useRef(false)
+
+  useFrame((state, delta) => {
+    if (!isOnline || playerCount <= 0) return
+
+    if (currentPlayerIndex !== prevPlayerIndexRef.current) {
+      prevPlayerIndexRef.current = currentPlayerIndex
+      transitioningRef.current = true
+    }
+    if (!transitioningRef.current) return
+
+    const camera = state.camera
+    // Only azimuth (orbit angle) is driven — radius and height are read
+    // fresh from wherever the camera currently is, so the player's own
+    // zoom/tilt survives the swing instead of snapping back to a default.
+    const horizontalRadius = Math.hypot(camera.position.x, camera.position.z)
+    const currentAzimuth = Math.atan2(camera.position.x, camera.position.z)
+    const targetAzimuth = seatAngle(currentPlayerIndex, playerCount)
+
+    const angleDelta = wrapAngleDelta(currentAzimuth, targetAzimuth)
+    if (Math.abs(angleDelta) < SEAT_SNAP_EPSILON) {
+      // Close enough: stop actively driving the camera so OrbitControls'
+      // own damping and the player's free dragging take over cleanly.
+      transitioningRef.current = false
+      return
+    }
+
+    const k = 1 - Math.exp(-CAMERA_SEAT_LERP_RATE * delta)
+    const nextAzimuth = currentAzimuth + angleDelta * k
+    camera.position.x = horizontalRadius * Math.sin(nextAzimuth)
+    camera.position.z = horizontalRadius * Math.cos(nextAzimuth)
+    // OrbitControls derives its own internal spherical state by reading
+    // camera.position relative to its target at the START of update() —
+    // it doesn't fight or overwrite this external write, it adopts it.
+    controlsRef.current?.update()
+  })
+
   return (
     <>
       <ambientLight intensity={AMBIENT_INTENSITY} color={FILL_COLOR} />

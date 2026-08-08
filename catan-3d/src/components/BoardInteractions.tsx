@@ -18,13 +18,13 @@ const ROAD_GLOW = '#ffd27f'
 const VertexSlot = memo(function VertexSlot({
   vertex,
   building,
-  colorByPlayerId,
+  ownerColor,
   onBuild,
   locked,
 }: {
   vertex: BoardVertex
   building: Building | undefined
-  colorByPlayerId: Map<number, string>
+  ownerColor: string | undefined
   onBuild: (vertexId: string) => void
   locked: boolean
 }) {
@@ -35,7 +35,7 @@ const VertexSlot = memo(function VertexSlot({
   // than the base model) so the owner can click their own settlement to
   // upgrade it into a city.
   if (building) {
-    const color = colorByPlayerId.get(building.ownerId) ?? '#ffffff'
+    const color = ownerColor ?? '#ffffff'
     return (
       <group position={[vertex.x, TILE_HEIGHT / 2, vertex.z]}>
         <mesh
@@ -124,7 +124,7 @@ const EdgeSlot = memo(function EdgeSlot({
   a,
   b,
   ownerId,
-  colorByPlayerId,
+  ownerColor,
   onBuild,
   locked,
 }: {
@@ -132,7 +132,7 @@ const EdgeSlot = memo(function EdgeSlot({
   a: BoardVertex
   b: BoardVertex
   ownerId: number | undefined
-  colorByPlayerId: Map<number, string>
+  ownerColor: string | undefined
   onBuild: (edgeId: string) => void
   locked: boolean
 }) {
@@ -143,7 +143,7 @@ const EdgeSlot = memo(function EdgeSlot({
   // A road has already been built here — render it permanently in the
   // owner's color instead of a hoverable hitbox.
   if (ownerId != null) {
-    const color = colorByPlayerId.get(ownerId) ?? '#ffffff'
+    const color = ownerColor ?? '#ffffff'
     return (
       <group position={[edge.x, TILE_HEIGHT / 2, edge.z]} rotation={[0, angle, 0]}>
         <RoadModel color={color} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
@@ -232,7 +232,7 @@ export const BoardInteractions = memo(function BoardInteractions({
           key={vertex.id}
           vertex={vertex}
           building={settlements[vertex.id]}
-          colorByPlayerId={colorByPlayerId}
+          ownerColor={settlements[vertex.id]?.ownerId != null ? colorByPlayerId.get(settlements[vertex.id].ownerId!) : undefined}
           onBuild={onBuildSettlement}
           locked={locked}
         />
@@ -244,7 +244,7 @@ export const BoardInteractions = memo(function BoardInteractions({
           a={graph.vertexById.get(edge.a)!}
           b={graph.vertexById.get(edge.b)!}
           ownerId={roads[edge.id]}
-          colorByPlayerId={colorByPlayerId}
+          ownerColor={roads[edge.id] != null ? colorByPlayerId.get(roads[edge.id]!) : undefined}
           onBuild={onBuildRoad}
           locked={locked}
         />

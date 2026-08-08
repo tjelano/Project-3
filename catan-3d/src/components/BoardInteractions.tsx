@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, memo } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import { TILE_HEIGHT } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
@@ -15,7 +15,7 @@ const EDGE_LENGTH_SCALE = 0.82
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
 
-function VertexSlot({
+const VertexSlot = memo(function VertexSlot({
   vertex,
   building,
   colorByPlayerId,
@@ -25,7 +25,7 @@ function VertexSlot({
   vertex: BoardVertex
   building: Building | undefined
   colorByPlayerId: Map<number, string>
-  onBuild: () => void
+  onBuild: (vertexId: string) => void
   locked: boolean
 }) {
   const [hovered, setHovered] = useState(false)
@@ -44,7 +44,7 @@ function VertexSlot({
               ? undefined
               : (event: ThreeEvent<MouseEvent>) => {
                   event.stopPropagation()
-                  onBuild()
+                  onBuild(vertex.id)
                 }
           }
         >
@@ -80,7 +80,7 @@ function VertexSlot({
             ? undefined
             : (event: ThreeEvent<MouseEvent>) => {
                 event.stopPropagation()
-                onBuild()
+                onBuild(vertex.id)
               }
         }
       >
@@ -117,9 +117,9 @@ function VertexSlot({
       )}
     </group>
   )
-}
+})
 
-function EdgeSlot({
+const EdgeSlot = memo(function EdgeSlot({
   edge,
   a,
   b,
@@ -133,7 +133,7 @@ function EdgeSlot({
   b: BoardVertex
   ownerId: number | undefined
   colorByPlayerId: Map<number, string>
-  onBuild: () => void
+  onBuild: (edgeId: string) => void
   locked: boolean
 }) {
   const [hovered, setHovered] = useState(false)
@@ -175,7 +175,7 @@ function EdgeSlot({
             ? undefined
             : (event: ThreeEvent<MouseEvent>) => {
                 event.stopPropagation()
-                onBuild()
+                onBuild(edge.id)
               }
         }
       >
@@ -199,7 +199,7 @@ function EdgeSlot({
       )}
     </group>
   )
-}
+})
 
 interface BoardInteractionsProps {
   graph: BoardGraph
@@ -211,7 +211,7 @@ interface BoardInteractionsProps {
   locked?: boolean
 }
 
-export function BoardInteractions({
+export const BoardInteractions = memo(function BoardInteractions({
   graph,
   settlements,
   roads,
@@ -233,7 +233,7 @@ export function BoardInteractions({
           vertex={vertex}
           building={settlements[vertex.id]}
           colorByPlayerId={colorByPlayerId}
-          onBuild={() => onBuildSettlement(vertex.id)}
+          onBuild={onBuildSettlement}
           locked={locked}
         />
       ))}
@@ -245,10 +245,10 @@ export function BoardInteractions({
           b={graph.vertexById.get(edge.b)!}
           ownerId={roads[edge.id]}
           colorByPlayerId={colorByPlayerId}
-          onBuild={() => onBuildRoad(edge.id)}
+          onBuild={onBuildRoad}
           locked={locked}
         />
       ))}
     </group>
   )
-}
+})

@@ -146,8 +146,8 @@ function App() {
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
 
   // Stable callbacks for board interactions
-  const buildSettlementRef = useRef((id: string) => {})
-  const buildRoadRef = useRef((id: string) => {})
+  const buildSettlementRef = useRef((_id: string) => {})
+  const buildRoadRef = useRef((_id: string) => {})
   useLayoutEffect(() => {
     buildSettlementRef.current = buildSettlementRaw
     buildRoadRef.current = buildRoadRaw

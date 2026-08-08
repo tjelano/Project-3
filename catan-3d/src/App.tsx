@@ -550,32 +550,38 @@ function App() {
     )
   }
 
-  const buildSettlement = (vertexId: string) => {
-    if (winner) return
+  const canInteract = (): boolean => {
+    if (winner) return false
     if (pendingTrade) {
       warn('Resolve the pending trade first.')
-      return
+      return false
     }
     if (devCardPicker) {
       warn('Resolve the development card first.')
-      return
+      return false
     }
+    if (isRolling) {
+      warn('Wait for the dice to finish rolling.')
+      return false
+    }
+    if (gamePhase === 'moveRobber') {
+      warn('Move the Robber before building.')
+      return false
+    }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return false
+    }
+    return true
+  }
+
+  const buildSettlement = (vertexId: string) => {
+    if (!canInteract()) return
+
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const existing = settlements[vertexId]
 
-    if (isRolling) {
-      warn('Wait for the dice to finish rolling.')
-      return
-    }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
-      return
-    }
-    if (!isMyTurn) {
-      warn("It's not your turn.")
-      return
-    }
     if (isSetup && setupStage !== 'settlement') {
       warn('Place your road first.')
       return
@@ -629,31 +635,12 @@ function App() {
   }
 
   const buildRoad = (edgeId: string) => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canInteract()) return
+
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const isFreeRoad = !isSetup && freeRoadsRemaining > 0
 
-    if (isRolling) {
-      warn('Wait for the dice to finish rolling.')
-      return
-    }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
-      return
-    }
-    if (!isMyTurn) {
-      warn("It's not your turn.")
-      return
-    }
     if (isSetup && setupStage !== 'road') {
       warn('Place your settlement first.')
       return

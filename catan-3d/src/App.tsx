@@ -833,16 +833,18 @@ function App() {
     // happened, corrupting resource state instead of mirroring it.
     const thief = players[currentPlayerIndex]
     const vertexIds = graph.tileVertexIds.get(tileId) ?? []
-    const victimIds = new Set<number>()
+    const victimIds: number[] = []
     for (const vertexId of vertexIds) {
       const building = settlements[vertexId]
-      if (building && building.ownerId !== thief.id) victimIds.add(building.ownerId)
+      if (building && building.ownerId !== thief.id && !victimIds.includes(building.ownerId)) {
+        victimIds.push(building.ownerId)
+      }
     }
 
     let victimId: number | null = null
     let stolenResource: ResourceType | null = null
-    if (victimIds.size > 0) {
-      const candidates = [...victimIds]
+    if (victimIds.length > 0) {
+      const candidates = victimIds
       victimId = candidates[Math.floor(Math.random() * candidates.length)]
       const victim = players.find((p) => p.id === victimId)
       if (victim) {

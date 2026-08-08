@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -179,6 +179,49 @@ function App() {
   // mirrored roll's physics animation finishes settling. See the comment
   // on that endTurn() call for the exact bug this prevents.
   const localRollRef = useRef(true)
+
+  // Refs to hold latest state for stable buildSettlement/buildRoad callbacks.
+  // Updated synchronously on every render, so the stable callbacks always read
+  // fresh values without needing to list every dependency (which would defeat
+  // the point of stabilizing them).
+  const stateRef = useRef({
+    players,
+    currentPlayerIndex,
+    gamePhase,
+    setupStage,
+    setupStepIndex,
+    setupSettlementVertexId,
+    settlements,
+    roads,
+    vertexAdjacency,
+    edgeById,
+    freeRoadsRemaining,
+    isRolling,
+    winner,
+    pendingTrade,
+    devCardPicker,
+    onlineInfo,
+    isMyTurn: false, // computed below
+  })
+  stateRef.current = {
+    players,
+    currentPlayerIndex,
+    gamePhase,
+    setupStage,
+    setupStepIndex,
+    setupSettlementVertexId,
+    settlements,
+    roads,
+    vertexAdjacency,
+    edgeById,
+    freeRoadsRemaining,
+    isRolling,
+    winner,
+    pendingTrade,
+    devCardPicker,
+    onlineInfo,
+    isMyTurn: !onlineInfo || players[currentPlayerIndex]?.id === onlineInfo.localPlayerId,
+  }
 
   // Shared by a local Roll Dice click AND by mirroring another player's
   // DICE_ROLLED broadcast — both just need the 3D dice to animate toward
@@ -550,7 +593,22 @@ function App() {
     )
   }
 
-  const buildSettlement = (vertexId: string) => {
+  const buildSettlement = useCallback((vertexId: string) => {
+    const {
+      winner,
+      pendingTrade,
+      devCardPicker,
+      players,
+      currentPlayerIndex,
+      gamePhase,
+      setupStage,
+      settlements,
+      vertexAdjacency,
+      isRolling,
+      isMyTurn,
+      onlineInfo,
+    } = stateRef.current
+
     if (winner) return
     if (pendingTrade) {
       warn('Resolve the pending trade first.')
@@ -626,9 +684,26 @@ function App() {
 
     applySettlementPlacement(vertexId, player.id, isSetup)
     if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
-  }
+  }, [])
 
-  const buildRoad = (edgeId: string) => {
+  const buildRoad = useCallback((edgeId: string) => {
+    const {
+      winner,
+      pendingTrade,
+      devCardPicker,
+      players,
+      currentPlayerIndex,
+      gamePhase,
+      setupStage,
+      setupSettlementVertexId,
+      freeRoadsRemaining,
+      roads,
+      edgeById,
+      isRolling,
+      isMyTurn,
+      onlineInfo,
+    } = stateRef.current
+
     if (winner) return
     if (pendingTrade) {
       warn('Resolve the pending trade first.')
@@ -691,7 +766,7 @@ function App() {
 
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad)
     if (onlineInfo) broadcastRoadBuilt({ edgeId, playerId: player.id, isFreeRoad })
-  }
+  }, [])
 
   // Triggered by the Roll Dice button: generates the total up front (it
   // stays authoritative) and hands it to the 3D dice to animate toward.

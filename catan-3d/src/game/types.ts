@@ -263,27 +263,3 @@ export function deductCost(resources: Resources, cost: Partial<Resources>): Reso
 export function totalResourceCount(resources: Resources): number {
   return RESOURCE_ORDER.reduce((sum, resource) => sum + resources[resource], 0)
 }
-
-// Automatic discard for the 7-roll rule: randomly removes floor(total/2)
-// cards from whatever the player holds. No UI for choosing which cards —
-// this game has no request for that, so it's fully automatic.
-export function discardRandomHalf(resources: Resources): { resources: Resources; discarded: number } {
-  const discardCount = Math.floor(totalResourceCount(resources) / 2)
-  if (discardCount <= 0) return { resources, discarded: 0 }
-
-  const pool: ResourceType[] = []
-  for (const resource of RESOURCE_ORDER) {
-    for (let i = 0; i < resources[resource]; i++) pool.push(resource)
-  }
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[pool[i], pool[j]] = [pool[j], pool[i]]
-  }
-
-  const next = { ...resources }
-  for (let i = 0; i < discardCount; i++) {
-    next[pool[i]] -= 1
-  }
-
-  return { resources: next, discarded: discardCount }
-}

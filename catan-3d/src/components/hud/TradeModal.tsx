@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { PLAYER_COLORS, RESOURCE_ORDER, type Player, type ResourceType, type Resources } from '../../game/types'
+import { useDraggablePanel } from '../../hooks/useDraggablePanel'
 import { ResourceIcon } from './ResourceIcon'
 
 interface TradeModalProps {
@@ -18,6 +19,7 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
   const [give, setGive] = useState<ResourceType | null>(null)
   const [receive, setReceive] = useState<ResourceType | null>(null)
   const [targetPlayerId, setTargetPlayerId] = useState<number | null>(otherPlayers[0]?.id ?? null)
+  const { panelRef, offset, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
 
   const rate = give ? rates[give] : null
   const canConfirmBank = give != null && receive != null && give !== receive && rate != null && resources[give] >= rate
@@ -39,8 +41,15 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
   }
 
   return (
-    <div className="pointer-events-auto absolute top-96 right-4 w-56 rounded-2xl border border-glass-border bg-glass p-4 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="mb-3 flex items-center justify-between">
+    <div
+      ref={panelRef}
+      className="pointer-events-auto absolute top-96 right-4 w-56 rounded-2xl border border-glass-border bg-glass p-4 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+      style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+    >
+      <div
+        onPointerDown={onHeaderPointerDown}
+        className="mb-3 flex cursor-grab items-center justify-between select-none active:cursor-grabbing"
+      >
         <span className="font-display text-sm text-white">Trade</span>
         <button type="button" onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">
           ✕

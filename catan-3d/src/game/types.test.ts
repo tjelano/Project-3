@@ -8,7 +8,6 @@ import {
   canAfford,
   createInitialPlayers,
   deductCost,
-  discardRandomHalf,
   getPlayerScore,
   getPublicScore,
   getScoreBreakdown,
@@ -148,25 +147,6 @@ describe('resource helpers', () => {
     expect(removeOne(['knight'], 'monopoly')).toEqual(['knight'])
   })
 
-  it('discardRandomHalf rounds down and never discards from a hand of 7 or fewer', () => {
-    const seven = { lumber: 7, brick: 0, wool: 0, grain: 0, ore: 0 }
-    expect(discardRandomHalf(seven).discarded).toBe(3)
-
-    const nine = { lumber: 5, brick: 4, wool: 0, grain: 0, ore: 0 }
-    const result = discardRandomHalf(nine)
-    expect(result.discarded).toBe(4)
-    expect(totalResourceCount(result.resources)).toBe(5)
-  })
-
-  it('discardRandomHalf never drives any resource negative', () => {
-    for (let i = 0; i < 50; i++) {
-      const hand = { lumber: 3, brick: 1, wool: 4, grain: 2, ore: 1 } // 11 cards
-      const { resources, discarded } = discardRandomHalf(hand)
-      expect(discarded).toBe(5)
-      for (const amount of Object.values(resources)) expect(amount).toBeGreaterThanOrEqual(0)
-      expect(totalResourceCount(resources)).toBe(6)
-    }
-  })
 })
 
 describe('createInitialPlayers', () => {

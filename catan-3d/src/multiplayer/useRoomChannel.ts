@@ -69,6 +69,26 @@ export interface MonopolyPlayedPayload {
   resource: ResourceType
 }
 
+export interface TradePayload {
+  fromPlayerId: number
+  toPlayerId: number
+  offerResource: ResourceType
+  wantResource: ResourceType
+}
+
+export interface TradeCancelledPayload {
+  reason: string
+}
+
+export interface DiscardConfirmedPayload {
+  playerId: number
+  // Resource -> quantity tally, not a full resources object — the receiver
+  // subtracts these from its OWN copy of the player's resources (trusted
+  // apply), the same shape every other resource-mutating broadcast in this
+  // file uses.
+  counts: Partial<Record<ResourceType, number>>
+}
+
 interface GameStartedPayload {
   names: string[]
   // Carried explicitly rather than inferred (e.g. "names[0]") so every
@@ -92,6 +112,21 @@ export interface RoomChannelHandlers {
   onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
   onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
   onMonopolyPlayed?: (payload: MonopolyPlayedPayload) => void
+  // Sent to the target player when someone proposes a trade.
+  onTradeOffered?: (payload: TradePayload) => void
+  // Sent by the target when they accept — every client receives it, but only
+  // the host's own listener acts on it (see resolveTradeAsHost in App.tsx).
+  onTradeAcceptRequest?: (payload: TradePayload) => void
+  // The host's authoritative outcome: apply the resource swap, trusted, no
+  // re-validation.
+  onTradeResolved?: (payload: TradePayload) => void
+  // A decline (from the target) or a host rejection (stale resource counts)
+  // — either way, every client just clears its pending trade and shows why.
+  onTradeCancelled?: (payload: TradeCancelledPayload) => void
+  // A single over-limit player's confirmed discard after a 7-roll. Every
+  // over-limit player discards independently on their own screen — this
+  // fires once per player, not once for the whole table.
+  onDiscardConfirmed?: (payload: DiscardConfirmedPayload) => void
 }
 
 /**
@@ -190,6 +225,21 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<MonopolyPlayedPayload>('broadcast', { event: 'MONOPOLY_PLAYED' }, ({ payload }) => {
       handlersRef.current.onMonopolyPlayed?.(payload)
     })
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_OFFERED' }, ({ payload }) => {
+      handlersRef.current.onTradeOffered?.(payload)
+    })
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_ACCEPT_REQUEST' }, ({ payload }) => {
+      handlersRef.current.onTradeAcceptRequest?.(payload)
+    })
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onTradeResolved?.(payload)
+    })
+    channel.on<TradeCancelledPayload>('broadcast', { event: 'TRADE_CANCELLED' }, ({ payload }) => {
+      handlersRef.current.onTradeCancelled?.(payload)
+    })
+    channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
+      handlersRef.current.onDiscardConfirmed?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -246,6 +296,21 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastMonopolyPlayed = (payload: MonopolyPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'MONOPOLY_PLAYED', payload })
   }
+  const broadcastTradeOffered = (payload: TradePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_OFFERED', payload })
+  }
+  const broadcastTradeAcceptRequest = (payload: TradePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_ACCEPT_REQUEST', payload })
+  }
+  const broadcastTradeResolved = (payload: TradePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_RESOLVED', payload })
+  }
+  const broadcastTradeCancelled = (payload: TradeCancelledPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_CANCELLED', payload })
+  }
+  const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
+  }
 
   return {
     players,
@@ -261,5 +326,10 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
+    broadcastTradeOffered,
+    broadcastTradeAcceptRequest,
+    broadcastTradeResolved,
+    broadcastTradeCancelled,
+    broadcastDiscardConfirmed,
   }
 }

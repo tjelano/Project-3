@@ -37,7 +37,6 @@ import {
   canAfford,
   createInitialPlayers,
   deductCost,
-  discardRandomHalf,
   getPlayerScore,
   removeOne,
   shuffle,
@@ -49,7 +48,7 @@ import {
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 
-export type GamePhase = 'setup' | 'playing' | 'moveRobber'
+export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly'
 export interface BannerMessage {
@@ -127,6 +126,16 @@ function App() {
   // now ONLY ever triggered by that explicit button click, never by dice
   // physics settling or a robber move resolving. Reset by applyTurnAdvance.
   const [hasRolledThisTurn, setHasRolledThisTurn] = useState(false)
+  // Player IDs still owing a discard after a 7-roll (holding more than 7
+  // cards). Non-empty while gamePhase is 'discard'; moveRobber only opens
+  // once every over-limit player has confirmed. Fully derivable from
+  // `players`' resource counts, so it's never persisted in a match snapshot
+  // — restoreFromSnapshot just recomputes it if a reconnect lands mid-discard.
+  const [discardPlayerIds, setDiscardPlayerIds] = useState<number[]>([])
+  // Card-instance ids (see PlayerHand3D's buildCardSlots) the CURRENTLY
+  // discarding player has flagged in their 3D hand. Local UI state, reset
+  // whenever the active discarder changes.
+  const [discardSelection, setDiscardSelection] = useState<string[]>([])
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -405,6 +414,70 @@ function App() {
     }
   }
 
+  // Trusted state mutation for a resolved player-to-player trade — shared by
+  // the local (Pass & Play) accept path and the online host-arbiter path
+  // (resolveTradeAsHost, below), neither of which re-validates: by the time
+  // this runs, whoever called it has already decided the trade is legal.
+  const applyTradeResolution = (trade: PendingTrade) => {
+    const { fromPlayerId, toPlayerId, offerResource, wantResource } = trade
+    const fromPlayer = playerById.get(fromPlayerId)
+    const toPlayer = playerById.get(toPlayerId)
+    if (!fromPlayer || !toPlayer) return
+
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === fromPlayerId) {
+          return {
+            ...p,
+            resources: {
+              ...p.resources,
+              [offerResource]: p.resources[offerResource] - 1,
+              [wantResource]: p.resources[wantResource] + 1,
+            },
+          }
+        }
+        if (p.id === toPlayerId) {
+          return {
+            ...p,
+            resources: {
+              ...p.resources,
+              [wantResource]: p.resources[wantResource] - 1,
+              [offerResource]: p.resources[offerResource] + 1,
+            },
+          }
+        }
+        return p
+      }),
+    )
+    inform(
+      `${fromPlayer.name} traded 1 ${RESOURCE_LABELS[offerResource]} for 1 ${RESOURCE_LABELS[wantResource]} with ${toPlayer.name}!`,
+    )
+  }
+
+  // Trusted state mutation for one player's confirmed discard — shared by
+  // the local actor (confirmDiscard, below, which also broadcasts) and
+  // receiving clients (onDiscardConfirmed), same trusted-apply split as
+  // every other structural mutation in this file. counts is a resource ->
+  // quantity tally (derived from the discarder's flagged card ids), not a
+  // full resources object, so it composes with whatever that player's
+  // resources happen to be on THIS client — no risk of clobbering a
+  // concurrent change from something else.
+  const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType, number>>) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== playerId) return p
+        const resources = { ...p.resources }
+        for (const [type, count] of Object.entries(counts)) {
+          resources[type as ResourceType] -= count as number
+        }
+        return { ...p, resources }
+      }),
+    )
+    const remaining = discardPlayerIds.filter((id) => id !== playerId)
+    setDiscardPlayerIds(remaining)
+    if (remaining.length === 0) setGamePhase('moveRobber')
+  }
+
   // Reference-stable across renders that don't change it — useRoomChannel
   // depends on this object directly (see OnlineSetup.tsx for why). Safe to
   // key on the onlineInfo object itself (rather than its individual fields,
@@ -430,6 +503,11 @@ function App() {
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
+    broadcastTradeOffered,
+    broadcastTradeAcceptRequest,
+    broadcastTradeResolved,
+    broadcastTradeCancelled,
+    broadcastDiscardConfirmed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -456,19 +534,58 @@ function App() {
       spendDevCard(payload.playerId, 'monopoly')
       applyMonopolyEffect(payload.playerId, payload.resource)
     },
+    onTradeOffered: (payload) => setPendingTrade(payload),
+    // Every client hears this, but only the host acts on it — see
+    // resolveTradeAsHost, below, which validates against the host's own
+    // (authoritative) copy of both players' resources before applying.
+    onTradeAcceptRequest: (payload) => {
+      if (onlineInfo?.isHost) resolveTradeAsHost(payload)
+    },
+    onTradeResolved: (payload) => {
+      applyTradeResolution(payload)
+      setPendingTrade(null)
+    },
+    onTradeCancelled: (payload) => {
+      setPendingTrade(null)
+      inform(payload.reason)
+    },
+    onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
   })
 
   // Local (non-online) games are always "your turn" — whoever is at the
   // keyboard controls whichever player is active, same as it always has.
   const isMyTurn = !onlineInfo || players[currentPlayerIndex]?.id === onlineInfo.localPlayerId
 
+  // Who's actively discarding on THIS screen right now. Local Pass & Play
+  // is sequential — everyone shares one device, so only the first player
+  // still in the queue is ever "up." Online is parallel — every affected
+  // player discards on their own screen at the same time, so this is just
+  // "am I one of the people who still owes a discard."
+  const activeDiscarderId = onlineInfo
+    ? discardPlayerIds.includes(onlineInfo.localPlayerId)
+      ? onlineInfo.localPlayerId
+      : null
+    : (discardPlayerIds[0] ?? null)
+  const isMyDiscardTurn = activeDiscarderId != null
+  const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
+  const discardRequiredCount = discardingPlayer ? Math.floor(totalResourceCount(discardingPlayer.resources) / 2) : 0
+
   // The personal camera-anchored hand shows YOUR OWN cards in an online
   // match — not whoever's turn it currently is, which is what
   // currentPlayerIndex means and is correct only for local Pass & Play,
   // where everyone shares one screen and hands off the device each turn.
+  // During a local discard, it hands off again to whichever over-limit
+  // player is next in the queue, same idea as the setup phase already does.
   const localPlayer = onlineInfo
     ? (playerById.get(onlineInfo.localPlayerId) ?? players[currentPlayerIndex])
-    : players[currentPlayerIndex]
+    : gamePhase === 'discard' && activeDiscarderId != null
+      ? (playerById.get(activeDiscarderId) ?? players[currentPlayerIndex])
+      : players[currentPlayerIndex]
+
+  // Mirrors GameHud's own canPlayDevCards derivation — needed here too since
+  // the 3D hand (click-to-play) lives outside GameHud, in the Canvas.
+  const canPlayDevCards =
+    gamePhase === 'playing' && !isRolling && !winner && !pendingTrade && !devCardPicker && !devCardPlayedThisTurn && isMyTurn
 
   // The single place a turn passes to the next player: clears any unused
   // free roads (a Road Building card's free placements don't carry over) and
@@ -731,21 +848,16 @@ function App() {
     setHasRolledThisTurn(true)
 
     if (total === 7) {
-      const discardNotes: string[] = []
-      setPlayers((prev) =>
-        prev.map((p) => {
-          if (totalResourceCount(p.resources) <= 7) return p
-          const { resources, discarded } = discardRandomHalf(p.resources)
-          discardNotes.push(`${p.name} discarded ${discarded}`)
-          return { ...p, resources }
-        }),
-      )
-      inform(
-        discardNotes.length > 0
-          ? `Rolled 7 — ${discardNotes.join(', ')}. Move the Robber.`
-          : 'Rolled 7 — move the Robber.',
-      )
-      setGamePhase('moveRobber')
+      const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+      if (overLimitIds.length > 0) {
+        setDiscardPlayerIds(overLimitIds)
+        setDiscardSelection([])
+        setGamePhase('discard')
+        inform('Rolled 7 — players over 7 cards must discard half.')
+      } else {
+        inform('Rolled 7 — move the Robber.')
+        setGamePhase('moveRobber')
+      }
       return
     }
 
@@ -795,6 +907,45 @@ function App() {
   const handleDiceSettled = () => {
     if (!diceRoll) return
     applyRollResult(diceRoll.d1 + diceRoll.d2)
+  }
+
+  // Flags or unflags one card (by its 3D hand instance id, e.g. "lumber-2")
+  // for discard. Capped at the required count rather than allowing
+  // over-selection — once you're at the cap, clicking a NEW card is a
+  // no-op until you deselect one, so Confirm Discard's "exactly half"
+  // requirement is satisfied automatically the moment the cap is reached.
+  const toggleDiscardSelection = (cardId: string) => {
+    if (activeDiscarderId == null) return
+    const player = playerById.get(activeDiscarderId)
+    if (!player) return
+    const required = Math.floor(totalResourceCount(player.resources) / 2)
+    setDiscardSelection((prev) => {
+      if (prev.includes(cardId)) return prev.filter((id) => id !== cardId)
+      if (prev.length >= required) return prev
+      return [...prev, cardId]
+    })
+  }
+
+  const confirmDiscard = () => {
+    if (activeDiscarderId == null) return
+    const player = playerById.get(activeDiscarderId)
+    if (!player) return
+    const required = Math.floor(totalResourceCount(player.resources) / 2)
+    if (discardSelection.length !== required) return
+
+    // Card ids are "<resourceType>-<index>" (buildCardSlots in
+    // PlayerHand3D) — the index is purely a 3D-picking detail, only the
+    // type prefix matters for the actual resource mutation.
+    const counts: Partial<Record<ResourceType, number>> = {}
+    for (const id of discardSelection) {
+      const type = id.slice(0, id.lastIndexOf('-')) as ResourceType
+      counts[type] = (counts[type] ?? 0) + 1
+    }
+
+    applyDiscard(activeDiscarderId, counts)
+    setDiscardSelection([])
+    inform(`${player.name} discarded ${required} card${required === 1 ? '' : 's'}.`)
+    if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }
 
   const moveRobber = (tileId: string) => {
@@ -919,64 +1070,74 @@ function App() {
       return
     }
 
-    setPendingTrade({
-      fromPlayerId: fromPlayer.id,
-      toPlayerId,
-      offerResource,
-      wantResource,
-    })
+    const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerResource, wantResource }
+    setPendingTrade(trade)
+    if (onlineInfo) {
+      broadcastTradeOffered(trade)
+      const toPlayer = playerById.get(toPlayerId)
+      if (toPlayer) inform(`Trade offer sent to ${toPlayer.name} — waiting for a response…`)
+    }
+  }
+
+  // Validates and applies an accepted trade using the HOST's own copy of
+  // both players' resources — the authoritative check. Used both when the
+  // host itself is the one clicking Accept (resolvePlayerTrade, below) and
+  // when the host's onTradeAcceptRequest listener fires for someone else's
+  // accept. Re-checking here (rather than trusting the accepting client's
+  // own resource counts) is what the host-arbiter pattern is for: the
+  // offerer's resources could have changed — e.g. spent on a road — in the
+  // gap between the offer being sent and the target accepting it.
+  const resolveTradeAsHost = (trade: PendingTrade) => {
+    const fromPlayer = playerById.get(trade.fromPlayerId)
+    const toPlayer = playerById.get(trade.toPlayerId)
+    if (!fromPlayer || !toPlayer) {
+      setPendingTrade(null)
+      return
+    }
+    if (toPlayer.resources[trade.wantResource] < 1 || fromPlayer.resources[trade.offerResource] < 1) {
+      const reason = `The trade between ${fromPlayer.name} and ${toPlayer.name} fell through — resources changed.`
+      setPendingTrade(null)
+      inform(reason)
+      broadcastTradeCancelled({ reason })
+      return
+    }
+    applyTradeResolution(trade)
+    setPendingTrade(null)
+    broadcastTradeResolved(trade)
   }
 
   const resolvePlayerTrade = (accept: boolean) => {
     if (winner) return
     if (!pendingTrade) return
-    const { fromPlayerId, toPlayerId, offerResource, wantResource } = pendingTrade
-    const fromPlayer = playerById.get(fromPlayerId)
-    const toPlayer = playerById.get(toPlayerId)
-    setPendingTrade(null)
-    if (!fromPlayer || !toPlayer) return
 
     if (!accept) {
-      inform(`${toPlayer.name} declined the trade.`)
-      return
-    }
-    if (toPlayer.resources[wantResource] < 1) {
-      warn(`${toPlayer.name} can't afford that trade.`)
-      return
-    }
-    if (fromPlayer.resources[offerResource] < 1) {
-      warn(`${fromPlayer.name} no longer has enough ${RESOURCE_LABELS[offerResource]}.`)
+      const toPlayer = playerById.get(pendingTrade.toPlayerId)
+      const reason = `${toPlayer?.name ?? 'The player'} declined the trade.`
+      setPendingTrade(null)
+      inform(reason)
+      if (onlineInfo) broadcastTradeCancelled({ reason })
       return
     }
 
-    setPlayers((prev) =>
-      prev.map((p) => {
-        if (p.id === fromPlayerId) {
-          return {
-            ...p,
-            resources: {
-              ...p.resources,
-              [offerResource]: p.resources[offerResource] - 1,
-              [wantResource]: p.resources[wantResource] + 1,
-            },
-          }
-        }
-        if (p.id === toPlayerId) {
-          return {
-            ...p,
-            resources: {
-              ...p.resources,
-              [wantResource]: p.resources[wantResource] - 1,
-              [offerResource]: p.resources[offerResource] + 1,
-            },
-          }
-        }
-        return p
-      }),
-    )
-    inform(
-      `${fromPlayer.name} traded 1 ${RESOURCE_LABELS[offerResource]} for 1 ${RESOURCE_LABELS[wantResource]} with ${toPlayer.name}!`,
-    )
+    if (!onlineInfo) {
+      // Local Pass & Play: everyone shares one screen and one authoritative
+      // state, so there's nothing to arbitrate — resolve immediately.
+      applyTradeResolution(pendingTrade)
+      setPendingTrade(null)
+      return
+    }
+
+    if (onlineInfo.isHost) {
+      // The host accepting their own incoming offer: resolve directly
+      // rather than broadcasting a request to itself — Realtime broadcasts
+      // don't echo back to the sender, so nothing would ever receive it.
+      resolveTradeAsHost(pendingTrade)
+    } else {
+      // Non-host accepting: don't apply locally. Ask the host to validate
+      // against its own authoritative resource counts first (pendingTrade
+      // stays set — still awaiting TRADE_RESOLVED/TRADE_CANCELLED).
+      broadcastTradeAcceptRequest(pendingTrade)
+    }
   }
 
   const buyDevCard = () => {
@@ -1175,6 +1336,8 @@ function App() {
     setDevCardPicker(null)
     setDevCardPlayedThisTurn(false)
     setHasRolledThisTurn(false)
+    setDiscardPlayerIds([])
+    setDiscardSelection([])
     setBoardInstance((n) => n + 1)
     setLongestRoadHolderId(null)
     setLargestArmyHolderId(null)
@@ -1226,6 +1389,15 @@ function App() {
     setDevCardPicker(null)
     setDiceRoll(null)
     setIsRolling(false)
+    setDiscardSelection([])
+    // discardPlayerIds isn't persisted (fully derivable from resource
+    // counts) — if the snapshot was saved mid-discard, recompute who still
+    // owes one from the restored players rather than trusting a stale list.
+    setDiscardPlayerIds(
+      snapshot.gamePhase === 'discard'
+        ? snapshot.players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+        : [],
+    )
     setBoardInstance((n) => n + 1)
   }
 
@@ -1369,7 +1541,16 @@ function App() {
           <Dice3D roll={diceRoll} onSettled={handleDiceSettled} />
           {/* Your own hand, held at the bottom of the viewport — localPlayer
               is you in an online match, or whoever's turn it is locally. */}
-          <PlayerHand3D resources={localPlayer.resources} devCards={localPlayer.devCards} />
+          <PlayerHand3D
+            resources={localPlayer.resources}
+            devCards={localPlayer.devCards}
+            devCardsBoughtThisTurn={localPlayer.devCardsBoughtThisTurn}
+            canPlayDevCards={canPlayDevCards}
+            onPlayDevCard={playDevCard}
+            discardActive={gamePhase === 'discard' && isMyDiscardTurn}
+            discardSelection={discardSelection}
+            onToggleDiscard={toggleDiscardSelection}
+          />
           {/* Every player's hand floating at their table seat — no-ops
               entirely for local Pass & Play (see TableSeatHands). */}
           <TableSeatHands players={players} localPlayerId={onlineInfo?.localPlayerId ?? null} />
@@ -1414,6 +1595,7 @@ function App() {
         settlements={settlements}
         onReturnToMenu={returnToMenu}
         pendingTrade={pendingTrade}
+        localPlayerId={onlineInfo?.localPlayerId ?? null}
         onProposeTrade={proposePlayerTrade}
         onResolveTrade={resolvePlayerTrade}
         onPlayDevCard={playDevCard}
@@ -1423,6 +1605,11 @@ function App() {
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}
+        isMyDiscardTurn={isMyDiscardTurn}
+        discardingPlayerName={discardingPlayer?.name ?? ''}
+        discardRequiredCount={discardRequiredCount}
+        discardSelectedCount={discardSelection.length}
+        onConfirmDiscard={confirmDiscard}
       />
     </div>
   )

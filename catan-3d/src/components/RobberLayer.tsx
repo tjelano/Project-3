@@ -15,6 +15,12 @@ const ROBBER_HEIGHT = 0.34
 // at, so the clearance above the tile/token stays exactly what it was.
 const ROBBER_Y = TILE_HEIGHT / 2 + 0.12 + 0.05 + ROBBER_HEIGHT / 2 + 0.02
 
+// Nudges the figurine off dead-center so it stands beside the number chit
+// instead of sitting directly on top of it and hiding it completely — the
+// chit stays fully visible (and clickable, once robber-move targeting is
+// live) no matter which hex the robber is parked on.
+const ROBBER_X_OFFSET = 0.15
+
 // A stylized rogue figurine, built from a handful of low-poly primitives —
 // one shared material throughout (ROBBER_MATERIAL), so it reads as a single
 // stone/plastic token rather than a painted miniature. Every silhouette cue
@@ -51,7 +57,7 @@ const SACK_Z = -ROBBER_RADIUS * 0.4
 
 function RobberToken({ tile }: { tile: HexTileData }) {
   return (
-    <group position={[tile.x, ROBBER_Y, tile.z]}>
+    <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y, tile.z]}>
       {/* Cloak/torso: a tapered cone reads immediately as a hooded, cloaked
           figure — the classic robed-rogue silhouette in a single shape. */}
       <mesh position={[0, TORSO_Y, 0]} material={ROBBER_MATERIAL} castShadow receiveShadow>

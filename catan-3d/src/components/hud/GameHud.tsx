@@ -11,6 +11,7 @@ import { BuildingCostsPanel } from './BuildingCostsPanel'
 import { TradeOfferPrompt, type PendingTrade } from './TradeOfferPrompt'
 import { DevCardResourcePicker } from './DevCardResourcePicker'
 import { RankingsPanel } from './RankingsPanel'
+import { DiscardPanel } from './DiscardPanel'
 
 const DEV_CARD_PICKER_COPY: Record<DevCardPickerMode, { title: string; subtitle: string; pickCount: number }> = {
   yearOfPlenty: { title: 'Year of Plenty', subtitle: 'Choose 2 resources to take from the bank.', pickCount: 2 },
@@ -43,6 +44,12 @@ interface GameHudProps {
   settlements: Record<string, Building>
   onReturnToMenu: () => void
   pendingTrade: PendingTrade | null
+  // null for local Pass & Play (everyone shares one screen, so the trade
+  // prompt always shows there). Online, only the browser whose player ID
+  // matches pendingTrade.toPlayerId should see the Accept/Decline prompt —
+  // everyone else (including the proposer) just sees their action buttons
+  // locked until it resolves.
+  localPlayerId: number | null
   onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
   onResolveTrade: (accept: boolean) => void
   onPlayDevCard: (type: DevCardType) => void
@@ -52,6 +59,14 @@ interface GameHudProps {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
+  // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
+  // screen sees the counter/Confirm button vs. a "waiting" message —
+  // discardingPlayerName still names whoever's actually discarding either way.
+  isMyDiscardTurn: boolean
+  discardingPlayerName: string
+  discardRequiredCount: number
+  discardSelectedCount: number
+  onConfirmDiscard: () => void
 }
 
 export function GameHud({
@@ -75,6 +90,7 @@ export function GameHud({
   settlements,
   onReturnToMenu,
   pendingTrade,
+  localPlayerId,
   onProposeTrade,
   onResolveTrade,
   onPlayDevCard,
@@ -84,6 +100,11 @@ export function GameHud({
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
+  isMyDiscardTurn,
+  discardingPlayerName,
+  discardRequiredCount,
+  discardSelectedCount,
+  onConfirmDiscard,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
@@ -118,9 +139,11 @@ export function GameHud({
         ? setupStage === 'settlement'
           ? 'Place your settlement'
           : 'Place your road'
-        : gamePhase === 'moveRobber'
-          ? 'Move the Robber'
-          : `${currentPlayer.name}’s turn`
+        : gamePhase === 'discard'
+          ? `${discardingPlayerName} discarding…`
+          : gamePhase === 'moveRobber'
+            ? 'Move the Robber'
+            : `${currentPlayer.name}’s turn`
 
   return (
     <div className="pointer-events-none absolute inset-0 font-body text-white">
@@ -178,12 +201,21 @@ export function GameHud({
           onComplete={onResolveDevCardPicker}
         />
       )}
-      {pendingTrade && (
+      {pendingTrade && (localPlayerId == null || pendingTrade.toPlayerId === localPlayerId) && (
         <TradeOfferPrompt
           trade={pendingTrade}
           players={players}
           onAccept={() => onResolveTrade(true)}
           onDecline={() => onResolveTrade(false)}
+        />
+      )}
+      {gamePhase === 'discard' && (
+        <DiscardPanel
+          isMyDiscardTurn={isMyDiscardTurn}
+          discardingPlayerName={discardingPlayerName}
+          requiredCount={discardRequiredCount}
+          selectedCount={discardSelectedCount}
+          onConfirm={onConfirmDiscard}
         />
       )}
       {winner && (

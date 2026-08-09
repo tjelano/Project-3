@@ -1,5 +1,6 @@
-import { useMemo, useState, memo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
+import * as THREE from 'three'
 import { TILE_HEIGHT } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
 import { PLAYER_COLORS, type Building, type Player } from '../game/types'
@@ -14,6 +15,50 @@ const EDGE_LENGTH_SCALE = 0.82
 
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
+
+// One shared translucent material per glow colour, cached the same way
+// GamePieces' own pieceMaterial/shadeMaterial are — a hover happens often
+// enough that allocating a fresh material per frame would be wasteful.
+const hologramCache = new Map<string, THREE.MeshStandardMaterial>()
+function hologramMaterial(color: string): THREE.MeshStandardMaterial {
+  const cached = hologramCache.get(color)
+  if (cached) return cached
+  const created = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+  })
+  hologramCache.set(color, created)
+  return created
+}
+
+// Renders a real GamePieces model (SettlementModel/CityModel/RoadModel) as a
+// holographic preview by swapping every one of its meshes' materials for the
+// SAME shared hologram instance above. Deliberately NOT done by passing a
+// translucent colour straight into the model: GamePieces caches its
+// pieceMaterial/shadeMaterial per colour and shares those instances across
+// every ALREADY-BUILT piece of that colour on the board — mutating one
+// in place would make every real settlement of that colour go translucent
+// too. Traversing and reassigning each mesh's OWN .material pointer instead
+// touches nothing shared.
+function GhostModel({ color, children }: { color: string; children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null)
+  useLayoutEffect(() => {
+    const material = hologramMaterial(color)
+    ref.current?.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = material
+        // A hologram shouldn't anchor itself with a normal opaque shadow.
+        child.castShadow = false
+        child.receiveShadow = false
+      }
+    })
+  }, [color])
+  return <group ref={ref}>{children}</group>
+}
 
 const VertexSlot = memo(function VertexSlot({
   vertex,
@@ -88,32 +133,11 @@ const VertexSlot = memo(function VertexSlot({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* ghost settlement: a translucent glowing house silhouette */}
+      {/* ghost settlement: the real cottage model, holographic */}
       {hovered && (
-        <group>
-          <mesh position={[0, 0.07, 0]}>
-            <boxGeometry args={[0.14, 0.14, 0.14]} />
-            <meshStandardMaterial
-              color={SETTLEMENT_GLOW}
-              emissive={SETTLEMENT_GLOW}
-              emissiveIntensity={0.7}
-              transparent
-              opacity={0.5}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh position={[0, 0.17, 0]}>
-            <coneGeometry args={[0.11, 0.13, 4]} />
-            <meshStandardMaterial
-              color={SETTLEMENT_GLOW}
-              emissive={SETTLEMENT_GLOW}
-              emissiveIntensity={0.7}
-              transparent
-              opacity={0.5}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
+        <GhostModel color={SETTLEMENT_GLOW}>
+          <SettlementModel color={SETTLEMENT_GLOW} />
+        </GhostModel>
       )}
     </group>
   )
@@ -183,19 +207,11 @@ const EdgeSlot = memo(function EdgeSlot({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* ghost road: a translucent glowing bar along the edge */}
+      {/* ghost road: the real timber-log model, holographic */}
       {hovered && (
-        <mesh position={[0, 0.06, 0]}>
-          <boxGeometry args={[0.09, 0.06, length * (EDGE_LENGTH_SCALE - 0.05)]} />
-          <meshStandardMaterial
-            color={ROAD_GLOW}
-            emissive={ROAD_GLOW}
-            emissiveIntensity={0.7}
-            transparent
-            opacity={0.5}
-            depthWrite={false}
-          />
-        </mesh>
+        <GhostModel color={ROAD_GLOW}>
+          <RoadModel color={ROAD_GLOW} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        </GhostModel>
       )}
     </group>
   )

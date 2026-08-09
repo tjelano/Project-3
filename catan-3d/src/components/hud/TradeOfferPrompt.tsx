@@ -1,4 +1,5 @@
 import { RESOURCE_LABELS, type Player, type ResourceType } from '../../game/types'
+import { useDraggablePanel } from '../../hooks/useDraggablePanel'
 import { ResourceIcon } from './ResourceIcon'
 
 export interface PendingTrade {
@@ -21,15 +22,22 @@ export function TradeOfferPrompt({
 }) {
   const fromPlayer = players.find((p) => p.id === trade.fromPlayerId)
   const toPlayer = players.find((p) => p.id === trade.toPlayerId)
+  const { panelRef, offset, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
   if (!fromPlayer || !toPlayer) return null
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/70 backdrop-blur-md">
-      <div className="mx-4 w-full max-w-sm rounded-2xl border border-glass-border bg-glass px-8 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
-        <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Trade Offer</p>
-        <p className="mt-3 font-display text-lg text-white">
-          {toPlayer.name}, {fromPlayer.name} proposes:
-        </p>
+      <div
+        ref={panelRef}
+        className="mx-4 w-full max-w-sm rounded-2xl border border-glass-border bg-glass px-8 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+        style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+      >
+        <div onPointerDown={onHeaderPointerDown} className="cursor-grab select-none active:cursor-grabbing">
+          <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Trade Offer</p>
+          <p className="mt-3 font-display text-lg text-white">
+            {toPlayer.name}, {fromPlayer.name} proposes:
+          </p>
+        </div>
 
         <div className="mt-5 flex items-center justify-center gap-4">
           <div className="flex flex-col items-center gap-1">

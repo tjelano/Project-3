@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, memo } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import { TILE_HEIGHT } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
@@ -15,17 +15,17 @@ const EDGE_LENGTH_SCALE = 0.82
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
 
-function VertexSlot({
+const VertexSlot = memo(function VertexSlot({
   vertex,
   building,
-  colorByPlayerId,
+  ownerColor,
   onBuild,
   locked,
 }: {
   vertex: BoardVertex
   building: Building | undefined
-  colorByPlayerId: Map<number, string>
-  onBuild: () => void
+  ownerColor: string | undefined
+  onBuild: (vertexId: string) => void
   locked: boolean
 }) {
   const [hovered, setHovered] = useState(false)
@@ -35,7 +35,7 @@ function VertexSlot({
   // than the base model) so the owner can click their own settlement to
   // upgrade it into a city.
   if (building) {
-    const color = colorByPlayerId.get(building.ownerId) ?? '#ffffff'
+    const color = ownerColor ?? '#ffffff'
     return (
       <group position={[vertex.x, TILE_HEIGHT / 2, vertex.z]}>
         <mesh
@@ -44,7 +44,7 @@ function VertexSlot({
               ? undefined
               : (event: ThreeEvent<MouseEvent>) => {
                   event.stopPropagation()
-                  onBuild()
+                  onBuild(vertex.id)
                 }
           }
         >
@@ -80,7 +80,7 @@ function VertexSlot({
             ? undefined
             : (event: ThreeEvent<MouseEvent>) => {
                 event.stopPropagation()
-                onBuild()
+                onBuild(vertex.id)
               }
         }
       >
@@ -117,14 +117,14 @@ function VertexSlot({
       )}
     </group>
   )
-}
+})
 
-function EdgeSlot({
+const EdgeSlot = memo(function EdgeSlot({
   edge,
   a,
   b,
   ownerId,
-  colorByPlayerId,
+  ownerColor,
   onBuild,
   locked,
 }: {
@@ -132,8 +132,8 @@ function EdgeSlot({
   a: BoardVertex
   b: BoardVertex
   ownerId: number | undefined
-  colorByPlayerId: Map<number, string>
-  onBuild: () => void
+  ownerColor: string | undefined
+  onBuild: (edgeId: string) => void
   locked: boolean
 }) {
   const [hovered, setHovered] = useState(false)
@@ -143,7 +143,7 @@ function EdgeSlot({
   // A road has already been built here — render it permanently in the
   // owner's color instead of a hoverable hitbox.
   if (ownerId != null) {
-    const color = colorByPlayerId.get(ownerId) ?? '#ffffff'
+    const color = ownerColor ?? '#ffffff'
     return (
       <group position={[edge.x, TILE_HEIGHT / 2, edge.z]} rotation={[0, angle, 0]}>
         <RoadModel color={color} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
@@ -175,7 +175,7 @@ function EdgeSlot({
             ? undefined
             : (event: ThreeEvent<MouseEvent>) => {
                 event.stopPropagation()
-                onBuild()
+                onBuild(edge.id)
               }
         }
       >
@@ -199,7 +199,7 @@ function EdgeSlot({
       )}
     </group>
   )
-}
+})
 
 interface BoardInteractionsProps {
   graph: BoardGraph
@@ -211,7 +211,7 @@ interface BoardInteractionsProps {
   locked?: boolean
 }
 
-export function BoardInteractions({
+export const BoardInteractions = memo(function BoardInteractions({
   graph,
   settlements,
   roads,
@@ -232,8 +232,8 @@ export function BoardInteractions({
           key={vertex.id}
           vertex={vertex}
           building={settlements[vertex.id]}
-          colorByPlayerId={colorByPlayerId}
-          onBuild={() => onBuildSettlement(vertex.id)}
+          ownerColor={settlements[vertex.id]?.ownerId != null ? colorByPlayerId.get(settlements[vertex.id].ownerId!) : undefined}
+          onBuild={onBuildSettlement}
           locked={locked}
         />
       ))}
@@ -244,11 +244,11 @@ export function BoardInteractions({
           a={graph.vertexById.get(edge.a)!}
           b={graph.vertexById.get(edge.b)!}
           ownerId={roads[edge.id]}
-          colorByPlayerId={colorByPlayerId}
-          onBuild={() => onBuildRoad(edge.id)}
+          ownerColor={roads[edge.id] != null ? colorByPlayerId.get(roads[edge.id]!) : undefined}
+          onBuild={onBuildRoad}
           locked={locked}
         />
       ))}
     </group>
   )
-}
+})

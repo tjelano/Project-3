@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, memo } from 'react'
 import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
 import { getTileTerrain } from '../three/hexTerrain'
 import { TILE_MATERIALS } from '../three/materials'
@@ -17,7 +17,7 @@ import {
 // z-fighting where two hex edges meet exactly.
 const TILE_GAP_SCALE = 0.985
 
-function HexTile({ tile }: { tile: HexTileData }) {
+const HexTile = memo(function HexTile({ tile }: { tile: HexTileData }) {
   // The sculpted mesh and its decorations share one cached height field, so
   // every asset on this tile is planted on the same surface.
   const terrain = useMemo(() => getTileTerrain(tile.biome, tile.id), [tile.biome, tile.id])
@@ -52,9 +52,9 @@ function HexTile({ tile }: { tile: HexTileData }) {
       </group>
     </group>
   )
-}
+})
 
-export function CatanBoard({ tiles }: { tiles: HexTileData[] }) {
+export const CatanBoard = memo(function CatanBoard({ tiles }: { tiles: HexTileData[] }) {
   return (
     <group>
       {tiles.map((tile) => (
@@ -62,4 +62,4 @@ export function CatanBoard({ tiles }: { tiles: HexTileData[] }) {
       ))}
     </group>
   )
-}
+})

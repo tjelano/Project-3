@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -146,8 +146,19 @@ function App() {
 
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
 
+  // Stable callbacks for board interactions
+  const buildSettlementRef = useRef((_id: string) => {})
+  const buildRoadRef = useRef((_id: string) => {})
+  useLayoutEffect(() => {
+    buildSettlementRef.current = buildSettlementRaw
+    buildRoadRef.current = buildRoadRaw
+  })
+  const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
+  const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
+
   const warn = (text: string) => {
     console.warn(`[Catan] ${text}`)
+
     setBanner({ text, variant: 'warning' })
   }
 
@@ -540,7 +551,7 @@ function App() {
     )
   }
 
-  const buildSettlement = (vertexId: string) => {
+  const buildSettlementRaw = (vertexId: string) => {
     if (winner) return
     if (pendingTrade) {
       warn('Resolve the pending trade first.')
@@ -618,7 +629,7 @@ function App() {
     if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
   }
 
-  const buildRoad = (edgeId: string) => {
+  const buildRoadRaw = (edgeId: string) => {
     if (winner) return
     if (pendingTrade) {
       warn('Resolve the pending trade first.')
@@ -1094,6 +1105,7 @@ function App() {
     applyKnightPlay(player.id)
     if (onlineInfo) broadcastKnightPlayed({ playerId: player.id })
   }
+
 
   const playRoadBuilding = () => {
     if (!canPlayDevCardNow('roadBuilding')) return

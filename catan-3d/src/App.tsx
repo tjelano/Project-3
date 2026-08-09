@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -12,7 +12,6 @@ import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
 import { PlayerHand3D, TableSeatHands } from './components/PlayerHand3D'
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
@@ -105,9 +104,6 @@ function App() {
   const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
-  // True while the active moveRobber phase came from playing a Knight card
-  // rather than a natural 7 roll — a Knight doesn't end the player's turn.
-  const [robberMoveFromKnight, setRobberMoveFromKnight] = useState(false)
   const [freeRoadsRemaining, setFreeRoadsRemaining] = useState(0)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
@@ -123,6 +119,11 @@ function App() {
   // Official rule: at most one development card may be PLAYED per turn
   // (buying is unlimited). Cleared by endTurn.
   const [devCardPlayedThisTurn, setDevCardPlayedThisTurn] = useState(false)
+  // Whether the CURRENT player has already rolled this turn. Drives the
+  // Roll Dice button's morph into an End Turn button — turn advancement is
+  // now ONLY ever triggered by that explicit button click, never by dice
+  // physics settling or a robber move resolving. Reset by applyTurnAdvance.
+  const [hasRolledThisTurn, setHasRolledThisTurn] = useState(false)
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -168,24 +169,16 @@ function App() {
   const applyTurnAdvance = (nextIndex: number) => {
     setFreeRoadsRemaining(0)
     setDevCardPlayedThisTurn(false)
+    setHasRolledThisTurn(false)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
   }
-
-  // Whether the CURRENTLY animating roll is this client's own (a real
-  // click) or mirroring another player's DICE_ROLLED broadcast. This is
-  // what applyRollResult reads to decide whether to call endTurn() — NOT
-  // currentPlayerIndex, which can already have raced ahead by the time a
-  // mirrored roll's physics animation finishes settling. See the comment
-  // on that endTurn() call for the exact bug this prevents.
-  const localRollRef = useRef(true)
 
   // Shared by a local Roll Dice click AND by mirroring another player's
   // DICE_ROLLED broadcast — both just need the 3D dice to animate toward
   // the same (d1, d2), after which handleDiceSettled/applyRollResult below
   // runs identically regardless of which client actually rolled.
-  const beginDiceAnimation = (d1: number, d2: number, isLocal: boolean) => {
-    localRollRef.current = isLocal
+  const beginDiceAnimation = (d1: number, d2: number) => {
     setIsRolling(true)
     setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
   }
@@ -278,7 +271,6 @@ function App() {
     thiefId: number,
     victimId: number | null,
     stolenResource: ResourceType | null,
-    endsTurn: boolean,
   ) => {
     setRobberTileId(tileId)
 
@@ -307,8 +299,10 @@ function App() {
 
     const tile = tileById.get(tileId)
     if (tile) inform(`The Robber moves to ${BIOME_LABELS[tile.biome]}.${stealNote}`)
+    // Never ends the turn here, whether this came from a natural 7 or a
+    // Knight card — turn advancement only ever happens via the explicit
+    // End Turn button. Control simply returns to the mover's active turn.
     setGamePhase('playing')
-    if (endsTurn) endTurn()
   }
 
   // Knight and Road Building are single-step plays — spend-plus-effect
@@ -320,7 +314,6 @@ function App() {
   // referencing it here, before its own declaration, is safe.
   const applyKnightPlay = (playerId: number) => {
     spendDevCard(playerId, 'knight')
-    setRobberMoveFromKnight(true)
     const player = players.find((p) => p.id === playerId)
     if (player) inform(`${player.name} played a Knight! Move the Robber.`)
     setGamePhase('moveRobber')
@@ -411,14 +404,18 @@ function App() {
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
-    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1], false),
+    // Mirrors the animation and runs local resource generation only — never
+    // touches whose turn it is. Turn advancement is decoupled entirely from
+    // this event; it only ever happens via TURN_PASSED, sent when the
+    // roller clicks their own End Turn button.
+    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
     onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId),
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
-      applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource, payload.endsTurn),
+      applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource),
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
     // These two receivers spend the card themselves — unlike the acting
@@ -446,20 +443,13 @@ function App() {
     ? (players.find((p) => p.id === onlineInfo.localPlayerId) ?? players[currentPlayerIndex])
     : players[currentPlayerIndex]
 
-  // Shared with SceneRig's camera seat-lock: drei's OrbitControls derives
-  // its internal spherical state from camera.position at the start of each
-  // update() call, so an external position write (there, not here) is
-  // adopted rather than fought — but only if update() is actually called
-  // afterward, which is what this ref is for.
-  const controlsRef = useRef<OrbitControlsImpl>(null)
-
   // The single place a turn passes to the next player: clears any unused
   // free roads (a Road Building card's free placements don't carry over) and
   // resets the incoming player's "bought this turn" dev card tracking. Only
-  // the player whose turn is actually ending broadcasts — every OTHER
-  // client's own endTurn() call (triggered by mirroring the same dice roll
-  // or robber move) fires too, but currentPlayerIndex won't match their own
-  // seat at that moment, so the guard below naturally silences them.
+  // ever called from the explicit End Turn button click (handleEndTurn,
+  // below) — never from dice-settle or robber-move callbacks — so there is
+  // no race to guard against here; the click itself already only fires on
+  // the client whose turn it actually is.
   const endTurn = () => {
     const nextIndex = (currentPlayerIndex + 1) % players.length
     applyTurnAdvance(nextIndex)
@@ -714,6 +704,10 @@ function App() {
       warn("It's not your turn.")
       return
     }
+    if (hasRolledThisTurn) {
+      warn("You've already rolled this turn.")
+      return
+    }
 
     // Authoritative: this client's roll is what everyone else mirrors, so
     // it's generated and broadcast before this client's own animation even
@@ -723,12 +717,18 @@ function App() {
     if (onlineInfo) {
       broadcastDiceRolled({ dice: [d1, d2], total: d1 + d2, playerId: players[currentPlayerIndex].id })
     }
-    beginDiceAnimation(d1, d2, true)
+    beginDiceAnimation(d1, d2)
   }
 
   const applyRollResult = (total: number) => {
     setIsRolling(false)
     setLastRoll(total)
+    // Marks the roll as done for whoever's turn this is — every client sets
+    // this, active or not, since it's a fact about the active player's turn,
+    // not this browser's own state. Distributes resources (and, on a 7,
+    // opens the moveRobber phase) but never touches currentPlayerIndex or
+    // fires TURN_PASSED; only the End Turn button does that.
+    setHasRolledThisTurn(true)
 
     if (total === 7) {
       const discardNotes: string[] = []
@@ -790,23 +790,6 @@ function App() {
     } else {
       setBanner(null)
     }
-
-    // Only the client whose OWN roll this was drives the turn forward.
-    // Each client's dice physics is an independent real-time simulation —
-    // settle timing isn't guaranteed to match across devices/frame rates —
-    // so a mirrored roll's animation can still be running when the actor's
-    // TURN_PASSED broadcast (sent the instant THEIR animation settles,
-    // fully independent of anyone else's) already arrives and advances
-    // currentPlayerIndex. If this mirrored call still read currentPlayerIndex
-    // to decide "is it my turn ending", it would see the ALREADY-ADVANCED
-    // value, wrongly conclude the turn was just handed to ME, and bounce it
-    // straight back to whoever actually rolled — the exact bug that made a
-    // 2-player match skip Player 1 and loop forever on Player 2. Reading
-    // localRollRef instead is immune to that: it was fixed the moment this
-    // roll started, before any race was possible.
-    if (!onlineInfo || localRollRef.current) {
-      endTurn()
-    }
   }
 
   const handleDiceSettled = () => {
@@ -856,15 +839,26 @@ function App() {
       }
     }
 
-    // A Knight card doesn't end the player's turn — they keep going. This
-    // flag is actor-local bookkeeping (Knight plays aren't broadcast in
-    // this phase), so it's resolved into an explicit endsTurn value that
-    // travels WITH the move rather than relying on each receiver's own
-    // (possibly stale) copy of robberMoveFromKnight.
-    const endsTurn = !robberMoveFromKnight
-    applyRobberMove(tileId, thief.id, victimId, stolenResource, endsTurn)
-    if (robberMoveFromKnight) setRobberMoveFromKnight(false)
-    if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenResource, endsTurn })
+    applyRobberMove(tileId, thief.id, victimId, stolenResource)
+    if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenResource })
+  }
+
+  // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
+  // an explicit user click, never an automatic side effect of dice physics
+  // settling or a robber move resolving. Requires a roll to have actually
+  // happened first, and (implicitly, via gamePhase !== 'playing' below) that
+  // any pending robber move from a natural 7 has already been resolved.
+  const handleEndTurn = () => {
+    if (winner) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (gamePhase !== 'playing' || !hasRolledThisTurn) {
+      warn('Roll the dice before ending your turn.')
+      return
+    }
+    endTurn()
   }
 
   const bankTrade = (give: ResourceType, receive: ResourceType) => {
@@ -1206,10 +1200,10 @@ function App() {
     setDevDeck(shuffle(buildDevCardDeck()))
     setWinner(null)
     setPendingTrade(null)
-    setRobberMoveFromKnight(false)
     setFreeRoadsRemaining(0)
     setDevCardPicker(null)
     setDevCardPlayedThisTurn(false)
+    setHasRolledThisTurn(false)
     setBoardInstance((n) => n + 1)
     setLongestRoadHolderId(null)
     setLargestArmyHolderId(null)
@@ -1255,7 +1249,7 @@ function App() {
     setLargestArmyHolderId(snapshot.largestArmyHolderId)
     setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
-    setRobberMoveFromKnight(snapshot.robberMoveFromKnight)
+    setHasRolledThisTurn(snapshot.hasRolledThisTurn)
     setBanner(null)
     setPendingTrade(null)
     setDevCardPicker(null)
@@ -1312,7 +1306,7 @@ function App() {
       largestArmyHolderId,
       devCardPlayedThisTurn,
       freeRoadsRemaining,
-      robberMoveFromKnight,
+      hasRolledThisTurn,
     }
     saveMatchSnapshot(onlineInfo.roomCode, snapshot)
   }, [
@@ -1335,7 +1329,7 @@ function App() {
     largestArmyHolderId,
     devCardPlayedThisTurn,
     freeRoadsRemaining,
-    robberMoveFromKnight,
+    hasRolledThisTurn,
   ])
 
   if (!gameStarted) {
@@ -1376,14 +1370,7 @@ function App() {
           }}
         >
           <color attach="background" args={['#070c16']} />
-          <SceneRig
-            currentPlayerIndex={currentPlayerIndex}
-            playerCount={players.length}
-            isOnline={!!onlineInfo}
-            localPlayerId={onlineInfo?.localPlayerId ?? null}
-            activePlayerId={players[currentPlayerIndex]?.id ?? null}
-            controlsRef={controlsRef}
-          />
+          <SceneRig />
           <BoardFrame />
           <Ocean />
           <CatanBoard tiles={tiles} />
@@ -1418,9 +1405,11 @@ function App() {
           {/* Constrained so the camera can never drop below the horizon (which
             exposed the underside of the board and the backfaces of every
             token), fly past the island, or dolly through geometry. Damping
-            is what makes the orbit feel weighted rather than twitchy. */}
+            is what makes the orbit feel weighted rather than twitchy. Fully
+            manual — nothing in the app ever drives this camera; it is
+            exclusively under the player's own mouse/OrbitControls input,
+            on every screen, on every turn, with no exceptions. */}
           <OrbitControls
-            ref={controlsRef}
             target={[0, 0, 0]}
             minPolarAngle={Math.PI / 6}
             maxPolarAngle={Math.PI / 2.35}
@@ -1439,6 +1428,8 @@ function App() {
         isMyTurn={isMyTurn}
         lastRoll={lastRoll}
         onRollDice={rollDice}
+        hasRolledThisTurn={hasRolledThisTurn}
+        onEndTurn={handleEndTurn}
         gamePhase={gamePhase}
         setupStage={setupStage}
         banner={banner}

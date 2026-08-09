@@ -49,11 +49,6 @@ export interface RobberMovedPayload {
   thiefId: number
   victimId: number | null
   stolenResource: ResourceType | null
-  // Whether this move should end the mover's turn. False when it came from
-  // playing a Knight card (not broadcast in this phase either) — without
-  // this, a receiving client's own robberMoveFromKnight flag would be
-  // wrong and it would end the actor's turn when it shouldn't have.
-  endsTurn: boolean
 }
 
 export interface KnightPlayedPayload {

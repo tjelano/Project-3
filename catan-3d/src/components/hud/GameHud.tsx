@@ -26,6 +26,10 @@ interface GameHudProps {
   isMyTurn: boolean
   lastRoll: number | null
   onRollDice: () => void
+  // Once true, the Roll Dice button morphs into End Turn (same slot) — the
+  // ONLY way currentPlayerIndex ever advances is that explicit click.
+  hasRolledThisTurn: boolean
+  onEndTurn: () => void
   gamePhase: GamePhase
   setupStage: SetupStage
   banner: BannerMessage | null
@@ -56,6 +60,8 @@ export function GameHud({
   isMyTurn,
   lastRoll,
   onRollDice,
+  hasRolledThisTurn,
+  onEndTurn,
   gamePhase,
   setupStage,
   banner,
@@ -159,6 +165,8 @@ export function GameHud({
       <RollDiceButton
         lastRoll={lastRoll}
         onRoll={onRollDice}
+        onEndTurn={onEndTurn}
+        hasRolledThisTurn={hasRolledThisTurn}
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />

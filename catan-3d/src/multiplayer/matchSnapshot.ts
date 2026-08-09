@@ -32,7 +32,10 @@ export interface MatchSnapshot {
   largestArmyHolderId: number | null
   devCardPlayedThisTurn: boolean
   freeRoadsRemaining: number
-  robberMoveFromKnight: boolean
+  // Whether the current player has already rolled this turn — restored so a
+  // reconnect mid-turn can't be tricked into rolling (and generating
+  // resources) a second time via the Roll Dice button.
+  hasRolledThisTurn: boolean
 }
 
 /**

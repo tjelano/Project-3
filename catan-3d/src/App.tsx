@@ -564,24 +564,32 @@ function App() {
     )
   }
 
+  // Superset of canPerformAction() for the two placement handlers, which
+  // additionally can't proceed mid-animation, mid-robber-move, or out of turn.
+  const canInteract = (): boolean => {
+    if (!canPerformAction()) return false
+    if (isRolling) {
+      warn('Wait for the dice to finish rolling.')
+      return false
+    }
+    if (gamePhase === 'moveRobber') {
+      warn('Move the Robber before building.')
+      return false
+    }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return false
+    }
+    return true
+  }
+
   const buildSettlementRaw = (vertexId: string) => {
-    if (!canPerformAction()) return
+    if (!canInteract()) return
+
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const existing = settlements[vertexId]
 
-    if (isRolling) {
-      warn('Wait for the dice to finish rolling.')
-      return
-    }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
-      return
-    }
-    if (!isMyTurn) {
-      warn("It's not your turn.")
-      return
-    }
     if (isSetup && setupStage !== 'settlement') {
       warn('Place your road first.')
       return
@@ -635,23 +643,12 @@ function App() {
   }
 
   const buildRoadRaw = (edgeId: string) => {
-    if (!canPerformAction()) return
+    if (!canInteract()) return
+
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const isFreeRoad = !isSetup && freeRoadsRemaining > 0
 
-    if (isRolling) {
-      warn('Wait for the dice to finish rolling.')
-      return
-    }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
-      return
-    }
-    if (!isMyTurn) {
-      warn("It's not your turn.")
-      return
-    }
     if (isSetup && setupStage !== 'road') {
       warn('Place your settlement first.')
       return

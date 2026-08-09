@@ -171,6 +171,9 @@ export function assignPorts(graph: BoardGraph): Port[] {
   })
 
   const sorted = [...boundaryEdges].sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x))
+
+  if (sorted.length === 0) return []
+
   const portCount = PORT_TYPE_SEQUENCE.length
 
   return PORT_TYPE_SEQUENCE.map((type, i) => {

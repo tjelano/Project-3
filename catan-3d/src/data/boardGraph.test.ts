@@ -1,5 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { buildVertexAdjacency, type BoardEdge } from './boardGraph'
+import { assignPorts, buildBoardGraph, buildVertexAdjacency, type BoardEdge, type BoardGraph } from './boardGraph'
+import { buildHexBoard } from './hexBoard'
+
+describe('assignPorts', () => {
+  it('returns exactly 9 ports on a standard board', () => {
+    const tiles = buildHexBoard()
+    const graph = buildBoardGraph(tiles)
+    const ports = assignPorts(graph)
+
+    expect(ports).toHaveLength(9)
+  })
+
+  it('assigns the correct port types in order', () => {
+    const tiles = buildHexBoard()
+    const graph = buildBoardGraph(tiles)
+    const ports = assignPorts(graph)
+
+    const expectedSequence = ['ore', '3:1', 'wool', '3:1', 'grain', '3:1', 'lumber', '3:1', 'brick']
+    const portTypes = ports.map(p => p.type)
+
+    expect(portTypes).toEqual(expectedSequence)
+  })
+
+  it('assigns ports to boundary edges only (tested on a 1-tile board)', () => {
+    const tiles = [
+      { id: '0-0', col: 0, row: 0, x: 0, z: 0, biome: 'fields' as const, number: 5 }
+    ]
+    const graph = buildBoardGraph(tiles)
+    const ports = assignPorts(graph)
+
+    // For a single tile board, there are 6 edges and they are all boundary edges.
+    // assignPorts will still map the 9 port types to these edges.
+    expect(ports).toHaveLength(9)
+
+    for (const port of ports) {
+      // Each port's edge must be a boundary edge. For a 1-tile board, all edges are boundary.
+      const edge = graph.edges.find(e => e.id === port.edgeId)
+      expect(edge).toBeDefined()
+    }
+  })
+
+  it('returns an empty array for a graph with no edges', () => {
+    const emptyGraph: BoardGraph = {
+      vertices: [],
+      edges: [],
+      vertexById: new Map(),
+      tileVertexIds: new Map(),
+      vertexTileIds: new Map(),
+      vertexEdgeIds: new Map(),
+    }
+    const ports = assignPorts(emptyGraph)
+    expect(ports).toEqual([])
+  })
+})
 
 describe('buildVertexAdjacency', () => {
   it('returns an empty map for empty edges', () => {

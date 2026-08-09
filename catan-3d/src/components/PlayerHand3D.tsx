@@ -19,17 +19,17 @@ import { FRAME_OUTER } from '../three/layout'
 // file is missing or misnamed. A runtime path would instead 404 silently and
 // leave a black card, which is exactly the failure you don't want to discover
 // in the browser.
-import brickArt from '../assets/cards/Brick_resource.jpeg'
-import grainArt from '../assets/cards/Grain_resource.jpeg'
-import lumberArt from '../assets/cards/Lumber_resource.jpeg'
-import oreArt from '../assets/cards/Ore_resource.jpeg'
-import woolArt from '../assets/cards/Wool_resource.jpeg'
-import knightArt from '../assets/cards/Knight_development.jpeg'
-import monopolyArt from '../assets/cards/Monopoly_development.jpeg'
-import roadBuildingArt from '../assets/cards/Road_Building_development.jpeg'
-import victoryPointArt from '../assets/cards/Victory_Point_development.jpeg'
-import yearOfPlentyArt from '../assets/cards/Year_of_Plenty_development.jpeg'
-import backArt from '../assets/cards/backside_design.jpeg'
+import brickArt from '../assets/cards/Brick_resource.png'
+import grainArt from '../assets/cards/Grain_resource.png'
+import lumberArt from '../assets/cards/Lumber_resource.png'
+import oreArt from '../assets/cards/Ore_resource.png'
+import woolArt from '../assets/cards/Wool_resource.png'
+import knightArt from '../assets/cards/Knight_development.png'
+import monopolyArt from '../assets/cards/Monopoly_development.png'
+import roadBuildingArt from '../assets/cards/Road_Building_development.png'
+import victoryPointArt from '../assets/cards/Victory_Point_development.png'
+import yearOfPlentyArt from '../assets/cards/Year_of_Plenty_development.png'
+import backArt from '../assets/cards/backside_design.png'
 
 type CardKey = ResourceType | DevCardType
 
@@ -51,6 +51,27 @@ const CARD_ART: Record<CardKey, string> = {
 const loader = new THREE.TextureLoader()
 const textureCache = new Map<string, THREE.Texture>()
 
+// The background-removal crop wasn't pixel-tight — a residual band of
+// fully transparent padding surrounds the actual card shape inside every
+// one of these images. Measured directly off the real alpha channel (not
+// eyeballed): on a 432x578 canvas, ~47-48px on the left/right, ~43-46px on
+// top, ~39-41px on the bottom, consistent across every card except Year of
+// Plenty (tighter at 36/39/31) — so these numbers, padded a little for
+// safety, cover all eleven images without cutting into any card's real
+// content. With alphaTest cutting fully-transparent pixels away entirely,
+// that padding doesn't render as a border AT the card's edge — it renders
+// as a gap of nothing floating well outside it, since the mesh face is
+// sized to the image's full bounds. Cropping the UVs in past the padding
+// is what actually removes the gap, without needing to re-export the
+// source art tighter. Asymmetric on Y because the measured top/bottom
+// margins aren't equal (and texture V=0 is the image's BOTTOM edge, so the
+// crop fractions below are swapped relative to the top/bottom pixel
+// margins they correspond to).
+const CARD_ART_CROP_X = 328 / 432 // 52px margin each side
+const CARD_ART_OFFSET_X = 52 / 432
+const CARD_ART_CROP_Y = 483 / 578 // 50px top margin, 45px bottom margin
+const CARD_ART_OFFSET_Y = 45 / 578
+
 function loadCardTexture(url: string): THREE.Texture {
   const cached = textureCache.get(url)
   if (cached) return cached
@@ -59,6 +80,17 @@ function loadCardTexture(url: string): THREE.Texture {
   // cards render washed out and pale.
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 8
+  texture.repeat.set(CARD_ART_CROP_X, CARD_ART_CROP_Y)
+  texture.offset.set(CARD_ART_OFFSET_X, CARD_ART_OFFSET_Y)
+  // premultiplyAlpha fixes a SEPARATE, smaller issue at the card's own
+  // rounded-corner cutout edge (inside the crop above): background-removal
+  // leaves a thin semi-transparent fringe there whose RGB still carries a
+  // trace of the original background colour even near-zero alpha.
+  // Mipmapping averages that straight-alpha fringe with its neighbours at
+  // lower detail levels and bleeds the colour in; weighting RGB by alpha
+  // before the GPU builds those mips means a near-transparent pixel
+  // contributes almost nothing to the average instead.
+  texture.premultiplyAlpha = true
   textureCache.set(url, texture)
   return texture
 }
@@ -74,10 +106,11 @@ function loadCardTexture(url: string): THREE.Texture {
  * being a real object that raycasts and lights normally.
  */
 
-// Card stock. Width is derived from the source art's 896x1200 so the
-// illustrations are never stretched.
+// Card stock. Width is derived from the source art's 432x578 (tightly
+// cropped to the card's own silhouette, transparent background removed) so
+// the illustrations are never stretched.
 const CARD_H = 0.42
-const CARD_ASPECT = 896 / 1200
+const CARD_ASPECT = 432 / 578
 const CARD_W = CARD_H * CARD_ASPECT
 const CARD_T = 0.007
 
@@ -99,6 +132,28 @@ const HOVER_TILT = -0.3
 const HOVER_SCALE = 1.14
 const HOVER_GLOW = 0.5
 const LERP_RATE = 12 // higher = snappier; frame-rate corrected below
+
+// Tactical hover-zoom: a PLAYABLE dev card's hover response is deliberately
+// much larger than a resource card's — the point isn't just to recognize
+// it, it's to actually read its rules text before deciding to click. Same
+// hover -> click mechanism as always (no separate "zoomed" state), just a
+// bigger target for the existing lerp: lifted well clear of the fan and
+// scaled way up. The SCALE alone is what makes it readable — DEV_HOVER_Z
+// is deliberately small (not the dramatic pull-toward-the-lens an earlier
+// pass tried), since stacking a big Z pull on top of a big scale compounds
+// into a card that reads as "way too zoomed in" rather than just "held up
+// closer." tiltX is deliberately 0, NOT a tilt-back — cards are already
+// authored face-on to the camera at rest in this camera-space rig (the
+// group's own JSX rotation is only ever [0, 0, rotZ]), so any nonzero X
+// tilt here doesn't "flatten" it, it tips it AWAY from flat and exposes a
+// sliver of the card's thin edge material (the pale cardboard-stock color
+// on the box's side faces) along one side. Truly flat (tiltX = 0, and
+// rotZ zeroed too, cancelling the fan's own spread-tilt) is what actually
+// keeps the edge hidden AND squares the card dead-on.
+const DEV_HOVER_LIFT = 0.75
+const DEV_HOVER_Z = 0.25
+const DEV_HOVER_TILT_X = 0
+const DEV_HOVER_SCALE = 2.2
 
 // Click-to-play: where an activated dev card animates TO, in the same
 // camera-space coordinates as the fan itself — closer to the lens and
@@ -200,6 +255,14 @@ function HandCard({
   onToggleSelect?: () => void
 }) {
   const ref = useRef<THREE.Group>(null)
+  // The big tactical zoom is a SEPARATE floating copy, not the card in your
+  // hand moving — hovering a Knight shouldn't leave a gap in the fan where
+  // it used to be. Always mounted (while playable) rather than conditional
+  // on `hovered`, collapsed to a speck via scale when idle: a continuous
+  // lerp toward "collapsed" or "zoomed" handles both grow-in and shrink-
+  // back-out symmetrically, with no separate exit-animation/unmount timing
+  // to coordinate.
+  const previewRef = useRef<THREE.Group>(null)
   const [hovered, setHovered] = useState(false)
   const glowRef = useRef(0)
   const outlineMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null)
@@ -230,10 +293,26 @@ function HandCard({
   // Materials are per-card instances (sharing only the cached textures) so
   // the hover glow lights ONE card rather than every card of that type.
   const materials = useMemo(() => {
+    // The art has real alpha now (background-removed PNGs, rounded card
+    // silhouette) — alphaTest cuts fully-transparent pixels out of the
+    // rendered shape entirely, rather than blending them. Deliberately NOT
+    // `transparent: true`: that blends and requires depth-sorting, which
+    // is exactly the "invisible geometry still writes depth and produces a
+    // seam" pitfall already hit once this session (the discard-selection
+    // outline). A cutout keeps normal opaque depth writes for every pixel
+    // that survives the test, so there's nothing to sort.
     const back = new THREE.MeshStandardMaterial({
       map: backTexture,
       roughness: 0.5,
       metalness: 0.08,
+      // Higher than the usual 0.5 cutoff, deliberately: the fringe pixels
+      // right at the cut edge aren't fully transparent OR fully opaque,
+      // they're a blend that still carries a trace of the original
+      // background colour in their RGB — passing at alpha 0.5 let those
+      // partially-blended pixels render at full opacity, which is what
+      // read as a faint border. 0.92 only lets through pixels the removal
+      // tool was confident were actually card.
+      alphaTest: 0.92,
     })
     // Card edge: the pale core you see on cut card stock.
     const edge = new THREE.MeshStandardMaterial({ color: '#e8e2d2', roughness: 0.6 })
@@ -250,6 +329,14 @@ function HandCard({
       metalness: 0.05,
       emissive: new THREE.Color('#c8a93e'),
       emissiveIntensity: 0,
+      // Higher than the usual 0.5 cutoff, deliberately: the fringe pixels
+      // right at the cut edge aren't fully transparent OR fully opaque,
+      // they're a blend that still carries a trace of the original
+      // background colour in their RGB — passing at alpha 0.5 let those
+      // partially-blended pixels render at full opacity, which is what
+      // read as a faint border. 0.92 only lets through pixels the removal
+      // tool was confident were actually card.
+      alphaTest: 0.92,
     })
     return [edge, edge, edge, edge, face, back]
   }, [cardKey, backTexture, isOpponent])
@@ -282,12 +369,22 @@ function HandCard({
         playFiredRef.current = true
         onPlay?.()
       }
+      // The card itself is now the thing flying/flipping toward the play
+      // target — the zoom preview (if it was showing) collapses instantly
+      // rather than lerping, since attention has already shifted to the
+      // base card's own animation.
+      previewRef.current?.scale.setScalar(0.001)
       return
     }
 
     // Frame-rate independent easing: the same visual response at 30 or 144fps.
     const k = 1 - Math.exp(-LERP_RATE * delta)
 
+    // The card in your hand always gets just the ordinary modest hover
+    // lift — dev or resource, doesn't matter. The big tactical zoom for a
+    // playable dev card is the SEPARATE preview updated below; the card's
+    // own fan position never moves for it, so the hand never looks like
+    // it's missing a card just because you're reading one.
     const targetY = layout.y + (hovered ? HOVER_LIFT : 0) + (selected ? SELECTED_LIFT : 0)
     const targetZ = layout.z + (hovered ? 0.09 : 0)
     const targetTilt = hovered ? HOVER_TILT : 0
@@ -312,9 +409,30 @@ function HandCard({
       const pulse = SELECTED_PULSE_MIN + SELECTED_PULSE_RANGE * (0.5 + 0.5 * Math.sin(state.clock.elapsedTime * SELECTED_PULSE_SPEED))
       outlineMaterialRef.current.opacity = selected ? pulse : 0
     }
+
+    // Tactical zoom preview: grows out of the hand toward DEV_HOVER_* when
+    // this card is hovered and playable, collapses back to a speck
+    // otherwise. Always facing the camera dead-on (no tilt, no fan-spread
+    // roll), regardless of where this card sits in the fan.
+    if (previewRef.current) {
+      const preview = previewRef.current
+      const devZoom = hovered && playable
+      const previewTargetY = devZoom ? layout.y + DEV_HOVER_LIFT : layout.y
+      const previewTargetZ = devZoom ? layout.z + DEV_HOVER_Z : layout.z
+      const previewTargetScale = devZoom ? DEV_HOVER_SCALE : 0.001
+
+      preview.position.x += (layout.x - preview.position.x) * k
+      preview.position.y += (previewTargetY - preview.position.y) * k
+      preview.position.z += (previewTargetZ - preview.position.z) * k
+      preview.rotation.x += (DEV_HOVER_TILT_X - preview.rotation.x) * k
+      preview.rotation.z += (0 - preview.rotation.z) * k
+      const ps = preview.scale.x + (previewTargetScale - preview.scale.x) * k
+      preview.scale.setScalar(ps)
+    }
   })
 
   return (
+    <>
     <group ref={ref} position={[layout.x, layout.y, layout.z]} rotation={[0, 0, layout.rotZ]}>
       <mesh
         material={materials}
@@ -357,9 +475,29 @@ function HandCard({
           real card's own click/hover handlers. */}
       <mesh scale={SELECTED_OUTLINE_SCALE} raycast={() => null}>
         <boxGeometry args={[CARD_W, CARD_H, CARD_T]} />
-        <meshBasicMaterial ref={outlineMaterialRef} color="#e5484d" side={THREE.BackSide} transparent opacity={0} />
+        <meshBasicMaterial
+          ref={outlineMaterialRef}
+          color="#e5484d"
+          side={THREE.BackSide}
+          transparent
+          opacity={0}
+          depthWrite={false}
+        />
       </mesh>
     </group>
+    {playable && onPlay && (
+      // The zoom preview — a second, independent copy of the same card
+      // (shares the `materials` array with the one above, so texture and
+      // glow stay in sync). Non-interactive: the small card in the hand
+      // above remains the one true hitbox for hover/click throughout, so
+      // there's no dual hit-testing to reconcile between the two copies.
+      <group ref={previewRef} position={[layout.x, layout.y, layout.z]} scale={0.001}>
+        <mesh material={materials} raycast={() => null}>
+          <boxGeometry args={[CARD_W, CARD_H, CARD_T]} />
+        </mesh>
+      </group>
+    )}
+    </>
   )
 }
 

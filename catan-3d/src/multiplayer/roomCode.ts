@@ -14,3 +14,13 @@ export function generateRoomCode(): string {
 export function normalizeRoomCode(input: string): string {
   return input.trim().toUpperCase().slice(0, ROOM_CODE_LENGTH)
 }
+
+// A player's typed name is used to match them back to their original seat
+// on rejoin, and to compare against the stored host name — both exact
+// `===`/`indexOf` comparisons that silently fail (locking the player out of
+// their own turn, or losing host status) on trailing whitespace from a
+// mobile keyboard or a different case. This is what a human would consider
+// "the same name."
+export function normalizePlayerName(name: string): string {
+  return name.trim().toLowerCase()
+}

@@ -17,6 +17,7 @@ import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
 import { useRoomChannel, type RoomPlayer } from './multiplayer/useRoomChannel'
 import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
+import { normalizePlayerName } from './multiplayer/roomCode'
 import { buildHexBoard } from './data/hexBoard'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
@@ -58,6 +59,17 @@ export interface BannerMessage {
 
 function rollD6() {
   return Math.floor(Math.random() * 6) + 1
+}
+
+// Matches a (re)joining player's typed name back to their original seat by
+// index. A plain `Array.indexOf` requires an exact character-for-character
+// match — trailing whitespace from a mobile keyboard, or a different case,
+// silently fails it, resolving to index -1 and therefore localPlayerId 0 (no
+// such player), which permanently locks that player out of their own turn
+// with no error shown.
+function findPlayerIndexByName(names: string[], name: string): number {
+  const normalized = normalizePlayerName(name)
+  return names.findIndex((candidate) => normalizePlayerName(candidate) === normalized)
 }
 
 function App() {
@@ -157,16 +169,6 @@ function App() {
   const [canvasInstance, setCanvasInstance] = useState(0)
 
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
-
-  // Stable callbacks for board interactions
-  const buildSettlementRef = useRef((_id: string) => {})
-  const buildRoadRef = useRef((_id: string) => {})
-  useLayoutEffect(() => {
-    buildSettlementRef.current = buildSettlementRaw
-    buildRoadRef.current = buildRoadRaw
-  })
-  const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
-  const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
 
   const warn = (text: string) => {
     console.warn(`[Catan] ${text}`)
@@ -808,6 +810,25 @@ function App() {
     if (onlineInfo) broadcastRoadBuilt({ edgeId, playerId: player.id, isFreeRoad })
   }
 
+  // Stable callbacks for board interactions — buildSettlement/buildRoad
+  // never change identity across renders (empty deps), so BoardInteractions
+  // (memoized) doesn't re-render on every keystroke elsewhere in the tree.
+  // The refs always point at the LATEST buildSettlementRaw/buildRoadRaw
+  // (kept current every render via the layout effect below), so the stable
+  // wrapper still calls fresh logic despite never itself changing identity.
+  const buildSettlementRef = useRef((id: string) => {
+    void id
+  })
+  const buildRoadRef = useRef((id: string) => {
+    void id
+  })
+  useLayoutEffect(() => {
+    buildSettlementRef.current = buildSettlementRaw
+    buildRoadRef.current = buildRoadRaw
+  })
+  const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
+  const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
+
   // Triggered by the Roll Dice button: generates the total up front (it
   // stays authoritative) and hands it to the 3D dice to animate toward.
   // The actual game effects only run once the dice visually settle.
@@ -1318,7 +1339,7 @@ function App() {
       online
         ? {
             roomCode: online.roomCode,
-            localPlayerId: resolvedNames.indexOf(online.localPlayerName) + 1,
+            localPlayerId: findPlayerIndexByName(resolvedNames, online.localPlayerName) + 1,
             localPlayerName: online.localPlayerName,
             isHost: online.isHost,
           }
@@ -1364,7 +1385,7 @@ function App() {
     setPlayers(snapshot.players)
     setOnlineInfo({
       roomCode: online.roomCode,
-      localPlayerId: snapshot.playerNames.indexOf(online.localPlayerName) + 1,
+      localPlayerId: findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1,
       localPlayerName: online.localPlayerName,
       isHost: online.isHost,
     })

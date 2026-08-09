@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isSupabaseConfigured } from '../../lib/supabaseClient'
-import { generateRoomCode, normalizeRoomCode } from '../../multiplayer/roomCode'
+import { generateRoomCode, normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
 import { loadMatchSnapshot } from '../../multiplayer/matchSnapshot'
 import type { GameStartInfo } from './StartScreen'
@@ -42,7 +42,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
       onStart({
         playerCount: names.length,
         names,
-        online: { roomCode, localPlayerName: selfName, isHost: selfName === hostName },
+        online: { roomCode, localPlayerName: selfName, isHost: normalizePlayerName(selfName) === normalizePlayerName(hostName) },
       })
     },
   })
@@ -162,7 +162,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
                 online: {
                   roomCode: roomCodeInput,
                   localPlayerName: selfName,
-                  isHost: selfName === snapshot.hostName,
+                  isHost: normalizePlayerName(selfName) === normalizePlayerName(snapshot.hostName),
                 },
                 snapshot,
               })

@@ -22,7 +22,7 @@ export function TradeOfferPrompt({
 }) {
   const fromPlayer = players.find((p) => p.id === trade.fromPlayerId)
   const toPlayer = players.find((p) => p.id === trade.toPlayerId)
-  const { panelRef, offset, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
+  const { panelRef, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
   if (!fromPlayer || !toPlayer) return null
 
   return (
@@ -30,7 +30,6 @@ export function TradeOfferPrompt({
       <div
         ref={panelRef}
         className="mx-4 w-full max-w-sm rounded-2xl border border-glass-border bg-glass px-8 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
-        style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
       >
         <div onPointerDown={onHeaderPointerDown} className="cursor-grab select-none active:cursor-grabbing">
           <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Trade Offer</p>

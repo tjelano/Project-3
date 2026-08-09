@@ -437,9 +437,14 @@ export function NumberToken({ value }: { value: number }) {
           a real physical token, but exactly the readability problem the
           seating camera rig makes visible. Matches the port rate badge in
           PortMarkers.tsx, which was already billboarded for the same
-          reason. Lifted slightly higher than the old flush offset (0.004)
-          to clear the token's curved rim now that it's not flat against it. */}
-      <Billboard position={[0, TOKEN_HEIGHT / 2 + 0.03, 0]}>
+          reason. Offset is derived from the glyph's own ink height
+          (CHIT_FONT_WORLD_SIZE), not a flat guess: the label plane is
+          centred on this point, so a fixed +0.03 (the old value) only
+          cleared the token's rim for the plane's PADDING, not its digit —
+          the bottom half of every actual number sank straight into the
+          disc. Half the ink height plus a small margin clears the digit
+          itself at every camera angle OrbitControls allows. */}
+      <Billboard position={[0, TOKEN_HEIGHT / 2 + CHIT_FONT_WORLD_SIZE / 2 + 0.02, 0]}>
         <mesh>
           <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
           <meshBasicMaterial map={label.texture} transparent depthWrite={false} />

@@ -19,7 +19,7 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
   const [give, setGive] = useState<ResourceType | null>(null)
   const [receive, setReceive] = useState<ResourceType | null>(null)
   const [targetPlayerId, setTargetPlayerId] = useState<number | null>(otherPlayers[0]?.id ?? null)
-  const { panelRef, offset, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
+  const { panelRef, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
 
   const rate = give ? rates[give] : null
   const canConfirmBank = give != null && receive != null && give !== receive && rate != null && resources[give] >= rate
@@ -44,7 +44,6 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
     <div
       ref={panelRef}
       className="pointer-events-auto absolute top-96 right-4 w-56 rounded-2xl border border-glass-border bg-glass p-4 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
-      style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
       <div
         onPointerDown={onHeaderPointerDown}

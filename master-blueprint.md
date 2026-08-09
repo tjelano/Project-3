@@ -1,4 +1,4 @@
-# Master Development Blueprint v8: Project-3 (3D Multiplayer Catan)
+# Master Development Blueprint v12: Project-3 (3D Multiplayer Catan)
 ## 👥 The 3-Agent Strike Team Orchestration Guide
 
 This master blueprint is a streamlined, high-fidelity engineering roadmap designed for Claude (Sonnet) using your local team of 18 specialized agents located in `.claude/agents/` (or `.cursor/rules/`).
@@ -33,6 +33,10 @@ To prevent regressions, **Claude must not refactor or rewrite the following file
 4.  **Anti-Cheat Texture Gating (`PlayerHand3D.tsx`):** Restricts front texture materials to the local player ID. Opponent card meshes only load the `backside_design.jpeg` texture, making casual camera peeking mathematically impossible.
 5.  **Multiplayer Connection & Automated Tests (`testNetworkSync.ts`):** Complete with Presence and Broadcast routing on a unified Supabase channel.
 6.  **Interactive P2P Trade Sync (`useRoomChannel.ts`, `App.tsx`, `GameHud.tsx`):** Uses four synchronized events (`TRADE_OFFERED`, `TRADE_ACCEPT_REQUEST`, `TRADE_RESOLVED`, `TRADE_CANCELLED`) and a Host-as-Arbiter pattern to handle trading over the internet safely. Do not touch!
+7.  **Tactile 3D Cards, Fans & Hover Easing (`PlayerHand3D.tsx`):** Renders beautiful, fanned 3D card groups that lift and tilt with frame-rate independent Math.exp easing. Front faces use custom image assets, while opponent cards cleanly display backside design textures to prevent peeking.
+8.  **Manual Discard Selection:** Players manually select which cards to discard from their fanned 3D hand when their card count is over the limit on a 7-roll.
+9.  **Holographic Build Previews:** Translucent, European-style Cottage and Timber Road models render over valid nodes/edges during build mode.
+10. **The Sideways Robber Offset:** The 3D Robber sits horizontally offset in the hex tile, keeping the number chit underneath fully visible and interactive.
 
 ---
 
@@ -41,52 +45,52 @@ Only load these 3 specific agents to save tokens and prevent conflicting plannin
 
 | Task / Feature | Active Agent | Supporting Auditor |
 | :--- | :--- | :--- |
-| **Moveable, Draggable HUD Panels** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
-| **Click-to-Play 3D Development Cards** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
-| **Manual Discard Selection on 7-Roll** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
-| **Holographic "Ghost Mesh" Build Previews** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
-| **The Sideways Robber Offset** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
+| **Emergency Playtest Bug Fixes & HUD Drag Optimization** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
+| **Tactical Hover-Zoom & Click-to-Play Dev Cards** | `engineering-frontend-developer.md` | `design-ui-finish-gate-reviewer.md` |
 
 ---
 
-## 🛠️ THE SPRINT BACKLOG: The 5 Remaining Features
+## 🚨 EMERGENCY PLAYTEST BUG BACKLOG (FIX THESE FIRST!)
 
-### Feature 2: Moveable, Draggable HUD Panels
-*   **The Issue:** The main Player Trading window and modal panels are rigidly locked in the center of the screen, completely blocking the player's view of the 3D board during crucial negotiations.
-*   **The Fix:**
-    *   Implement a clean React-based mouse-down, mouse-move tracking listener directly on the glassmorphic modal header container.
-    *   Bind this interaction to update the modal's `transform: translate(x, y)` position or top/left offset coordinates.
-    *   Ensure dragging releases cleanly on mouse-up and restricts bounds so panels cannot be dragged off-screen.
-*   **Success Metric:** Clicking and dragging the trade modal header lets you freely slide it around the viewport to inspect the 3D island behind it.
+### Bug 1: 7-Roll Discard Lockout
+*   **The Issue:** When a 7 is rolled, Player 1 (holding > 7 cards) has to discard, but Player 2 (holding <= 7 cards) does not. Player 1 gets stuck in a permanent "Waiting for everyone to discard" loop because the game waits for Player 2 to discard, even though Player 2 has nothing to discard.
+*   **The Fix:** 
+    *   In `App.tsx`, update the discard waiting check. 
+    *   The state engine must only wait for players who actually have more than 7 cards (`totalCards > 7`). 
+    *   Players with 7 or fewer cards must be marked as "auto-completed" or skipped in the discard checklist.
+*   **Success Metric:** If Player 1 has 8 cards and Player 2 has 5 cards, rolling a 7 asks Player 1 to discard and immediately continues the game as soon as Player 1 finishes.
 
-### Feature 3: Click-to-Play 3D Development Cards
-*   **The Issue:** Playing development cards relies on clicking static 2D buttons on the HUD sidebar, which feels un-tactile compared to holding a physical hand of cards in camera-space.
+### Bug 2: Rejoined Player Dice Roll Lockout
+*   **The Issue:** When a player leaves a match and joins back in (reconnects), they cannot roll the dice when it is their turn. This is likely because the rejoining player name doesn't match the original slot exactly, or the `localPlayerId` mapping does not restore their turn permissions.
 *   **The Fix:**
-    *   Add a Raycast `onClick` or double-click handler directly to the local player's active 3D card meshes in `PlayerHand3D.tsx`.
-    *   When a player clicks an active Development Card (e.g., Knight, Monopoly), trigger a beautiful, smooth 3D animation where the card slides up toward the center of the camera lens, flips 180 degrees, and automatically calls the corresponding play method (`playKnight`, `playMonopoly`, etc.) in `App.tsx`.
-*   **Success Metric:** You can play a Knight card by clicking the actual 3D card mesh floating in your hand.
+    *   In `App.tsx` and the re-hydration loops (`loadMatchSnapshot` / `restoreFromSnapshot`), ensure that the rejoining player is mapped to their correct original player slot by matching their username or storing the player index.
+    *   Make sure `currentPlayerIndex` and the "Roll Dice" button lock gate properly on the reconnected player's active state.
+*   **Success Metric:** Rejoining a game restores your original seat, cards, and lets you roll the dice normally when your turn starts.
 
-### Feature 4: Manual Discard Selection on 7-Roll
-*   **The Issue:** When a 7 is rolled, any player holding more than 7 cards has exactly half of their hand randomly stripped away by the computer, removing the strategic decision of which resources to discard.
+### Bug 3: Low-Floating Number Chits
+*   **The Issue:** The 3D number circles (chits) are sitting too low in their stands. They clip into the pedestal model and are hard to see from different camera angles.
 *   **The Fix:**
-    *   When the game state enters the \"Over-Limit Discard\" phase during an online/local match, freeze actions and lock the screen with a frosted-glass overlay.
-    *   Dim the main 3D game board and focus completely on the player's camera-space 3D fanned hand.
-    *   Let the player click on individual 3D cards in their hand to \"flag\" them for discard. Selected cards should hover slightly higher and emit a soft, pulsating red outline.
-    *   Add a simple HUD overlay counter (\"Select N more cards to discard\") and a \"Confirm Discard\" button that remains disabled until exactly half of the hand is selected.
-*   **Success Metric:** Tactical discard choices are driven entirely by mouse interaction on the 3D cards.
+    *   In `TileDecorations.tsx`, increase the vertical Y-axis height offset of the number chits.
+    *   Lift them up slightly higher so they float cleanly above the tile pedestal and terrain models.
+*   **Success Metric:** Number chits are perfectly visible and readable from all angles without clipping.
 
-### Feature 5: Holographic "Ghost Mesh" Build Previews
-*   **The Issue:** Hovering over intersections or edges to build a Cottage or Road displays generic translucent colored spheres or cylinder blocks as highlights, which looks like unpolished developer placeholders.
+### Bug 4: Choppy Trade HUD Panel Dragging (Performance Optimization)
+*   **The Issue:** Clicking and dragging the glassmorphic trading modal feels choppy and stuttery. React's default state updates on every single pixel movement trigger expensive virtual DOM diffs and re-renders of parent UI/canvas containers at a low frame-rate.
 *   **The Fix:**
-    *   Modify `BoardInteractions.tsx`.
-    *   Instead of rendering basic primitive geometries, reference the exact 3D models for the European Cottage (settlement/city) and Timber Road (road) meshes exported from `GamePieces.tsx`.
-    *   Render these high-fidelity models with a semi-transparent, see-through holographic material profile: `transparent: true, opacity: 0.4, depthWrite: false`.
-*   **Success Metric:** During the build phase, hovering over a vertex displays a ghostly, translucent 3D cottage instead of a colored sphere.
+    *   Optimize the mouse event handlers for dragging the panels.
+    *   Instead of writing to high-level reactive coordinate states that trigger full component renders during active drags, apply a hardware-accelerated CSS `transform: translate3d(x, y, 0)` directly to the DOM element's style using a React `useRef` pointing to the modal container.
+    *   This entirely bypasses React's virtual DOM reconciliation loop during active mouse movement, achieving a buttery-smooth 60+ FPS drag feel!
+*   **Success Metric:** Clicking and sliding the trading panel is completely smooth and fluid, with zero game-board lag or visual stuttering.
 
-### Feature 6: The Sideways Robber Offset (Unblocking Tile Numbers)
-*   **The Issue:** The low-poly 3D Robber figurine sits directly in the center of the hex tile, completely engulfing and hiding the active production number chit underneath it, forcing players to guess what number they are blocking.
+---
+
+## 🛠️ THE SPRINT BACKLOG: Remaining Features
+
+### Feature Refinement: Tactical Hover-Zoom & Click-to-Play Dev Cards
+*   **The Issue:** When clicking a 3D development card, it instantly plays the card. Players do not have a chance to read the card's rules text before playing it.
 *   **The Fix:**
-    *   Do not redesign the meshes or build complex text hovering systems.
-    *   In `RobberLayer.tsx` (inside `RobberToken`), apply a simple, fixed horizontal X/Z translation offset (e.g., `0.15` units on the local X-axis).
-    *   This slides the Robber slightly sideways within the hex grid, positioning it like a guard standing next to the number token, keeping the chit perfectly visible and interactive.
-*   **Success Metric:** When the Robber stands on an 8-Mountain tile, both the Robber figurine and the number 8 chit remain 100% visible from all camera angles.
+    *   Modify `PlayerHand3D.tsx`.
+    *   **Hover-Zoom (Enlarge):** When a player hovers their cursor over a 3D development card, amplify the hover animation: scale its mesh up significantly larger (e.g., `scale: 1.45`), lift it higher on the Y-axis, and tilt its face flat to the camera lens so the text is fully readable.
+    *   **Hover-Off (Shrink):** When the cursor leaves the card (hover ends), it must automatically slide back down and shrink to its original size in the fanned hand.
+    *   **Click-to-Play:** Clicking the card while it is hovered will play the development card (calling the corresponding play handler like `playKnight`, `playMonopoly`, etc., in `App.tsx`). This completely bypasses the need for a secondary state or click-to-zoom tracking, keeping interaction dead simple and intuitive!
+*   **Success Metric:** Hovering over a Knight card enlarges it so you can read its rules; clicking it immediately plays it; moving the mouse away shrinks it back down safely to your hand.

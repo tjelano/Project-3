@@ -164,6 +164,19 @@ function App() {
 
   const inform = (text: string) => setBanner({ text, variant: 'info' })
 
+  const canPerformAction = (): boolean => {
+    if (winner) return false
+    if (pendingTrade) {
+      warn('Resolve the pending trade first.')
+      return false
+    }
+    if (devCardPicker) {
+      warn('Resolve the development card first.')
+      return false
+    }
+    return true
+  }
+
   // How many of this card type the player can play right now — total held
   // minus however many of that type they bought this same turn.
   const playableDevCardCount = (player: Player, type: DevCardType): number => {
@@ -552,15 +565,7 @@ function App() {
   }
 
   const buildSettlementRaw = (vertexId: string) => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const existing = settlements[vertexId]
@@ -630,15 +635,7 @@ function App() {
   }
 
   const buildRoadRaw = (edgeId: string) => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
     const isFreeRoad = !isSetup && freeRoadsRemaining > 0
@@ -698,15 +695,7 @@ function App() {
   // stays authoritative) and hands it to the 3D dice to animate toward.
   // The actual game effects only run once the dice visually settle.
   const rollDice = () => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't roll right now.")
       return
@@ -873,15 +862,7 @@ function App() {
   }
 
   const bankTrade = (give: ResourceType, receive: ResourceType) => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     if (gamePhase !== 'playing') {
       warn("You can't trade right now.")
       return
@@ -916,15 +897,7 @@ function App() {
   }
 
   const proposePlayerTrade = (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't trade right now.")
       return
@@ -1005,15 +978,7 @@ function App() {
   }
 
   const buyDevCard = () => {
-    if (winner) return
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return
-    }
+    if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't buy a development card right now.")
       return
@@ -1051,15 +1016,7 @@ function App() {
   // missing from four separate handlers. Warns and returns false when the
   // play isn't legal right now.
   const canPlayDevCardNow = (type: DevCardType): boolean => {
-    if (winner) return false
-    if (pendingTrade) {
-      warn('Resolve the pending trade first.')
-      return false
-    }
-    if (devCardPicker) {
-      warn('Resolve the development card first.')
-      return false
-    }
+    if (!canPerformAction()) return false
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't play a development card right now.")
       return false

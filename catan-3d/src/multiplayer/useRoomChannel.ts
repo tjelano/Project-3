@@ -80,6 +80,15 @@ export interface TradeCancelledPayload {
   reason: string
 }
 
+export interface NewGamePayload {
+  // Every client independently calls buildHexBoard(boardSeed) instead of
+  // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
+  // exact SAME layout every restart, since it's a deterministic seed. A
+  // fresh random seed, generated once by the host and broadcast, gives
+  // everyone the same NEW board instead.
+  boardSeed: string
+}
+
 export interface DiscardConfirmedPayload {
   playerId: number
   // Resource -> quantity tally, not a full resources object — the receiver
@@ -127,6 +136,9 @@ export interface RoomChannelHandlers {
   // over-limit player discards independently on their own screen — this
   // fires once per player, not once for the whole table.
   onDiscardConfirmed?: (payload: DiscardConfirmedPayload) => void
+  // Host-only action: everyone resets to a fresh board and starting state,
+  // same players and room.
+  onNewGame?: (payload: NewGamePayload) => void
 }
 
 /**
@@ -240,6 +252,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
       handlersRef.current.onDiscardConfirmed?.(payload)
     })
+    channel.on<NewGamePayload>('broadcast', { event: 'NEW_GAME' }, ({ payload }) => {
+      handlersRef.current.onNewGame?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -311,6 +326,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
   }
+  const broadcastNewGame = (payload: NewGamePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'NEW_GAME', payload })
+  }
 
   return {
     players,
@@ -331,5 +349,6 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastNewGame,
   }
 }

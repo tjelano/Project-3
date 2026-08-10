@@ -510,6 +510,7 @@ function App() {
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastNewGame,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -552,11 +553,38 @@ function App() {
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
+    // Host-only action (see restartGame), but every client applies it the
+    // same way it applies any other trusted broadcast — no re-validation.
+    onNewGame: (payload) => {
+      if (!onlineInfo) return
+      resetGame(playerCount, undefined, onlineInfo, payload.boardSeed)
+    },
   })
 
   // Local (non-online) games are always "your turn" — whoever is at the
   // keyboard controls whichever player is active, same as it always has.
   const isMyTurn = !onlineInfo || players[currentPlayerIndex]?.id === onlineInfo.localPlayerId
+
+  // Self-healing view of the discard queue: a player only belongs in it
+  // while they CURRENTLY hold more than 7 cards, but discardPlayerIds
+  // itself is only ever checked against that rule once, at the instant the
+  // 7 lands. If a client's view of a player's resources is ever wrong at
+  // that moment (a reconnect racing a snapshot restore, some future
+  // desync source), the STORED queue can end up holding a player who
+  // isn't actually over the limit — surfacing as "asked to discard with a
+  // legal hand," or every client's queue disagreeing and the whole table
+  // stuck on "waiting for everyone." Re-deriving fresh every render (never
+  // trusting the stored list directly) means that can't stay broken: it's
+  // filtered back to correct the instant `players` says so, same render,
+  // no extra round trip through an effect.
+  const validDiscardPlayerIds = useMemo(
+    () =>
+      discardPlayerIds.filter((id) => {
+        const player = playerById.get(id)
+        return player != null && totalResourceCount(player.resources) > 7
+      }),
+    [discardPlayerIds, playerById],
+  )
 
   // Who's actively discarding on THIS screen right now. Local Pass & Play
   // is sequential — everyone shares one device, so only the first player
@@ -564,10 +592,10 @@ function App() {
   // player discards on their own screen at the same time, so this is just
   // "am I one of the people who still owes a discard."
   const activeDiscarderId = onlineInfo
-    ? discardPlayerIds.includes(onlineInfo.localPlayerId)
+    ? validDiscardPlayerIds.includes(onlineInfo.localPlayerId)
       ? onlineInfo.localPlayerId
       : null
-    : (discardPlayerIds[0] ?? null)
+    : (validDiscardPlayerIds[0] ?? null)
   const isMyDiscardTurn = activeDiscarderId != null
   const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
   const discardRequiredCount = discardingPlayer ? Math.floor(totalResourceCount(discardingPlayer.resources) / 2) : 0
@@ -639,6 +667,17 @@ function App() {
     )
     if (found) setWinner(found)
   }, [players, settlements, winner, gameStarted, longestRoadHolderId, largestArmyHolderId])
+
+  // The one piece of the discard self-healing (below, near
+  // activeDiscarderId) that DOES need a real effect: gamePhase is
+  // persisted state, not something derivable in render, so releasing the
+  // phase once the (self-healed) queue empties out still has to happen
+  // here — same shape as the winner-detection effect just above.
+  useEffect(() => {
+    if (gamePhase === 'discard' && validDiscardPlayerIds.length === 0) {
+      setGamePhase('moveRobber')
+    }
+  }, [gamePhase, validDiscardPlayerIds])
 
   // Does this player have a road touching the given intersection? Used for
   // both road and settlement connectivity checks.
@@ -1312,13 +1351,18 @@ function App() {
     count: number,
     names?: string[],
     online?: { roomCode: string; localPlayerName: string; isHost: boolean },
+    // A restart needs a NEW layout, not the same one every time — the room
+    // code alone is a constant seed, so reusing it here would reshuffle to
+    // the exact same board on every "New Game". restartGame generates a
+    // fresh seed and broadcasts it; every other caller (a fresh Start Game
+    // submission) omits this and falls back to the room-code seed below, so
+    // every client's first buildHexBoard() call still lands on the
+    // IDENTICAL tile layout without any of them needing to coordinate one.
+    boardSeed?: string,
   ) => {
-    // Seeded by the room code for online matches, so every client's
-    // independent buildHexBoard() call lands on the IDENTICAL tile layout —
-    // without this, dice-roll totals could match perfectly while each
-    // screen distributed resources from a completely different board. Local
-    // Pass & Play omits the seed and keeps its original random board.
-    const freshTiles = buildHexBoard(online?.roomCode)
+    // Local Pass & Play omits the seed entirely and keeps its original
+    // random board.
+    const freshTiles = buildHexBoard(online ? (boardSeed ?? online.roomCode) : undefined)
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
@@ -1432,6 +1476,17 @@ function App() {
   }
 
   const restartGame = () => {
+    if (onlineInfo) {
+      // Host-only: mirrors the TopBar button being disabled for everyone
+      // else, but re-checked here too since this fires other players'
+      // whole board straight from local state — never trust the click
+      // alone for an action with this much blast radius.
+      if (!onlineInfo.isHost) return
+      const boardSeed = Math.random().toString(36).slice(2)
+      broadcastNewGame({ boardSeed })
+      resetGame(playerCount, undefined, onlineInfo, boardSeed)
+      return
+    }
     resetGame(playerCount)
   }
 
@@ -1607,6 +1662,7 @@ function App() {
         setupStage={setupStage}
         banner={banner}
         onRestart={restartGame}
+        canRestart={onlineInfo == null || onlineInfo.isHost}
         portRates={currentPlayerPortRates}
         onTrade={bankTrade}
         isRolling={isRolling}
@@ -1631,6 +1687,7 @@ function App() {
         discardRequiredCount={discardRequiredCount}
         discardSelectedCount={discardSelection.length}
         onConfirmDiscard={confirmDiscard}
+        roomCode={onlineInfo?.roomCode ?? null}
       />
     </div>
   )

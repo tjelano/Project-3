@@ -45,11 +45,15 @@ export function TopBar({
   currentPlayerIndex,
   statusLabel,
   onRestart,
+  canRestart,
 }: {
   players: Player[]
   currentPlayerIndex: number
   statusLabel: string
   onRestart: () => void
+  // False only in an online match for a non-host player — restarting resets
+  // everyone's board, so only the host may trigger it.
+  canRestart: boolean
 }) {
   return (
     <div className="pointer-events-auto absolute top-4 left-1/2 flex -translate-x-1/2 items-center gap-4 rounded-2xl border border-glass-border bg-glass px-5 py-2.5 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
@@ -78,8 +82,9 @@ export function TopBar({
       <button
         type="button"
         onClick={onRestart}
-        title="Restart game"
-        className="flex items-center gap-1.5 rounded-full border border-glass-border bg-white/5 px-3 py-1 text-white/70 transition-colors hover:border-gold/50 hover:text-gold"
+        disabled={!canRestart}
+        title={canRestart ? 'Restart game' : 'Only the host can start a new game'}
+        className="flex items-center gap-1.5 rounded-full border border-glass-border bg-white/5 px-3 py-1 text-white/70 transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
       >
         <RestartIcon className="h-3.5 w-3.5" />
         <span className="font-body text-[10px] tracking-[0.15em] uppercase">New Game</span>

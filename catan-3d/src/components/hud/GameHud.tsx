@@ -12,6 +12,7 @@ import { TradeOfferPrompt, type PendingTrade } from './TradeOfferPrompt'
 import { DevCardResourcePicker } from './DevCardResourcePicker'
 import { RankingsPanel } from './RankingsPanel'
 import { DiscardPanel } from './DiscardPanel'
+import { RoomCodeTag } from './RoomCodeTag'
 
 const DEV_CARD_PICKER_COPY: Record<DevCardPickerMode, { title: string; subtitle: string; pickCount: number }> = {
   yearOfPlenty: { title: 'Year of Plenty', subtitle: 'Choose 2 resources to take from the bank.', pickCount: 2 },
@@ -35,6 +36,8 @@ interface GameHudProps {
   setupStage: SetupStage
   banner: BannerMessage | null
   onRestart: () => void
+  // False only in an online match for a non-host player.
+  canRestart: boolean
   portRates: Record<ResourceType, number>
   onTrade: (give: ResourceType, receive: ResourceType) => void
   isRolling: boolean
@@ -67,6 +70,9 @@ interface GameHudProps {
   discardRequiredCount: number
   discardSelectedCount: number
   onConfirmDiscard: () => void
+  // null for local Pass & Play. Online, shown persistently so a player who
+  // never noted the code down can still find it to reconnect.
+  roomCode: string | null
 }
 
 export function GameHud({
@@ -81,6 +87,7 @@ export function GameHud({
   setupStage,
   banner,
   onRestart,
+  canRestart,
   portRates,
   onTrade,
   isRolling,
@@ -105,6 +112,7 @@ export function GameHud({
   discardRequiredCount,
   discardSelectedCount,
   onConfirmDiscard,
+  roomCode,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
@@ -152,9 +160,11 @@ export function GameHud({
         currentPlayerIndex={currentPlayerIndex}
         statusLabel={statusLabel}
         onRestart={onRestart}
+        canRestart={canRestart}
       />
       <EventBanner banner={banner} />
       <BuildingCostsPanel />
+      {roomCode && <RoomCodeTag roomCode={roomCode} />}
       <RankingsPanel
         players={players}
         settlements={settlements}

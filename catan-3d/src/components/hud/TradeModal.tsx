@@ -145,6 +145,7 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
               type="button"
               disabled={disabled}
               onClick={() => setReceive(resource)}
+              title={resource}
               className={`flex items-center justify-center rounded-lg border py-1.5 transition-colors ${
                 selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
               } ${disabled ? 'cursor-not-allowed opacity-30' : ''}`}

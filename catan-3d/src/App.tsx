@@ -511,6 +511,8 @@ function App() {
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
     broadcastNewGame,
+    broadcastDevCardBought,
+    broadcastBankTrade,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -558,6 +560,43 @@ function App() {
     onNewGame: (payload) => {
       if (!onlineInfo) return
       resetGame(playerCount, undefined, onlineInfo, payload.boardSeed)
+    },
+    // buyDevCard and bankTrade only ever touch the acting player's OWN
+    // resources — easy to miss broadcasting since neither one visibly
+    // affects the board or another player, but every other client still
+    // needs to see the change or its own resource count for that player
+    // silently drifts, permanently, until it happens to cross the 7-card
+    // discard threshold on some screens and not others.
+    onDevCardBought: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === payload.playerId
+            ? {
+                ...p,
+                resources: deductCost(p.resources, DEV_CARD_COST),
+                devCards: [...p.devCards, payload.card],
+                devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, payload.card],
+              }
+            : p,
+        ),
+      )
+      setDevDeck((prev) => prev.slice(1))
+    },
+    onBankTrade: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === payload.playerId
+            ? {
+                ...p,
+                resources: {
+                  ...p.resources,
+                  [payload.give]: p.resources[payload.give] - payload.rate,
+                  [payload.receive]: p.resources[payload.receive] + 1,
+                },
+              }
+            : p,
+        ),
+      )
     },
   })
 
@@ -1107,6 +1146,7 @@ function App() {
       ),
     )
     inform(`${player.name} traded ${rate} ${RESOURCE_LABELS[give]} for 1 ${RESOURCE_LABELS[receive]}.`)
+    if (onlineInfo) broadcastBankTrade({ playerId: player.id, give, receive, rate })
   }
 
   const proposePlayerTrade = (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => {
@@ -1232,6 +1272,7 @@ function App() {
       ),
     )
     inform(`${player.name} bought a development card.`)
+    if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }
 
   // Every "play a dev card" action shares the same preconditions, so they

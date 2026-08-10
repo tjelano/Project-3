@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
-import type { ResourceType } from '../game/types'
+import type { DevCardType, ResourceType } from '../game/types'
 
 export interface RoomPlayer {
   name: string
@@ -80,6 +80,28 @@ export interface TradeCancelledPayload {
   reason: string
 }
 
+export interface DevCardBoughtPayload {
+  playerId: number
+  // The exact card drawn — each client shuffles its own devDeck
+  // independently (unseeded), so a receiver can't reliably reproduce
+  // "whichever card the buyer's own deck happened to draw" on its own;
+  // it has to be told. The receiver still pops one card off its OWN
+  // devDeck to keep its count in sync (see onDevCardBought in App.tsx) —
+  // which specific card that is doesn't matter, since a devDeck's
+  // remaining contents are never shown to anyone.
+  card: DevCardType
+}
+
+export interface BankTradePayload {
+  playerId: number
+  give: ResourceType
+  receive: ResourceType
+  // The exchange rate actually applied — sent explicitly, trusted-apply,
+  // rather than re-derived from the receiver's own copy of the trader's
+  // port access (same reasoning as RoadBuiltPayload.isFreeRoad below).
+  rate: number
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -139,6 +161,8 @@ export interface RoomChannelHandlers {
   // Host-only action: everyone resets to a fresh board and starting state,
   // same players and room.
   onNewGame?: (payload: NewGamePayload) => void
+  onDevCardBought?: (payload: DevCardBoughtPayload) => void
+  onBankTrade?: (payload: BankTradePayload) => void
 }
 
 /**
@@ -255,6 +279,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<NewGamePayload>('broadcast', { event: 'NEW_GAME' }, ({ payload }) => {
       handlersRef.current.onNewGame?.(payload)
     })
+    channel.on<DevCardBoughtPayload>('broadcast', { event: 'DEV_CARD_BOUGHT' }, ({ payload }) => {
+      handlersRef.current.onDevCardBought?.(payload)
+    })
+    channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
+      handlersRef.current.onBankTrade?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -329,6 +359,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastNewGame = (payload: NewGamePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'NEW_GAME', payload })
   }
+  const broadcastDevCardBought = (payload: DevCardBoughtPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'DEV_CARD_BOUGHT', payload })
+  }
+  const broadcastBankTrade = (payload: BankTradePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
+  }
 
   return {
     players,
@@ -350,5 +386,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
     broadcastNewGame,
+    broadcastDevCardBought,
+    broadcastBankTrade,
   }
 }

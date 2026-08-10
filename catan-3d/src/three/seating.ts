@@ -1,17 +1,25 @@
 /**
- * One formula, shared by the camera rig (SceneRig.tsx) and the opponent
- * hand fans (PlayerHand3D.tsx) — they MUST agree on where every seat is, or
- * the camera would swing to face a point with no hand floating over it.
+ * Where opponent (and your own) hand fans float around the table, used by
+ * PlayerHand3D.tsx's TableSeatHands. Used to be shared with the camera rig
+ * too, back when SceneRig.tsx auto-rotated to face whichever seat's turn it
+ * was — this formula spread every seat evenly around a full circle to match,
+ * with seat 0 lined up on the camera's own default angle so it needed no
+ * rotation. That auto-rotation was removed entirely (the camera is now
+ * fixed and never moves), but this formula wasn't updated to match: seat 0
+ * sitting at the camera's own angle meant it now sat directly BEHIND the
+ * camera's fixed view — invisible to every player, every game.
  *
- * Evenly divides the circle by player count: 2 players sit opposite each
- * other (0°, 180°); 3 or 4 split symmetrically (e.g. 4 -> 0°, 90°, 180°,
- * 270°). Angle 0 lines up with the default camera position [0, 9, 7] —
- * atan2(0, 7) = 0 — so seat 0 needs no rotation to match the game's
- * existing starting view.
+ * Instead, every seat now sits on an arc facing the camera (centred on the
+ * far side of the board, angle = PI), spread across 90 degrees, so the
+ * whole arc stays inside the fixed camera's frustum for 2, 3, and 4
+ * players alike.
  */
+const SEAT_ARC_SPREAD = Math.PI / 2
+
 export function seatAngle(index: number, total: number): number {
-  if (total <= 0) return 0
-  return (index / total) * Math.PI * 2
+  if (total <= 1) return Math.PI
+  const t = index / (total - 1) - 0.5 // -0.5 .. 0.5 across the seat count
+  return Math.PI + t * SEAT_ARC_SPREAD
 }
 
 /**

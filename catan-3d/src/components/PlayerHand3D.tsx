@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import {
   DEV_CARD_ORDER,
   DEV_CARD_PLAY_LABELS,
+  PLAYER_COLORS,
   RESOURCE_ORDER,
   type DevCardType,
   type Player,
@@ -11,7 +12,8 @@ import {
   type Resources,
 } from '../game/types'
 import { seatAngle, seatPosition } from '../three/seating'
-import { FRAME_OUTER } from '../three/layout'
+import { BRASS_MATERIAL, WALNUT_MATERIAL, decorMaterial } from '../three/materials'
+import { BASIN_Y } from '../three/layout'
 
 // --- Card art -------------------------------------------------------------
 // Imported statically rather than fetched by path string. Vite resolves each
@@ -230,11 +232,17 @@ function HandCard({
   onPlay,
   selected = false,
   onToggleSelect,
+  layoutOverride,
 }: {
   cardKey: CardKey
   index: number
   total: number
   backTexture: THREE.Texture
+  // Table-seat holders use a straight row (see straightLayoutFor) instead
+  // of the fanned-hand arc computed below — passed in fully-formed rather
+  // than another mode flag, since the caller already knows which scheme it
+  // wants.
+  layoutOverride?: CardLayout
   // Authoritative texture gating: true for every hand except the local
   // player's own. The real cardKey is still used for layout/count — only
   // the material swaps — so an opponent's hand SIZE stays honest (public
@@ -288,7 +296,7 @@ function HandCard({
   )
   const playFiredRef = useRef(false)
 
-  const layout = useMemo(() => layoutFor(index, total), [index, total])
+  const layout = useMemo(() => layoutOverride ?? layoutFor(index, total), [layoutOverride, index, total])
 
   // Materials are per-card instances (sharing only the cached textures) so
   // the hover glow lights ONE card rather than every card of that type.
@@ -589,16 +597,97 @@ export function PlayerHand3D({
 }
 
 // --- Table-seat hands (Online Multiplayer only) ----------------------------
-// Floats a fanned hand for EVERY player at their assigned seat around the
-// tray, world-space anchored (not camera-anchored like the personal hand
-// above) — the point is that they stay put as the camera swings between
-// seats, the way real hands would sit at fixed places around a table.
-const SEAT_RADIUS = FRAME_OUTER / 2 + 1.1 // just past the tray rim
-const SEAT_HAND_Y = 1.35 // floating height that reads clearly above the tray
-// A slight backward lean, like cards propped against an invisible holder —
-// simpler and just as readable as continuously re-orienting to match the
-// camera's live polar angle, which none of this scene's other decorations do.
-const SEAT_HAND_TILT = -0.32
+// A straight row of cards resting in a walnut holder, mounted atop a small
+// plank dock on pilings for EVERY player — same construction PortMarkers.tsx
+// uses for the island's trade ports, reused here so a hand reads as resting
+// on a real private pier instead of floating unsupported above the water.
+// World-space anchored (not camera-anchored like the personal hand above) —
+// the point is that they stay put at fixed places around the table. All
+// seats sit on an arc facing the camera (see seating.ts) since the camera is
+// fixed and never rotates to look at any other side of the board.
+const SEAT_RADIUS = 6.5 // resting on the tray rim's outer footprint (13.6/2=6.8; opening starts at 11.7/2=5.85)
+const SEAT_HAND_Y = 0.2 // dock deck height — just clears the rim top (FRAME_TOP_Y=0.16)
+
+// Straight-row card holder. No fan spread, no arc dip (contrast with
+// layoutFor above) — every card sits identically, like resting in a slot,
+// rather than splayed like a hand held in the air.
+const HOLDER_MAX_SPAN = 2.4
+const HOLDER_MAX_SPACING = 0.16
+const HOLDER_BASE_HEIGHT = 0.06
+const HOLDER_BASE_DEPTH = 0.1
+const HOLDER_MARGIN = 0.12 // base length past the outermost card, each side
+const HOLDER_CARD_Y = HOLDER_BASE_HEIGHT / 2 + CARD_H / 2 // card's bottom edge rests on the base's top
+// A slight backward recline, like a real card holder propping cards up
+// toward the elevated camera. Applied ONLY to this inner rack (nested inside
+// the level, yaw-only dock group below) rather than folded into one combined
+// rotation — nesting a pure-Y group with a pure-X child composes in exactly
+// the order that keeps the recline reading identically for every seat
+// regardless of its angle in the arc (verified with real three.js math: a
+// single [tilt, facing, 0] rotation on one group, the default composition,
+// made the SAME tilt value produce a different effective angle per seat —
+// faceNormal.y ranged -0.222 to -0.315 across the arc — which is what read
+// as the whole row "going in an arc"). It also keeps the dock's own piles
+// genuinely vertical, the way real pilings are, instead of leaning with the
+// card rack they support.
+const HOLDER_TILT = -0.32
+
+function holderSpacing(total: number): number {
+  return Math.min(HOLDER_MAX_SPACING, HOLDER_MAX_SPAN / Math.max(total - 1, 1))
+}
+
+function straightLayoutFor(index: number, total: number): CardLayout {
+  const t = total > 1 ? index / (total - 1) - 0.5 : 0
+  const spacing = holderSpacing(total)
+  return {
+    x: t * spacing * (total - 1),
+    y: HOLDER_CARD_Y,
+    // Each card sits a hair in front of the previous, same reasoning as
+    // layoutFor above — unambiguous overlap order, no z-fighting.
+    z: index * 0.0016,
+    rotZ: 0,
+  }
+}
+
+// Composite plank deck: 3 distinct planks with real, visible gaps and
+// cycling weathered tones — the same "boards, not a bench" trick
+// PortMarkers.tsx uses for the ports' walkways, just oriented along the
+// dock's own long axis (X, parallel to the card row) instead of a pier's
+// length.
+const DOCK_WOOD_TONES = ['#6a4a30', '#5b4027', '#77563a']
+const dockWoodTone = (i: number) => decorMaterial(DOCK_WOOD_TONES[i % DOCK_WOOD_TONES.length])
+const DOCK_DECK_DEPTH = 0.22
+const DOCK_PLANK_COUNT = 3
+const DOCK_PLANK_GAP = 0.014
+const DOCK_PLANK_THICKNESS = 0.032
+const DOCK_PLANK_DEPTH = (DOCK_DECK_DEPTH - DOCK_PLANK_GAP * (DOCK_PLANK_COUNT - 1)) / DOCK_PLANK_COUNT
+const DOCK_PLANK_STEP = DOCK_PLANK_DEPTH + DOCK_PLANK_GAP
+const DOCK_PLANK_Z_POSITIONS = Array.from(
+  { length: DOCK_PLANK_COUNT },
+  (_, i) => (i - (DOCK_PLANK_COUNT - 1) / 2) * DOCK_PLANK_STEP,
+)
+const DOCK_MARGIN = 0.16 // deck extends this far past the rack it supports, each side
+
+// Tapered pilings, driven from just under the deck all the way to the basin
+// floor — not merely deep enough to stay wet, but planted in the seabed,
+// the same discipline PortMarkers.tsx's piles follow (derived from BASIN_Y
+// so it self-corrects if the sea's depth is ever retuned).
+const DOCK_PILE_TOP_RADIUS = 0.032
+const DOCK_PILE_BOTTOM_RADIUS = 0.024
+const DOCK_PILE_INSET = 0.22 // pulled in from the deck's own ends
+const DOCK_PILE_TOP_Y = -DOCK_PLANK_THICKNESS / 2 - 0.01
+const DOCK_PILE_BOTTOM_Y = BASIN_Y - SEAT_HAND_Y // basin floor, converted into this group's own local frame
+const DOCK_PILE_LENGTH = DOCK_PILE_TOP_Y - DOCK_PILE_BOTTOM_Y
+const DOCK_PILE_CENTER_Y = (DOCK_PILE_TOP_Y + DOCK_PILE_BOTTOM_Y) / 2
+
+// A small flag in the player's own colour, planted at the dock's outer end
+// (just past the card rack) — same pole + folded-flag-segment construction
+// PortMarkers.tsx uses for its port flags, scaled down for this smaller dock.
+const FLAG_SCALE = 0.72
+const FLAG_POLE_HEIGHT = 0.42 * FLAG_SCALE
+const FLAG_POLE_Y = FLAG_POLE_HEIGHT / 2
+const FLAG_FINIAL_Y = FLAG_POLE_HEIGHT + 0.005
+const FLAG_PANEL_Y = FLAG_POLE_HEIGHT * 0.8
+const FLAG_INSET = 0.12 // pulled in from the dock's own end, in X
 
 function SeatHand({
   player,
@@ -616,26 +705,76 @@ function SeatHand({
   const cards = useMemo(() => buildCardSlots(player.resources, player.devCards), [player.resources, player.devCards])
   const [x, z] = seatPosition(seatIndex, totalSeats, SEAT_RADIUS)
   // Group rotation.y = seatAngle maps local +Z (the card face, per the
-  // BoxGeometry face order noted in HandCard) to point outward — toward
-  // wherever the camera has swung to face this seat. Same identity
-  // PortMarker's rotation comment derives, applied to the same angle used
-  // for this seat's position above.
+  // BoxGeometry face order noted in HandCard) to point outward, toward the
+  // fixed camera — same identity PortMarker's rotation comment derives,
+  // applied to the same angle used for this seat's position above.
   const facing = seatAngle(seatIndex, totalSeats)
 
   if (cards.length === 0) return null
 
+  const spacing = holderSpacing(cards.length)
+  const holderWidth = spacing * (cards.length - 1) + CARD_W + HOLDER_MARGIN * 2
+  const dockWidth = holderWidth + DOCK_MARGIN * 2
+  const pileInsetX = Math.max(dockWidth / 2 - DOCK_PILE_INSET, dockWidth * 0.2)
+  const flagX = dockWidth / 2 - FLAG_INSET
+  const flagMaterial = decorMaterial(PLAYER_COLORS[player.colorToken])
+
   return (
-    <group position={[x, SEAT_HAND_Y, z]} rotation={[SEAT_HAND_TILT, facing, 0]}>
-      {cards.map((card, i) => (
-        <HandCard
-          key={card.id}
-          cardKey={card.key}
-          index={i}
-          total={cards.length}
-          backTexture={backTexture}
-          isOpponent={isOpponent}
-        />
+    <group position={[x, SEAT_HAND_Y, z]} rotation={[0, facing, 0]}>
+      {/* Plank deck: level, like every other dock on the board. */}
+      {DOCK_PLANK_Z_POSITIONS.map((zPos, i) => (
+        <mesh key={zPos} position={[0, 0, zPos]} material={dockWoodTone(i)} castShadow receiveShadow>
+          <boxGeometry args={[dockWidth, DOCK_PLANK_THICKNESS, DOCK_PLANK_DEPTH]} />
+        </mesh>
       ))}
+      {/* Pilings, driven straight down through the water to the basin floor —
+          children of this un-tilted group so they stay genuinely vertical
+          even though the card rack they support (below) reclines. */}
+      {[-pileInsetX, pileInsetX].map((pileX, i) => (
+        <mesh key={pileX} position={[pileX, DOCK_PILE_CENTER_Y, 0]} material={dockWoodTone(i + 1)} castShadow receiveShadow>
+          <cylinderGeometry args={[DOCK_PILE_TOP_RADIUS, DOCK_PILE_BOTTOM_RADIUS, DOCK_PILE_LENGTH, 7]} />
+        </mesh>
+      ))}
+      {/* Player-colour flag, planted at the dock's outer end, just past the
+          card rack. */}
+      <group position={[flagX, 0, 0]}>
+        <mesh position={[0, FLAG_POLE_Y, 0]} material={BRASS_MATERIAL} castShadow>
+          <cylinderGeometry args={[0.011 * FLAG_SCALE, 0.013 * FLAG_SCALE, FLAG_POLE_HEIGHT, 12]} />
+        </mesh>
+        <mesh position={[0, FLAG_FINIAL_Y, 0]} material={BRASS_MATERIAL} castShadow>
+          <sphereGeometry args={[0.019 * FLAG_SCALE, 8, 6]} />
+        </mesh>
+        <group position={[0.012 * FLAG_SCALE, FLAG_PANEL_Y, 0]}>
+          <mesh position={[0.037 * FLAG_SCALE, 0, 0.006 * FLAG_SCALE]} material={flagMaterial} castShadow>
+            <boxGeometry args={[0.075 * FLAG_SCALE, 0.085 * FLAG_SCALE, 0.011 * FLAG_SCALE]} />
+          </mesh>
+          <mesh
+            position={[0.104 * FLAG_SCALE, -0.004 * FLAG_SCALE, 0.021 * FLAG_SCALE]}
+            rotation={[0, -0.42, 0.05]}
+            material={flagMaterial}
+            castShadow
+          >
+            <boxGeometry args={[0.062 * FLAG_SCALE, 0.073 * FLAG_SCALE, 0.011 * FLAG_SCALE]} />
+          </mesh>
+        </group>
+      </group>
+      {/* Card rack: mounted on the deck, reclined for readability. */}
+      <group position={[0, DOCK_PLANK_THICKNESS / 2, 0]} rotation={[HOLDER_TILT, 0, 0]}>
+        <mesh material={WALNUT_MATERIAL} castShadow receiveShadow>
+          <boxGeometry args={[holderWidth, HOLDER_BASE_HEIGHT, HOLDER_BASE_DEPTH]} />
+        </mesh>
+        {cards.map((card, i) => (
+          <HandCard
+            key={card.id}
+            cardKey={card.key}
+            index={i}
+            total={cards.length}
+            layoutOverride={straightLayoutFor(i, cards.length)}
+            backTexture={backTexture}
+            isOpponent={isOpponent}
+          />
+        ))}
+      </group>
     </group>
   )
 }

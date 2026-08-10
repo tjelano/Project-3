@@ -150,14 +150,35 @@ export interface Port {
   type: PortType
   x: number
   z: number
-  // Angle from the board center through the edge midpoint — used to point
-  // the 3D dock outward, away from the board.
+  // The edge's OWN true perpendicular direction (not the direction from
+  // the board center through its midpoint — those two only coincide on
+  // the flat middle of each of the overall board's 6 sides; everywhere
+  // else the boundary is jagged, made of individual hex edges at their
+  // own angles, and the two diverged by up to 49 degrees when measured
+  // against the real board data). Used to point the 3D dock outward,
+  // flush against the edge it's actually attached to.
   angle: number
 }
 
 // Standard Catan harbor mix: one 2:1 port per resource plus 4 generic 3:1
 // ports, alternating around the perimeter (9 total).
 const PORT_TYPE_SEQUENCE: PortType[] = ['ore', '3:1', 'wool', '3:1', 'grain', '3:1', 'lumber', '3:1', 'brick']
+
+// The edge's own perpendicular, not the direction from the board center
+// through its midpoint — see the comment on Port.angle for why those
+// differ. Rotating the edge's direction vector 90 degrees gives two
+// candidate normals; the one with a positive dot product against the
+// midpoint position is the one pointing away from the board center.
+function outwardEdgeAngle(graph: BoardGraph, edge: BoardEdge): number {
+  const a = graph.vertexById.get(edge.a)!
+  const b = graph.vertexById.get(edge.b)!
+  const dx = b.x - a.x
+  const dz = b.z - a.z
+  const candidate = { x: -dz, z: dx }
+  const pointsOutward = candidate.x * edge.x + candidate.z * edge.z > 0
+  const normal = pointsOutward ? candidate : { x: dz, z: -dx }
+  return Math.atan2(normal.x, normal.z)
+}
 
 // Ports sit on fixed, procedurally-derived boundary edges — never
 // randomized, since only tile biome/number placement is meant to change
@@ -170,6 +191,9 @@ export function assignPorts(graph: BoardGraph): Port[] {
     return sharedCount === 1 // shared by exactly one tile = on the perimeter
   })
 
+  // Sorting order only needs to walk the perimeter roughly in sequence —
+  // the radial angle is fine for that, unlike for the outward-facing
+  // rotation itself.
   const sorted = [...boundaryEdges].sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x))
 
   if (sorted.length === 0) return []
@@ -185,7 +209,7 @@ export function assignPorts(graph: BoardGraph): Port[] {
       type,
       x: edge.x,
       z: edge.z,
-      angle: Math.atan2(edge.z, edge.x),
+      angle: outwardEdgeAngle(graph, edge),
     }
   })
 }

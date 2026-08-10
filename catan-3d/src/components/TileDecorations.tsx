@@ -2,15 +2,8 @@ import { useMemo } from 'react'
 import { Billboard } from '@react-three/drei'
 import { type Biome } from '../data/hexBoard'
 import { createSeededRandom } from '../utils/seededRandom'
-import { RECESS_DEPTH, getTileTerrain, scatterPoint, terrainPoint, type TileTerrain } from '../three/hexTerrain'
-import {
-  SHEEP_FACE_MATERIAL,
-  SHEEP_WOOL_MATERIAL,
-  SNOW_MATERIAL,
-  TOKEN_MATERIAL,
-  TRUNK_MATERIAL,
-  decorMaterial,
-} from '../three/materials'
+import { getTileTerrain, scatterPoint, terrainPoint, type TileTerrain } from '../three/hexTerrain'
+import { SHEEP_FACE_MATERIAL, SHEEP_WOOL_MATERIAL, SNOW_MATERIAL, TRUNK_MATERIAL, decorMaterial } from '../three/materials'
 import { createLabelTexture } from '../three/textLabels'
 
 // The chit digit's world size — matches the troika fontSize this replaces.
@@ -399,23 +392,13 @@ export function DesertRocks({ seed }: DecorProps) {
 }
 
 // ---------------------------------------------------------------------------
-// NUMBER CHIT — nested into the carved recess.
+// NUMBER LABEL — the white chit disc itself is now sculpted into each
+// biome's own model (CatanBoard.tsx), so this only floats the number.
 // ---------------------------------------------------------------------------
-// 0.26 rather than 0.29 so the whole disc fits inside the flat recess floor:
-// the hexagon's tightest direction is its apothem (0.866), so this reaches
-// nr = 0.26/0.866 ≈ 0.30, inside RECESS_RADIUS (0.34). At 0.29 the chit's rim
-// overhung the slope and sat visibly tilted against the terrain.
-const TOKEN_RADIUS = 0.26
-const TOKEN_HEIGHT = 0.055
-
-/**
- * Sits ON the recess floor rather than hovering above the tile. Terrain-local
- * space (y = 0 is the nominal tile top, matching every other decoration), so
- * the floor is at -RECESS_DEPTH and the disc's centre is half its thickness
- * above that. The surrounding terrain then rises past the chit's edge and it
- * reads as inlaid rather than stacked on.
- */
-const TOKEN_Y = -RECESS_DEPTH + TOKEN_HEIGHT / 2
+// Terrain-local space (y = 0 is the nominal tile top, matching every other
+// decoration) — a small rise above that clears the model's own chit
+// surface without needing to know its exact sculpted thickness.
+const TOKEN_LABEL_Y = 0.05
 
 export function NumberToken({ value }: { value: number }) {
   const isHot = value === 6 || value === 8
@@ -427,29 +410,17 @@ export function NumberToken({ value }: { value: number }) {
   const labelScale = CHIT_FONT_WORLD_SIZE / label.fontPx
 
   return (
-    <group position={[0, TOKEN_Y, 0]}>
-      <mesh material={TOKEN_MATERIAL} castShadow receiveShadow>
-        <cylinderGeometry args={[TOKEN_RADIUS, TOKEN_RADIUS * 0.94, TOKEN_HEIGHT, 28]} />
+    // Billboarded rather than flush-painted flat: a fixed-flat chit reads
+    // upside down from the far side of the table the instant the camera
+    // swings to face another seat — expected for a real physical token,
+    // but exactly the readability problem the seating camera rig makes
+    // visible. Matches the port rate badge in PortMarkers.tsx, which was
+    // already billboarded for the same reason.
+    <Billboard position={[0, TOKEN_LABEL_Y, 0]}>
+      <mesh>
+        <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
+        <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
       </mesh>
-      {/* Billboarded rather than flush-painted on the token's flat top: a
-          fixed-flat chit reads upside down from the far side of the table
-          the instant the camera swings to face another seat — expected for
-          a real physical token, but exactly the readability problem the
-          seating camera rig makes visible. Matches the port rate badge in
-          PortMarkers.tsx, which was already billboarded for the same
-          reason. Offset is derived from the glyph's own ink height
-          (CHIT_FONT_WORLD_SIZE), not a flat guess: the label plane is
-          centred on this point, so a fixed +0.03 (the old value) only
-          cleared the token's rim for the plane's PADDING, not its digit —
-          the bottom half of every actual number sank straight into the
-          disc. Half the ink height plus a small margin clears the digit
-          itself at every camera angle OrbitControls allows. */}
-      <Billboard position={[0, TOKEN_HEIGHT / 2 + CHIT_FONT_WORLD_SIZE / 2 + 0.02, 0]}>
-        <mesh>
-          <planeGeometry args={[label.width * labelScale, label.height * labelScale]} />
-          <meshBasicMaterial map={label.texture} transparent depthWrite={false} />
-        </mesh>
-      </Billboard>
-    </group>
+    </Billboard>
   )
 }

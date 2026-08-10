@@ -6,6 +6,10 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // .glb isn't in Vite's default asset list — without this, importing one
+  // statically (the same "fails the build if missing" discipline every
+  // other asset in this project already gets) doesn't work.
+  assetsInclude: ['**/*.glb'],
   server: {
     // Vite's default `localhost` bound IPv6-only on this machine ([::1]),
     // so Chrome — which resolves localhost to 127.0.0.1 — got connection

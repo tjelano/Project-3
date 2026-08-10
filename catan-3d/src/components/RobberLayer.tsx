@@ -18,8 +18,15 @@ const ROBBER_Y = TILE_HEIGHT / 2 + 0.12 + 0.05 + ROBBER_HEIGHT / 2 + 0.02
 // Nudges the figurine off dead-center so it stands beside the number chit
 // instead of sitting directly on top of it and hiding it completely — the
 // chit stays fully visible (and clickable, once robber-move targeting is
-// live) no matter which hex the robber is parked on.
-const ROBBER_X_OFFSET = 0.15
+// live) no matter which hex the robber is parked on. Sized to clear the
+// chit's own footprint, not just eyeballed: the token disc is
+// TOKEN_RADIUS (0.26) and the figurine's own cone base is ROBBER_RADIUS
+// (0.22), so anything less than their sum (0.48) still overlaps the chit
+// — the old 0.15 left the cone reaching to x=-0.07, deep inside the chit's
+// edge. 0.55 clears it with a small visible gap, and (plus the cone's own
+// 0.22 reach) stays well inside the hex's own ~0.87-1.0 radius, nowhere
+// near the tile edge.
+const ROBBER_X_OFFSET = 0.55
 
 // A stylized rogue figurine, built from a handful of low-poly primitives —
 // one shared material throughout (ROBBER_MATERIAL), so it reads as a single

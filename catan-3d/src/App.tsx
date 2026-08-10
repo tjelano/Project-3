@@ -1729,6 +1729,7 @@ function App() {
         discardSelectedCount={discardSelection.length}
         onConfirmDiscard={confirmDiscard}
         roomCode={onlineInfo?.roomCode ?? null}
+        viewerPlayerId={localPlayer.id}
       />
     </div>
   )

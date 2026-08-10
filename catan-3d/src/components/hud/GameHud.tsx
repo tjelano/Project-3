@@ -73,6 +73,13 @@ interface GameHudProps {
   // null for local Pass & Play. Online, shown persistently so a player who
   // never noted the code down can still find it to reconnect.
   roomCode: string | null
+  // Whoever is actually looking at THIS screen — App.tsx's own localPlayer,
+  // already handling both the online case (this browser's assigned player,
+  // not whoever's turn it is) and the local-Pass-&-Play discard hand-off
+  // (the specific over-limit player currently discarding, not necessarily
+  // the roller). Panels showing "your own" data (hand count, dev cards,
+  // hidden Victory Point hint) need this, not currentPlayerIndex.
+  viewerPlayerId: number
 }
 
 export function GameHud({
@@ -113,10 +120,12 @@ export function GameHud({
   discardSelectedCount,
   onConfirmDiscard,
   roomCode,
+  viewerPlayerId,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
-  const otherPlayers = players.filter((p) => p.id !== currentPlayer.id)
+  const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
+  const otherPlayers = players.filter((p) => p.id !== viewer.id)
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
   const pickerBlocked = !!devCardPicker
@@ -168,18 +177,18 @@ export function GameHud({
       <RankingsPanel
         players={players}
         settlements={settlements}
-        currentPlayerId={currentPlayer.id}
+        viewerPlayerId={viewer.id}
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}
       />
       <ResourcePanel
-        resources={currentPlayer.resources}
+        resources={viewer.resources}
         canTrade={canTrade}
         onOpenTrade={() => setIsTradeOpen(true)}
-        devCards={currentPlayer.devCards}
-        devCardsBoughtThisTurn={currentPlayer.devCardsBoughtThisTurn}
-        knightsPlayed={currentPlayer.knightsPlayed}
+        devCards={viewer.devCards}
+        devCardsBoughtThisTurn={viewer.devCardsBoughtThisTurn}
+        knightsPlayed={viewer.knightsPlayed}
         canBuyDevCard={canBuyDevCard}
         onBuyDevCard={onBuyDevCard}
         canPlayDevCards={canPlayDevCards}
@@ -187,7 +196,7 @@ export function GameHud({
       />
       {isTradeOpen && canTrade && (
         <TradeModal
-          resources={currentPlayer.resources}
+          resources={viewer.resources}
           rates={portRates}
           onTrade={(give, receive) => onTrade(give, receive)}
           otherPlayers={otherPlayers}

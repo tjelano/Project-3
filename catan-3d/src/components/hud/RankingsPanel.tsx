@@ -10,7 +10,12 @@ const DOT_CLASS: Record<PlayerColorToken, string> = {
 interface RankingsPanelProps {
   players: Player[]
   settlements: Record<string, Building>
-  currentPlayerId: number
+  // Whoever is actually LOOKING at this screen — for online, that's this
+  // browser's own player, not whoever's turn it currently is (those two
+  // only coincide during your own turn). Getting this wrong doesn't just
+  // mislabel a hint: it leaks it, revealing the active player's hidden
+  // Victory Point count to every OTHER connected screen during their turn.
+  viewerPlayerId: number
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
@@ -19,21 +24,21 @@ interface RankingsPanelProps {
 export function RankingsPanel({
   players,
   settlements,
-  currentPlayerId,
+  viewerPlayerId,
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
 }: RankingsPanelProps) {
   // Public score only — Victory Point dev cards stay face-down, so this
-  // board never reveals them. The player whose turn it is gets a private
-  // "+N" hint for their OWN hidden cards, since they're allowed to know
-  // their own hand (it's already itemised in their resource panel).
+  // board never reveals them. The viewer gets a private "+N" hint for
+  // their OWN hidden cards, since they're allowed to know their own hand
+  // (it's already itemised in their resource panel).
   const ranked = [...players]
     .map((player) => ({
       player,
       score: getPublicScore(player, settlements, longestRoadHolderId, largestArmyHolderId),
       hidden:
-        player.id === currentPlayerId
+        player.id === viewerPlayerId
           ? player.devCards.filter((card) => card === 'victoryPoint').length
           : 0,
     }))

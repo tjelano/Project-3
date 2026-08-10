@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { isSupabaseConfigured } from '../../lib/supabaseClient'
 import { generateRoomCode, normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
-import { loadMatchSnapshot } from '../../multiplayer/matchSnapshot'
+import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import type { GameStartInfo } from './StartScreen'
 
 type OnlineMode = 'choose' | 'host' | 'join' | 'lobby'
@@ -25,6 +25,14 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   // progress — a real network round-trip, so Join Room needs its own
   // pending state rather than assuming the check is instant.
   const [joinChecking, setJoinChecking] = useState(false)
+  // Set only when Join Room finds a match already in progress AND the typed
+  // name doesn't match any of its players — e.g. a reconnecting player who
+  // no longer remembers the exact name they originally joined with. Typing
+  // a name that doesn't match resolves to no player at all downstream
+  // (findPlayerIndexByName in App.tsx), silently locking them out of ever
+  // taking their own turn. Picking from the room's actual names sidesteps
+  // that entirely instead of asking them to somehow type it correctly.
+  const [reconnectPicker, setReconnectPicker] = useState<{ roomCode: string; snapshot: MatchSnapshot } | null>(null)
 
   // Only becomes non-null once a room is actually chosen — presence tracking
   // (and therefore the Realtime connection itself) only opens at that point.
@@ -54,6 +62,43 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
           Online Multiplayer isn't configured yet — set <span className="font-data">VITE_SUPABASE_URL</span> in{' '}
           <span className="font-data">.env.local</span> to enable it.
         </p>
+      </div>
+    )
+  }
+
+  if (reconnectPicker) {
+    const { roomCode: pickedRoomCode, snapshot } = reconnectPicker
+    return (
+      <div className="mt-8 flex flex-col gap-3 text-left">
+        <p className="text-center font-body text-xs text-white/70">
+          No one named "{selfName}" is in this room. Which player are you?
+        </p>
+        <div className="flex flex-col gap-2">
+          {snapshot.playerNames.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => {
+                onStart({
+                  playerCount: snapshot.playerNames.length,
+                  names: snapshot.playerNames,
+                  online: {
+                    roomCode: pickedRoomCode,
+                    localPlayerName: name,
+                    isHost: normalizePlayerName(name) === normalizePlayerName(snapshot.hostName),
+                  },
+                  snapshot,
+                })
+              }}
+              className="w-full rounded-lg border border-glass-border bg-white/5 py-2.5 font-display text-sm font-semibold text-white transition-colors hover:border-gold/50 hover:text-gold"
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => setReconnectPicker(null)} className={SECONDARY_BUTTON_CLASS}>
+          Back
+        </button>
       </div>
     )
   }
@@ -156,6 +201,13 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
             const snapshot = await loadMatchSnapshot(roomCodeInput)
             setJoinChecking(false)
             if (snapshot) {
+              const matchesExisting = snapshot.playerNames.some(
+                (candidate) => normalizePlayerName(candidate) === normalizePlayerName(selfName),
+              )
+              if (!matchesExisting) {
+                setReconnectPicker({ roomCode: roomCodeInput, snapshot })
+                return
+              }
               onStart({
                 playerCount: snapshot.playerNames.length,
                 names: snapshot.playerNames,

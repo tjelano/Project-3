@@ -19,6 +19,7 @@ import { useRoomChannel, type RoomPlayer } from './multiplayer/useRoomChannel'
 import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
 import { buildHexBoard } from './data/hexBoard'
+import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
   BIOME_LABELS,
@@ -210,6 +211,7 @@ function App() {
     setHasRolledThisTurn(false)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
+    playSfx('turnStart')
   }
 
   // Shared by a local Roll Dice click AND by mirroring another player's
@@ -218,6 +220,7 @@ function App() {
   // runs identically regardless of which client actually rolled.
   const beginDiceAnimation = (d1: number, d2: number) => {
     setIsRolling(true)
+    playSfx('diceRoll')
     setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
   }
 
@@ -253,6 +256,7 @@ function App() {
       setSetupSettlementVertexId(vertexId)
       setSetupStage('road')
     }
+    playSfx('placement')
   }
 
   const applyCityPlacement = (vertexId: string, playerId: number) => {
@@ -269,6 +273,7 @@ function App() {
           : p,
       ),
     )
+    playSfx('placement')
   }
 
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean) => {
@@ -302,6 +307,7 @@ function App() {
         setSetupStage('settlement')
       }
     }
+    playSfx('roadPlacement')
   }
 
   const applyRobberMove = (
@@ -311,6 +317,7 @@ function App() {
     stolenResource: ResourceType | null,
   ) => {
     setRobberTileId(tileId)
+    playSfx('robber')
 
     let stealNote = ''
     if (victimId != null && stolenResource != null) {
@@ -539,7 +546,10 @@ function App() {
       spendDevCard(payload.playerId, 'monopoly')
       applyMonopolyEffect(payload.playerId, payload.resource)
     },
-    onTradeOffered: (payload) => setPendingTrade(payload),
+    onTradeOffered: (payload) => {
+      setPendingTrade(payload)
+      playSfx('tradeRequest')
+    },
     // Every client hears this, but only the host acts on it — see
     // resolveTradeAsHost, below, which validates against the host's own
     // (authoritative) copy of both players' resources before applying.
@@ -664,6 +674,7 @@ function App() {
   // no race to guard against here; the click itself already only fires on
   // the client whose turn it actually is.
   const endTurn = () => {
+    playSfx('turnEnd')
     const nextIndex = (currentPlayerIndex + 1) % players.length
     applyTurnAdvance(nextIndex)
     if (onlineInfo && players[currentPlayerIndex]?.id === onlineInfo.localPlayerId) {
@@ -1172,6 +1183,7 @@ function App() {
 
     const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerResource, wantResource }
     setPendingTrade(trade)
+    playSfx('tradeRequest')
     if (onlineInfo) {
       broadcastTradeOffered(trade)
       const toPlayer = playerById.get(toPlayerId)

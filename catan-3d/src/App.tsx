@@ -211,7 +211,17 @@ function App() {
     setHasRolledThisTurn(false)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
-    playSfx('turnStart')
+    // Personal cue, like turnEnd — this function runs on EVERY client (the
+    // local actor's own endTurn() and every receiver's onTurnPassed), so an
+    // unconditional playSfx here meant the player who just clicked End Turn
+    // heard their own turnEnd immediately followed by this turnStart (their
+    // own call chain), and in online play every OTHER player also heard a
+    // turnStart for a turn that wasn't becoming theirs. Only the player
+    // whose turn this new index actually belongs to should hear it; local
+    // Pass & Play has no "whose screen" distinction, so it always plays.
+    if (!onlineInfo || players[nextIndex]?.id === onlineInfo.localPlayerId) {
+      playSfx('turnStart')
+    }
   }
 
   // Shared by a local Roll Dice click AND by mirroring another player's

@@ -39,6 +39,17 @@ const BIOME_ELEVATION: Partial<Record<Biome, number>> = {
   desert: 0.12,
 }
 
+// Edit these directly to nudge a biome's number chit up (positive) or down
+// (negative) — each model sculpts its own chit surface at a different
+// height (mountains' model is nearly 3x taller than fields/pasture), so
+// NumberToken's own base height can't land flush on all of them at once.
+// Not listed here = 0 (uses NumberToken's own default, already correct).
+const BIOME_CHIT_Y_OFFSET: Partial<Record<Biome, number>> = {
+  mountains: -0.185,
+  hills: -0.05,
+  forest: -0.05,
+}
+
 for (const url of Object.values(BIOME_MODEL_URLS)) useGLTF.preload(url)
 
 // All six tiles are authored models now, each already sculpting its own
@@ -73,7 +84,9 @@ const HexTile = memo(function HexTile({ tile }: { tile: HexTileData }) {
           rises with its tile) too. */}
       <group position={[0, TILE_HEIGHT / 2 + elevation, 0]}>
         <BiomeTileModel biome={tile.biome} />
-        {tile.number !== null && <NumberToken value={tile.number} />}
+        {tile.number !== null && (
+          <NumberToken value={tile.number} yOffset={BIOME_CHIT_Y_OFFSET[tile.biome] ?? 0} />
+        )}
       </group>
     </group>
   )

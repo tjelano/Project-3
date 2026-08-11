@@ -13,7 +13,7 @@ const GENERIC_PORT_COLOR = '#f2f2f2'
 // A tiny gap off the tile edge rather than 0 — flush against it read as
 // clipping into the shore. The dock extends OUTWARD from here (see
 // DOCK_LENGTH_OFFSET below), not centred on it.
-const DOCK_OFFSET = -0.1
+const DOCK_OFFSET = -0.06
 
 // An authored model replaces the old procedural pier (planks, framing,
 // piles, bollards, flagpole) in one piece — this one already sculpts its

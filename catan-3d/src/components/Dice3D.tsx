@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { TILE_HEIGHT } from '../data/hexBoard'
-import { DIE_MATERIAL, PIP_MATERIAL } from '../three/materials'
+import { DieMesh } from './DieMesh'
+import { DIE_SIZE, REST_EULER } from '../three/dieFaces'
 
-const DIE_SIZE = 0.34
 const REST_Y = TILE_HEIGHT / 2 + DIE_SIZE / 2 + 0.02
 
 // Dice now spawn dead-center on the board (X=0, Z=0) and explode outward
@@ -41,58 +41,6 @@ const TOTAL_DURATION = TUMBLE_DURATION
 // frames actually render or how long each one takes — so it can be computed
 // once, up front, before the animation ever plays a single frame.
 const TOTAL_DECAY_FACTOR = (1 - Math.exp(-ANGULAR_DECAY_K * TUMBLE_DURATION)) / ANGULAR_DECAY_K
-
-// Absolute rest orientation for each face value, derived from a standard die
-// (opposite faces sum to 7) with +Y=1, -Y=6, +Z=2, -Z=5, +X=3, -X=4.
-const REST_EULER: Record<number, [number, number, number]> = {
-  1: [0, 0, 0],
-  2: [-Math.PI / 2, 0, 0],
-  3: [0, 0, Math.PI / 2],
-  4: [0, 0, -Math.PI / 2],
-  5: [Math.PI / 2, 0, 0],
-  6: [Math.PI, 0, 0],
-}
-
-// Pip positions in unit-cube space (half-size 0.5), one block per face,
-// matching the same face/value assignment as REST_EULER above.
-const FACE_PIP_UNITS: [number, number, number][] = [
-  [0, 0.47, 0], // +Y: 1
-  [-0.27, -0.47, -0.27],
-  [0.27, -0.47, -0.27],
-  [-0.27, -0.47, 0],
-  [0.27, -0.47, 0],
-  [-0.27, -0.47, 0.27],
-  [0.27, -0.47, 0.27], // -Y: 6
-  [-0.27, 0.27, 0.47],
-  [0.27, -0.27, 0.47], // +Z: 2
-  [-0.27, 0.27, -0.47],
-  [0.27, 0.27, -0.47],
-  [0, 0, -0.47],
-  [-0.27, -0.27, -0.47],
-  [0.27, -0.27, -0.47], // -Z: 5
-  [0.47, 0.27, -0.27],
-  [0.47, 0, 0],
-  [0.47, -0.27, 0.27], // +X: 3
-  [-0.47, 0.27, 0.27],
-  [-0.47, 0.27, -0.27],
-  [-0.47, -0.27, 0.27],
-  [-0.47, -0.27, -0.27], // -X: 4
-]
-
-function DieMesh() {
-  return (
-    <group>
-      <mesh material={DIE_MATERIAL} castShadow receiveShadow>
-        <boxGeometry args={[DIE_SIZE, DIE_SIZE, DIE_SIZE]} />
-      </mesh>
-      {FACE_PIP_UNITS.map((pos, i) => (
-        <mesh key={i} position={[pos[0] * DIE_SIZE, pos[1] * DIE_SIZE, pos[2] * DIE_SIZE]} material={PIP_MATERIAL}>
-          <sphereGeometry args={[0.085 * DIE_SIZE, 8, 6]} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
 
 interface DieAnimState {
   elapsed: number

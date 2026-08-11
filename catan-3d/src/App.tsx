@@ -11,6 +11,7 @@ import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
+import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
 import { PlayerHand3D, TableSeatHands } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
@@ -56,10 +57,6 @@ export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly'
 export interface BannerMessage {
   text: string
   variant: 'info' | 'warning'
-}
-
-function rollD6() {
-  return Math.floor(Math.random() * 6) + 1
 }
 
 // Matches a (re)joining player's typed name back to their original seat by
@@ -115,6 +112,14 @@ function App() {
   const [roads, setRoads] = useState<Record<string, number>>({})
   const [banner, setBanner] = useState<BannerMessage | null>(null)
   const [diceRoll, setDiceRoll] = useState<DiceRollTarget | null>(null)
+  const [physicsRoll, setPhysicsRoll] = useState<PhysicsRollTarget | null>(null)
+  // Which dice component is mounted: 'physics' for the player who's actually
+  // rolling (real Rapier simulation, outcome not known until it settles) and
+  // 'remote' for everyone else, watching another player's already-decided
+  // result play out via Dice3D's closed-form tumble. Defaults to 'physics'
+  // since that's correct for local Pass & Play (always the roller's own
+  // screen) and for an online player who hasn't seen anyone roll yet.
+  const [diceDisplayMode, setDiceDisplayMode] = useState<'physics' | 'remote'>('physics')
   const [isRolling, setIsRolling] = useState(false)
   const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
   const [winner, setWinner] = useState<Player | null>(null)
@@ -535,7 +540,10 @@ function App() {
     // touches whose turn it is. Turn advancement is decoupled entirely from
     // this event; it only ever happens via TURN_PASSED, sent when the
     // roller clicks their own End Turn button.
-    onDiceRolled: (payload) => beginDiceAnimation(payload.dice[0], payload.dice[1]),
+    onDiceRolled: (payload) => {
+      setDiceDisplayMode('remote')
+      beginDiceAnimation(payload.dice[0], payload.dice[1])
+    },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
     onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId),
@@ -928,9 +936,12 @@ function App() {
   const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
   const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
 
-  // Triggered by the Roll Dice button: generates the total up front (it
-  // stays authoritative) and hands it to the 3D dice to animate toward.
-  // The actual game effects only run once the dice visually settle.
+  // Triggered by the Roll Dice button: this is always the LOCAL player's own
+  // roll (their own turn, local Pass & Play or online), so it runs a real
+  // physics throw rather than pre-deciding a total — the outcome isn't known
+  // until PhysicsDice3D's simulation actually settles. Broadcasting (for
+  // online play) happens afterward, in handlePhysicsSettled, once there's a
+  // real result to broadcast.
   const rollDice = () => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -946,15 +957,21 @@ function App() {
       return
     }
 
-    // Authoritative: this client's roll is what everyone else mirrors, so
-    // it's generated and broadcast before this client's own animation even
-    // starts — no round-trip wait to see your own dice move.
-    const d1 = rollD6()
-    const d2 = rollD6()
+    setIsRolling(true)
+    playSfx('diceRoll')
+    setDiceDisplayMode('physics')
+    setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+  }
+
+  // PhysicsDice3D's settle callback — the physics simulation has just
+  // decided the real result. Broadcast it (so every other online client can
+  // mirror it via their own closed-form Dice3D) and apply it exactly like a
+  // predetermined roll used to be applied.
+  const handlePhysicsSettled = (d1: number, d2: number) => {
     if (onlineInfo) {
       broadcastDiceRolled({ dice: [d1, d2], total: d1 + d2, playerId: players[currentPlayerIndex].id })
     }
-    beginDiceAnimation(d1, d2)
+    applyRollResult(d1 + d2)
   }
 
   const applyRollResult = (total: number) => {
@@ -1677,7 +1694,11 @@ function App() {
             onMoveRobber={moveRobber}
           />
           <PortMarkers ports={ports} />
-          <Dice3D roll={diceRoll} onSettled={handleDiceSettled} />
+          {diceDisplayMode === 'physics' ? (
+            <PhysicsDice3D roll={physicsRoll} onSettled={handlePhysicsSettled} />
+          ) : (
+            <Dice3D roll={diceRoll} onSettled={handleDiceSettled} />
+          )}
           {/* Your own hand, held at the bottom of the viewport — localPlayer
               is you in an online match, or whoever's turn it is locally. */}
           <PlayerHand3D

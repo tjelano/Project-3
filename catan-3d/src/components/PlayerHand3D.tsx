@@ -13,7 +13,7 @@ import {
 } from '../game/types'
 import { seatAngle, seatPosition } from '../three/seating'
 import { BRASS_MATERIAL, WALNUT_MATERIAL, decorMaterial } from '../three/materials'
-import { BASIN_Y } from '../three/layout'
+import { BASIN_Y, FRAME_INNER, FRAME_OUTER } from '../three/layout'
 
 // --- Card art -------------------------------------------------------------
 // Imported statically rather than fetched by path string. Vite resolves each
@@ -605,7 +605,23 @@ export function PlayerHand3D({
 // the point is that they stay put at fixed places around the table. All
 // seats sit on an arc facing the camera (see seating.ts) since the camera is
 // fixed and never rotates to look at any other side of the board.
-const SEAT_RADIUS = 6.5 // resting on the tray rim's outer footprint (13.6/2=6.8; opening starts at 11.7/2=5.85)
+// Used to sit at a FIXED 6.5 — resting on the standard board's own tray
+// footprint (13.6/2=6.8; opening starts at 11.7/2=5.85). That pinned every
+// dock to the standard board's own size regardless of the actual board in
+// play, so bigger custom boards (or the tighter 5-6 player arc — see
+// seating.ts) left docks floating over open water or crowded together.
+// Recomputed per board instead: the SAME fraction of the way from the
+// tray's inner opening radius to its outer footprint radius that 6.5 was
+// on the standard board, reapplied to whatever frame size the current
+// board actually has.
+const SEAT_RADIUS_RATIO = (6.5 - FRAME_INNER / 2) / (FRAME_OUTER / 2 - FRAME_INNER / 2)
+
+function seatRadiusFor(frameInnerSize: number, frameOuterSize: number): number {
+  const innerRadius = frameInnerSize / 2
+  const outerRadius = frameOuterSize / 2
+  return innerRadius + (outerRadius - innerRadius) * SEAT_RADIUS_RATIO
+}
+
 const SEAT_HAND_Y = 0.2 // dock deck height — just clears the rim top (FRAME_TOP_Y=0.16)
 
 // Straight-row card holder. No fan spread, no arc dip (contrast with
@@ -695,20 +711,30 @@ function SeatHand({
   totalSeats,
   isOpponent,
   backTexture,
+  seatRadius,
+  customPosition,
 }: {
   player: Player
   seatIndex: number
   totalSeats: number
   isOpponent: boolean
   backTexture: THREE.Texture
+  seatRadius: number
+  // Set only under the moveableCardHolders house rule, once this player has
+  // actually placed their own dock — overrides the auto seatPosition().
+  customPosition?: { x: number; z: number }
 }) {
   const cards = useMemo(() => buildCardSlots(player.resources, player.devCards), [player.resources, player.devCards])
-  const [x, z] = seatPosition(seatIndex, totalSeats, SEAT_RADIUS)
+  const [autoX, autoZ] = seatPosition(seatIndex, totalSeats, seatRadius)
+  const x = customPosition?.x ?? autoX
+  const z = customPosition?.z ?? autoZ
   // Group rotation.y = seatAngle maps local +Z (the card face, per the
   // BoxGeometry face order noted in HandCard) to point outward, toward the
-  // fixed camera — same identity PortMarker's rotation comment derives,
-  // applied to the same angle used for this seat's position above.
-  const facing = seatAngle(seatIndex, totalSeats)
+  // fixed camera — same identity PortMarker's rotation comment derives.
+  // A custom-placed dock keeps facing outward from the board's own centre
+  // (same (sinθ, cosθ) convention seatPosition itself uses) rather than the
+  // arc's fixed per-seat angle, since it may no longer sit ON that arc.
+  const facing = customPosition ? Math.atan2(x, z) : seatAngle(seatIndex, totalSeats)
 
   if (cards.length === 0) return null
 
@@ -782,16 +808,26 @@ function SeatHand({
 export function TableSeatHands({
   players,
   localPlayerId,
+  frameInnerSize,
+  frameOuterSize,
+  cardHolderPositions,
 }: {
   players: Player[]
   // null for local Pass & Play, where there's no "opponent" concept and no
   // assigned seating — this whole feature stays off, matching how the
   // camera seat-lock in SceneRig.tsx is also online-only.
   localPlayerId: number | null
+  frameInnerSize: number
+  frameOuterSize: number
+  // Only ever populated under the moveableCardHolders house rule — empty
+  // otherwise, so every seat just falls back to the auto arc layout.
+  cardHolderPositions: Record<number, { x: number; z: number }>
 }) {
   const backTexture = useMemo(() => loadCardTexture(backArt), [])
 
   if (localPlayerId == null) return null
+
+  const seatRadius = seatRadiusFor(frameInnerSize, frameOuterSize)
 
   return (
     <>
@@ -803,8 +839,47 @@ export function TableSeatHands({
           totalSeats={players.length}
           isOpponent={player.id !== localPlayerId}
           backTexture={backTexture}
+          seatRadius={seatRadius}
+          customPosition={cardHolderPositions[player.id]}
         />
       ))}
     </>
+  )
+}
+
+// --- Card holder placement (moveableCardHolders house rule) ----------------
+// A big clickable disc covering the open-water ring docks live in — clicking
+// anywhere on it places the ACTIVE player's own dock at that angle, clamped
+// onto the ring itself (never inside the island, never past the outer rim)
+// rather than rejecting an imprecise click.
+const PLACEMENT_RING_MARGIN = 0.3
+
+export function CardHolderPlacementTarget({
+  frameInnerSize,
+  frameOuterSize,
+  onPlace,
+}: {
+  frameInnerSize: number
+  frameOuterSize: number
+  onPlace: (x: number, z: number) => void
+}) {
+  const innerRadius = frameInnerSize / 2 + PLACEMENT_RING_MARGIN
+  const outerRadius = frameOuterSize / 2 - PLACEMENT_RING_MARGIN
+
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation()
+    const clickedX = event.point.x
+    const clickedZ = event.point.z
+    const distance = Math.hypot(clickedX, clickedZ)
+    const clamped = Math.min(Math.max(distance, innerRadius), outerRadius)
+    const scale = distance > 0 ? clamped / distance : 1
+    onPlace(clickedX * scale, clickedZ * scale)
+  }
+
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, SEAT_HAND_Y + 0.01, 0]} onClick={handleClick}>
+      <ringGeometry args={[innerRadius, outerRadius, 64]} />
+      <meshBasicMaterial color="#ffd873" transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
   )
 }

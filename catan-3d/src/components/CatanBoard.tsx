@@ -2,6 +2,7 @@ import { useMemo, memo } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { TILE_HEIGHT, BIOME_ELEVATION, type Biome, type HexTileData } from '../data/hexBoard'
 import { NumberToken } from './TileDecorations'
+import { createSeededRandom } from '../utils/seededRandom'
 import forestTileModelUrl from '../assets/models/forest-tile.glb'
 import hillsTileModelUrl from '../assets/models/hills-tile.glb'
 import mountainsTileModelUrl from '../assets/models/mountains-tile.glb'
@@ -37,6 +38,18 @@ const BIOME_CHIT_Y_OFFSET: Partial<Record<Biome, number>> = {
   forest: -0.05,
 }
 
+// One of the 6 rotations a flat-top hexagon can sit at without its
+// silhouette changing — any other angle would leave gaps or overlaps at
+// the seams with neighboring tiles, since a hexagon only tiles with
+// itself under 60° multiples. Seeded per-tile (not per-biome) so every
+// forest tile, say, doesn't show the identical tree/rock arrangement.
+const HEX_ROTATION_STEP = Math.PI / 3
+
+function randomHexRotation(tileId: string): number {
+  const random = createSeededRandom(`${tileId}-rotation`)
+  return Math.floor(random() * 6) * HEX_ROTATION_STEP
+}
+
 for (const url of Object.values(BIOME_MODEL_URLS)) useGLTF.preload(url)
 
 // All six tiles are authored models now, each already sculpting its own
@@ -50,10 +63,13 @@ for (const url of Object.values(BIOME_MODEL_URLS)) useGLTF.preload(url)
 // scene graph on every call; cloning is what lets multiple tiles of the
 // same biome each have their own instance instead of fighting over one
 // shared object's transform.
-function BiomeTileModel({ biome }: { biome: Biome }) {
-  const { scene } = useGLTF(BIOME_MODEL_URLS[biome])
+function BiomeTileModel({ tile }: { tile: HexTileData }) {
+  const { scene } = useGLTF(BIOME_MODEL_URLS[tile.biome])
   const instance = useMemo(() => scene.clone(), [scene])
-  const rotationY = BIOME_MODEL_ROTATION_Y[biome] ?? 0
+  // The biome fix (if any) corrects the model's own authoring quirks first;
+  // the per-tile random step is layered on top of that corrected baseline,
+  // not in place of it.
+  const rotationY = (BIOME_MODEL_ROTATION_Y[tile.biome] ?? 0) + randomHexRotation(tile.id)
   return <primitive object={instance} rotation={[0, rotationY, 0]} />
 }
 
@@ -70,7 +86,7 @@ const HexTile = memo(function HexTile({ tile }: { tile: HexTileData }) {
           space, which is why the chit still mounts in this group (and
           rises with its tile) too. */}
       <group position={[0, TILE_HEIGHT / 2 + elevation, 0]}>
-        <BiomeTileModel biome={tile.biome} />
+        <BiomeTileModel tile={tile} />
         {tile.number !== null && (
           <NumberToken value={tile.number} yOffset={BIOME_CHIT_Y_OFFSET[tile.biome] ?? 0} />
         )}

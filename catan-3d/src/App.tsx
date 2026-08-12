@@ -13,7 +13,7 @@ import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
-import { PlayerHand3D, TableSeatHands } from './components/PlayerHand3D'
+import { PlayerHand3D, TableSeatHands, CardHolderPlacementTarget } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
@@ -129,6 +129,16 @@ function App() {
   // game, since it only ever describes an in-progress streak within the
   // active player's current turn.
   const [consecutiveDoublesThisTurn, setConsecutiveDoublesThisTurn] = useState(0)
+  // moveableCardHolders house rule — per-player {x,z} overrides for the
+  // table-seat card holder dock (TableSeatHands), keyed by player id.
+  // Empty entries fall back to the auto arc layout. Reset on every
+  // resetGame, restored from a snapshot, broadcast live so every
+  // currently-connected client (not just a later reconnect) sees a move.
+  const [cardHolderPositions, setCardHolderPositions] = useState<Record<number, { x: number; z: number }>>({})
+  // True only while the LOCAL player is actively choosing a new spot for
+  // their own dock (CardHolderPlacementTarget renders the clickable ring
+  // only in this state) — never broadcast, purely local UI mode.
+  const [isPlacingCardHolder, setIsPlacingCardHolder] = useState(false)
   // Set together with boardShapeId, only when a player-drawn shape is
   // active — takes priority over boardShapeId in buildHexBoard whenever
   // non-empty (see resetGame/restoreFromSnapshot below).
@@ -611,6 +621,7 @@ function App() {
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,
+    broadcastCardHolderMoved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -711,6 +722,8 @@ function App() {
     // fires for messages OTHER players sent — sendChatMessage below
     // appends the local player's own message directly.
     onChatMessage: (payload) => setChatMessages((prev) => [...prev.slice(-49), payload]),
+    onCardHolderMoved: (payload) =>
+      setCardHolderPositions((prev) => ({ ...prev, [payload.playerId]: { x: payload.x, z: payload.z } })),
   })
 
   // Broadcasts the LOCAL player's own message and appends it to their own
@@ -730,6 +743,18 @@ function App() {
     }
     broadcastChatMessage(payload)
     setChatMessages((prev) => [...prev.slice(-49), payload])
+  }
+
+  // moveableCardHolders house rule — click-to-place target for the LOCAL
+  // player's own dock (see CardHolderPlacementTarget). Not turn-gated:
+  // repositioning your own dock is a personal table-customization, not a
+  // game action, so it's allowed any time the rule is on, whoever's turn
+  // it is. Online-only (matches TableSeatHands itself being online-only).
+  const moveCardHolder = (x: number, z: number) => {
+    if (!onlineInfo) return
+    setCardHolderPositions((prev) => ({ ...prev, [onlineInfo.localPlayerId]: { x, z } }))
+    broadcastCardHolderMoved({ playerId: onlineInfo.localPlayerId, x, z })
+    setIsPlacingCardHolder(false)
   }
 
   // Local (non-online) games are always "your turn" — whoever is at the
@@ -1345,6 +1370,15 @@ function App() {
       warn("You can't trade right now.")
       return
     }
+    // Now that the trade window can stay open across a turn change (see
+    // GameHud.tsx), this can no longer rely on the UI simply hiding the
+    // button while it's not your turn — bankTrade always acts on
+    // players[currentPlayerIndex], so without this check a window left
+    // open from a past turn could mutate whoever's turn it currently is.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     if (give === receive) {
       warn('Pick two different resources to trade.')
       return
@@ -1379,6 +1413,14 @@ function App() {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't trade right now.")
+      return
+    }
+    // Same reasoning as bankTrade's guard just above — this always reads
+    // players[currentPlayerIndex] as the offerer, so a trade window left
+    // open from a past turn needs its own check now that it's no longer
+    // unmounted the instant the turn passes.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
       return
     }
     if (offerResource === wantResource) {
@@ -1652,6 +1694,7 @@ function App() {
     setGameRules(effectiveRules)
     setTotalRollsThisGame(0)
     setConsecutiveDoublesThisTurn(0)
+    setCardHolderPositions({})
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const freshTiles = buildHexBoard(
@@ -1728,6 +1771,7 @@ function App() {
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
     setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
+    setCardHolderPositions(snapshot.cardHolderPositions ?? {})
     const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
@@ -1835,6 +1879,7 @@ function App() {
       gameRules,
       totalRollsThisGame,
       consecutiveDoublesThisTurn,
+      cardHolderPositions,
       playerNames,
       players,
       settlements,
@@ -1863,6 +1908,7 @@ function App() {
     gameRules,
     totalRollsThisGame,
     consecutiveDoublesThisTurn,
+    cardHolderPositions,
     playerNames,
     players,
     settlements,
@@ -1970,7 +2016,20 @@ function App() {
           />
           {/* Every player's hand floating at their table seat — no-ops
               entirely for local Pass & Play (see TableSeatHands). */}
-          <TableSeatHands players={players} localPlayerId={onlineInfo?.localPlayerId ?? null} />
+          <TableSeatHands
+            players={players}
+            localPlayerId={onlineInfo?.localPlayerId ?? null}
+            frameInnerSize={frameInnerSize}
+            frameOuterSize={frameOuterSize}
+            cardHolderPositions={cardHolderPositions}
+          />
+          {isPlacingCardHolder && (
+            <CardHolderPlacementTarget
+              frameInnerSize={frameInnerSize}
+              frameOuterSize={frameOuterSize}
+              onPlace={moveCardHolder}
+            />
+          )}
           {/* Constrained so the camera can never drop below the horizon (which
             exposed the underside of the board and the backfaces of every
             token), fly past the island, or dolly through geometry. Damping
@@ -2037,6 +2096,9 @@ function App() {
         eventLog={eventLog}
         chatMessages={chatMessages}
         onSendChatMessage={sendChatMessage}
+        moveableCardHoldersEnabled={!!onlineInfo && gameRules.moveableCardHolders}
+        isPlacingCardHolder={isPlacingCardHolder}
+        onToggleMoveCardHolder={() => setIsPlacingCardHolder((prev) => !prev)}
       />
     </div>
   )

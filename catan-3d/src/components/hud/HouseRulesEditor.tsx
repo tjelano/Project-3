@@ -89,6 +89,15 @@ export function HouseRulesEditor({
           className={CHECKBOX_CLASS}
         />
       </label>
+      <label className={CHECKBOX_ROW}>
+        <span className={CHECKBOX_LABEL}>Players can move their own card holder</span>
+        <input
+          type="checkbox"
+          checked={rules.moveableCardHolders}
+          onChange={(event) => setRule('moveableCardHolders', event.target.checked)}
+          className={CHECKBOX_CLASS}
+        />
+      </label>
       <div className={CHECKBOX_ROW}>
         <span className={CHECKBOX_LABEL}>Victory point target</span>
         <input

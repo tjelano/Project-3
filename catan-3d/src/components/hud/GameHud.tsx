@@ -87,6 +87,11 @@ interface GameHudProps {
   // Online-only — ChatBoxPanel only renders when roomCode is set.
   chatMessages: ChatMessagePayload[]
   onSendChatMessage: (text: string) => void
+  // moveableCardHolders house rule — only ever true online (matches
+  // TableSeatHands itself being online-only).
+  moveableCardHoldersEnabled: boolean
+  isPlacingCardHolder: boolean
+  onToggleMoveCardHolder: () => void
 }
 
 export function GameHud({
@@ -131,6 +136,9 @@ export function GameHud({
   eventLog,
   chatMessages,
   onSendChatMessage,
+  moveableCardHoldersEnabled,
+  isPlacingCardHolder,
+  onToggleMoveCardHolder,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
@@ -182,11 +190,19 @@ export function GameHud({
         canRestart={canRestart}
       />
       <EventBanner banner={banner} />
+      {/* Its own independent slot, ABOVE the stack below — kept out of that
+          stack's normal flow so its presence (online only) never pushes
+          BuildingCostsPanel down off the top-20 alignment ResourcePanel
+          (the "cards in hand" panel, right-4) also sits at. */}
+      {roomCode && (
+        <div className="pointer-events-none absolute top-4 left-4">
+          <RoomCodeTag roomCode={roomCode} />
+        </div>
+      )}
       {/* Stacked in normal flow (not each independently absolute-positioned)
           so opening one accordion pushes the one below it down instead of
           them overlapping or leaving a fixed gap regardless of state. */}
       <div className="pointer-events-none absolute top-20 left-4 flex w-52 flex-col gap-2">
-        {roomCode && <RoomCodeTag roomCode={roomCode} />}
         <BuildingCostsPanel />
         <RankingsPanel
           players={players}
@@ -198,6 +214,19 @@ export function GameHud({
         />
       </div>
       <EventLogPanel events={eventLog} />
+      {moveableCardHoldersEnabled && (
+        <button
+          type="button"
+          onClick={onToggleMoveCardHolder}
+          className={`pointer-events-auto absolute bottom-56 left-4 rounded-lg border px-3 py-2 font-body text-[10px] tracking-[0.1em] uppercase transition-colors ${
+            isPlacingCardHolder
+              ? 'border-gold bg-gold/20 text-gold'
+              : 'border-glass-border bg-board-navy/70 text-white/70 backdrop-blur-xl hover:text-white'
+          }`}
+        >
+          {isPlacingCardHolder ? 'Click the table to place…' : 'Move Card Holder'}
+        </button>
+      )}
       {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}
@@ -211,7 +240,7 @@ export function GameHud({
         canPlayDevCards={canPlayDevCards}
         onPlayDevCard={onPlayDevCard}
       />
-      {isTradeOpen && canTrade && (
+      {isTradeOpen && (
         <TradeModal
           resources={viewer.resources}
           rates={portRates}
@@ -219,6 +248,7 @@ export function GameHud({
           otherPlayers={otherPlayers}
           onProposeTrade={onProposeTrade}
           onClose={() => setIsTradeOpen(false)}
+          isMyTurn={isMyTurn}
         />
       )}
       <RollDiceButton

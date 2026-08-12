@@ -32,6 +32,12 @@ export interface SettlementBuiltPayload {
   playerId: number
 }
 
+export interface CardHolderMovedPayload {
+  playerId: number
+  x: number
+  z: number
+}
+
 export interface CityBuiltPayload {
   vertexId: string
   playerId: number
@@ -177,6 +183,9 @@ export interface RoomChannelHandlers {
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
   onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
+  // moveableCardHolders house rule — a player repositioned their own
+  // table-seat card holder dock.
+  onCardHolderMoved?: (payload: CardHolderMovedPayload) => void
   onCityBuilt?: (payload: CityBuiltPayload) => void
   onRoadBuilt?: (payload: RoadBuiltPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
@@ -297,6 +306,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, ({ payload }) => {
       handlersRef.current.onSettlementBuilt?.(payload)
     })
+    channel.on<CardHolderMovedPayload>('broadcast', { event: 'CARD_HOLDER_MOVED' }, ({ payload }) => {
+      handlersRef.current.onCardHolderMoved?.(payload)
+    })
     channel.on<CityBuiltPayload>('broadcast', { event: 'CITY_BUILT' }, ({ payload }) => {
       handlersRef.current.onCityBuilt?.(payload)
     })
@@ -394,6 +406,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastSettlementBuilt = (payload: SettlementBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'SETTLEMENT_BUILT', payload })
   }
+  const broadcastCardHolderMoved = (payload: CardHolderMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'CARD_HOLDER_MOVED', payload })
+  }
   const broadcastCityBuilt = (payload: CityBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'CITY_BUILT', payload })
   }
@@ -470,5 +485,6 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,
+    broadcastCardHolderMoved,
   }
 }

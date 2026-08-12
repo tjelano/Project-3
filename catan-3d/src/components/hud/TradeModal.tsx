@@ -10,11 +10,15 @@ interface TradeModalProps {
   otherPlayers: Player[]
   onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
   onClose: () => void
+  // Stays mounted across a turn change now (GameHud.tsx only unmounts it on
+  // an explicit Close) — this is what disables the actual trade actions
+  // while it's not the viewer's turn, rather than the window vanishing.
+  isMyTurn: boolean
 }
 
 type TradeMode = 'bank' | 'player'
 
-export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeTrade, onClose }: TradeModalProps) {
+export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeTrade, onClose, isMyTurn }: TradeModalProps) {
   const [mode, setMode] = useState<TradeMode>('bank')
   const [give, setGive] = useState<ResourceType | null>(null)
   const [receive, setReceive] = useState<ResourceType | null>(null)
@@ -22,9 +26,10 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
   const { panelRef, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
 
   const rate = give ? rates[give] : null
-  const canConfirmBank = give != null && receive != null && give !== receive && rate != null && resources[give] >= rate
+  const canConfirmBank =
+    isMyTurn && give != null && receive != null && give !== receive && rate != null && resources[give] >= rate
   const canProposePlayer =
-    give != null && receive != null && give !== receive && targetPlayerId != null && resources[give] >= 1
+    isMyTurn && give != null && receive != null && give !== receive && targetPlayerId != null && resources[give] >= 1
 
   const confirmBankTrade = () => {
     if (!give || !receive) return
@@ -43,7 +48,10 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
   return (
     <div
       ref={panelRef}
-      className="pointer-events-auto absolute top-96 right-4 w-56 rounded-2xl border border-glass-border bg-glass p-4 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+      // Starting spot is beside ResourcePanel (top-20 right-4 w-52), not
+      // overlapping it or ChatBoxPanel's own right-4 column further down —
+      // still fully draggable from here via the header below.
+      className="pointer-events-auto absolute top-20 right-60 w-56 rounded-2xl border border-glass-border bg-glass p-4 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
     >
       <div
         onPointerDown={onHeaderPointerDown}
@@ -54,6 +62,12 @@ export function TradeModal({ resources, rates, onTrade, otherPlayers, onProposeT
           ✕
         </button>
       </div>
+
+      {!isMyTurn && (
+        <p className="mb-3 rounded-lg border border-glass-border bg-white/5 px-2.5 py-1.5 text-center font-body text-[10px] tracking-[0.1em] text-white/50 uppercase">
+          Waiting for your turn…
+        </p>
+      )}
 
       <div className="mb-3 flex rounded-lg border border-glass-border bg-white/5 p-0.5">
         <button

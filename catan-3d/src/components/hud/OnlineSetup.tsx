@@ -13,6 +13,7 @@ import {
 import { BoardShapeEditor } from './BoardShapeEditor'
 import { TrashIcon } from './TrashIcon'
 import { ConfirmDialog } from './ConfirmDialog'
+import { EyeIcon } from './EyeIcon'
 import { HouseRulesEditor, DEFAULT_GAME_RULES } from './HouseRulesEditor'
 import { CollapsibleSection } from './CollapsibleSection'
 import { PLAYER_COLORS, type GameRules, type PlayerColorToken } from '../../game/types'
@@ -82,6 +83,11 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   const [myColor, setMyColor] = useState<PlayerColorToken>('player-1')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
+  // Defaults visible — this only protects streamers who opt to hide it, it
+  // shouldn't surprise everyone else with a masked code by default. Same
+  // toggle idea as RoomCodeTag.tsx's in-game version, kept as its own
+  // separate piece of state since this is a different screen entirely.
+  const [isRoomCodeVisible, setIsRoomCodeVisible] = useState(true)
   const [isHost, setIsHost] = useState(false)
   // True while checking whether roomCodeInput already has a match in
   // progress — a real network round-trip, so Join Room needs its own
@@ -130,6 +136,26 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
       })
     },
   })
+
+  // Reassigns myColor the instant it collides with a color someone else in
+  // the room already has — covers joining a room that already has players
+  // (the default 'player-1' may well be taken) and the rarer race where two
+  // players pick the same free color within the same instant. Applied
+  // directly during render (not a useEffect) — the takenByOthers.has(myColor)
+  // check is the self-terminating guard, same "adjust state during render"
+  // pattern used for derived state elsewhere in this app.
+  if (mode === 'lobby') {
+    const takenByOthers = new Set(
+      players
+        .filter((p) => normalizePlayerName(p.name) !== normalizePlayerName(selfName))
+        .map((p) => p.colorToken)
+        .filter((c): c is PlayerColorToken => c != null),
+    )
+    if (takenByOthers.has(myColor)) {
+      const free = ALL_COLOR_TOKENS.find((token) => !takenByOthers.has(token))
+      if (free) setMyColor(free)
+    }
+  }
 
   if (!isSupabaseConfigured()) {
     return (
@@ -411,9 +437,17 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
 
   return (
     <div className="mt-8 flex flex-col gap-3 text-left">
-      <div className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-center">
+      <div className="relative rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-center">
         <p className="font-body text-[10px] tracking-[0.2em] text-gold/70 uppercase">Room Code</p>
-        <p className="font-display text-3xl tracking-[0.3em] text-gold">{roomCode}</p>
+        <p className="font-display text-3xl tracking-[0.3em] text-gold">{isRoomCodeVisible ? roomCode : '••••'}</p>
+        <button
+          type="button"
+          onClick={() => setIsRoomCodeVisible((prev) => !prev)}
+          aria-label={isRoomCodeVisible ? 'Hide room code' : 'Show room code'}
+          className="absolute top-2 right-2 text-gold/50 transition-colors hover:text-gold"
+        >
+          <EyeIcon open={isRoomCodeVisible} className="h-4 w-4" />
+        </button>
       </div>
       <p className="text-center font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
         {status === 'connecting' && 'Connecting…'}

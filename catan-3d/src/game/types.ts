@@ -4,7 +4,7 @@ export type ResourceType = 'lumber' | 'brick' | 'wool' | 'grain' | 'ore'
 
 export type Resources = Record<ResourceType, number>
 
-export type PlayerColorToken = 'player-1' | 'player-2' | 'player-3' | 'player-4'
+export type PlayerColorToken = 'player-1' | 'player-2' | 'player-3' | 'player-4' | 'player-5' | 'player-6'
 
 export type DevCardType = 'knight' | 'victoryPoint' | 'roadBuilding' | 'yearOfPlenty' | 'monopoly'
 
@@ -76,6 +76,8 @@ export const PLAYER_COLORS: Record<PlayerColorToken, string> = {
   'player-2': '#3d7fd1',
   'player-3': '#9b59b6',
   'player-4': '#2a9d8f',
+  'player-5': '#dd7a2c',
+  'player-6': '#c2478a',
 }
 
 // Mirrors the --color-resource-* tokens in index.css — kept as plain hex
@@ -124,6 +126,39 @@ export const LARGEST_ARMY_VP = 2
 
 export const WINNING_SCORE = 10
 
+// Optional house rules, chosen once at game setup (LocalSetup.tsx /
+// OnlineSetup.tsx) and carried in GameStartInfo the same way boardShapeId
+// is — see App.tsx's gameRules state. All default to standard-Catan
+// behavior (off / WINNING_SCORE), so a match with no rules touched plays
+// identically to before this existed.
+export interface GameRules {
+  // Can't move the robber onto a tile to steal from a player holding 2 or
+  // fewer PUBLIC victory points.
+  friendlyRobber: boolean
+  // A 7 rolled on either of the first two rolls of the game has no effect
+  // (no discard, no robber move) instead of triggering normally.
+  noSevensFirstTwoRolls: boolean
+  // Score needed to win — replaces the fixed WINNING_SCORE when set.
+  victoryPointTarget: number
+  // Skips the "no settlement within one edge of another" distance check.
+  allowAdjacentSettlements: boolean
+  // During the setup phase only, a settlement's vertex must touch at least
+  // one boundary tile (i.e. border open water), not just any legal spot.
+  coastalOnlySetupPlacement: boolean
+  // Rolling a double grants the SAME player an immediate extra roll, same
+  // turn. Three doubles in a row empties that player's whole hand.
+  doublesRerollRule: boolean
+}
+
+export const DEFAULT_GAME_RULES: GameRules = {
+  friendlyRobber: false,
+  noSevensFirstTwoRolls: false,
+  victoryPointTarget: WINNING_SCORE,
+  allowAdjacentSettlements: false,
+  coastalOnlySetupPlacement: false,
+  doublesRerollRule: false,
+}
+
 // Standard 25-card Catan development deck.
 export function buildDevCardDeck(): DevCardType[] {
   const deck: DevCardType[] = []
@@ -153,13 +188,22 @@ export function removeOne<T>(items: T[], value: T): T[] {
   return [...items.slice(0, index), ...items.slice(index + 1)]
 }
 
-function emptyResources(): Resources {
+export function emptyResources(): Resources {
   return { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }
 }
 
-export function createInitialPlayers(playerCount: number, names?: string[]): Player[] {
-  const colorTokens: PlayerColorToken[] = ['player-1', 'player-2', 'player-3', 'player-4']
-  return colorTokens.slice(0, playerCount).map((colorToken, index) => ({
+const DEFAULT_COLOR_TOKENS: PlayerColorToken[] = [
+  'player-1',
+  'player-2',
+  'player-3',
+  'player-4',
+  'player-5',
+  'player-6',
+]
+
+export function createInitialPlayers(playerCount: number, names?: string[], colorTokens?: PlayerColorToken[]): Player[] {
+  const resolvedColorTokens = (colorTokens ?? DEFAULT_COLOR_TOKENS).slice(0, playerCount)
+  return resolvedColorTokens.map((colorToken, index) => ({
     id: index + 1,
     name: names?.[index]?.trim() || `Player ${index + 1}`,
     colorToken,

@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import type { BannerMessage, DevCardPickerMode, GamePhase, SetupStage } from '../../App'
+import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupStage } from '../../App'
 import type { Building, DevCardType, Player, ResourceType } from '../../game/types'
+import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
 import { RollDiceButton } from './RollDiceButton'
 import { EventBanner } from './EventBanner'
+import { EventLogPanel } from './EventLogPanel'
+import { ChatBoxPanel } from './ChatBoxPanel'
 import { TradeModal } from './TradeModal'
 import { VictoryBanner } from './VictoryBanner'
 import { BuildingCostsPanel } from './BuildingCostsPanel'
@@ -80,6 +83,10 @@ interface GameHudProps {
   // the roller). Panels showing "your own" data (hand count, dev cards,
   // hidden Victory Point hint) need this, not currentPlayerIndex.
   viewerPlayerId: number
+  eventLog: EventLogEntry[]
+  // Online-only — ChatBoxPanel only renders when roomCode is set.
+  chatMessages: ChatMessagePayload[]
+  onSendChatMessage: (text: string) => void
 }
 
 export function GameHud({
@@ -121,6 +128,9 @@ export function GameHud({
   onConfirmDiscard,
   roomCode,
   viewerPlayerId,
+  eventLog,
+  chatMessages,
+  onSendChatMessage,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
@@ -172,16 +182,23 @@ export function GameHud({
         canRestart={canRestart}
       />
       <EventBanner banner={banner} />
-      <BuildingCostsPanel />
-      {roomCode && <RoomCodeTag roomCode={roomCode} />}
-      <RankingsPanel
-        players={players}
-        settlements={settlements}
-        viewerPlayerId={viewer.id}
-        longestRoadHolderId={longestRoadHolderId}
-        longestRoadLengths={longestRoadLengths}
-        largestArmyHolderId={largestArmyHolderId}
-      />
+      {/* Stacked in normal flow (not each independently absolute-positioned)
+          so opening one accordion pushes the one below it down instead of
+          them overlapping or leaving a fixed gap regardless of state. */}
+      <div className="pointer-events-none absolute top-20 left-4 flex w-52 flex-col gap-2">
+        {roomCode && <RoomCodeTag roomCode={roomCode} />}
+        <BuildingCostsPanel />
+        <RankingsPanel
+          players={players}
+          settlements={settlements}
+          viewerPlayerId={viewer.id}
+          longestRoadHolderId={longestRoadHolderId}
+          longestRoadLengths={longestRoadLengths}
+          largestArmyHolderId={largestArmyHolderId}
+        />
+      </div>
+      <EventLogPanel events={eventLog} />
+      {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}
         canTrade={canTrade}

@@ -1,5 +1,7 @@
+import { Suspense } from 'react'
 import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer, N8AO, Vignette } from '@react-three/postprocessing'
+import { FRAME_OUTER } from '../three/layout'
 
 /**
  * CINEMATIC RIG — a museum vitrine at dusk.
@@ -62,7 +64,30 @@ const AO_INTENSITY = 1.05
 const BLOOM_THRESHOLD = 0.96
 const BLOOM_INTENSITY = 0.28
 
-export function SceneRig() {
+// --- Panorama background ---------------------------------------------------
+// Drop-in slot, inactive until a real image exists at PANORAMA_URL — flip
+// ENABLE_PANORAMA_BACKGROUND once it does. Must be a SEAMLESS 360-degree
+// equirectangular panorama (2:1 aspect, horizon at the vertical center);
+// a normal single-angle photo will look wrapped/distorted across the sphere.
+// Rendered as a SEPARATE <Environment background="only" ...>, deliberately
+// apart from the Lightformer-driven <Environment> below — that one still
+// drives all IBL reflections (the tuned brass/metal look described in the
+// file header) untouched by whatever ends up in the photo. The vitrine's
+// dark fog and Vignette (below) were tuned against a black void and will
+// likely need retuning once a bright warm room is actually behind it.
+const ENABLE_PANORAMA_BACKGROUND = false
+const PANORAMA_URL = '/environment/gameroom-panorama.jpg'
+
+export function SceneRig({ outerSize = FRAME_OUTER }: { outerSize?: number }) {
+  // Standard: tray is FRAME_OUTER (13.6) across, corners ~9.6 from origin,
+  // and 11.5 was tuned to cover that with margin for the mountain peaks —
+  // i.e. a margin of 11.5 - 13.6/2 = 4.7 beyond the tray's own half-width.
+  // Reapplying that same margin to whatever outerSize actually is keeps
+  // bigger boards (Newfoundland/Peanut/custom shapes) from having their
+  // shadows guillotined at the frustum edge the way the original fixed
+  // 11.5 would for anything wider than standard.
+  const shadowExtent = outerSize / 2 + 4.7
+
   return (
     <>
       <ambientLight intensity={AMBIENT_INTENSITY} color={FILL_COLOR} />
@@ -73,19 +98,15 @@ export function SceneRig() {
         intensity={KEY_INTENSITY}
         color={KEY_COLOR}
         castShadow
-        // The tray is FRAME_OUTER (13.6) across, so its corners sit ~9.6 from
-        // the origin — well outside the old +/-7.5 frustum, which is exactly
-        // why shadows were being guillotined near the top and bottom rails.
-        // 11.5 covers the whole tray with margin for the mountain peaks.
         // Bounded to a standard 2048x2048 (down from 3072) — VSM renders the
         // map twice (depth pass + blur pass), and 3072 pushed that pair past
         // 100MB of VRAM on constrained/integrated GPUs, a plausible trigger
         // for a silently lost WebGL context on some drivers.
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-11.5}
-        shadow-camera-right={11.5}
-        shadow-camera-top={11.5}
-        shadow-camera-bottom={-11.5}
+        shadow-camera-left={-shadowExtent}
+        shadow-camera-right={shadowExtent}
+        shadow-camera-top={shadowExtent}
+        shadow-camera-bottom={-shadowExtent}
         shadow-camera-near={0.1}
         shadow-camera-far={48}
         shadow-bias={-0.0004}
@@ -146,6 +167,12 @@ export function SceneRig() {
           color="#ffffff"
         />
       </Environment>
+
+      {ENABLE_PANORAMA_BACKGROUND && (
+        <Suspense fallback={null}>
+          <Environment files={PANORAMA_URL} background="only" />
+        </Suspense>
+      )}
 
       {/* Only bites at maximum zoom-out, softening the far frame corners. */}
       <fog attach="fog" args={['#070c16', 24, 52]} />

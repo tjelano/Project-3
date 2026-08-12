@@ -1,20 +1,21 @@
 import { useMemo } from 'react'
+import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
+import settlementModelUrl from '../assets/models/settlement.glb'
+import cityModelUrl from '../assets/models/settlement-city.glb'
+import roadModelUrl from '../assets/models/road.glb'
 
 /**
- * Stylized tabletop miniatures for the player-built pieces.
- *
- * Split out of BoardInteractions so that file stays about hit-testing and
- * placement rules while the modelling lives here.
- *
- * Materials are cached per colour: a city alone is ~20 meshes and a full
- * 4-player board can carry 60+ roads, so allocating a material per mesh
- * would put hundreds of redundant instances on the GPU.
+ * Authored miniatures for the player-built pieces (replacing the earlier
+ * procedural geometry). None of the three source GLBs carry a material —
+ * gltf-transform inspect confirms "No materials found" for all of them —
+ * so there's nothing baked-in to fight: the SAME plain per-color material
+ * is applied to the whole (single-mesh) model, the direct GLB equivalent
+ * of the old pieceMaterial/shadeMaterial cached-per-colour system.
  */
 
 const pieceCache = new Map<string, THREE.MeshPhysicalMaterial>()
 
-/** The owner's colour, lacquered — the primary body of every piece. */
 function pieceMaterial(color: string): THREE.MeshPhysicalMaterial {
   const cached = pieceCache.get(color)
   if (cached) return cached
@@ -24,222 +25,95 @@ function pieceMaterial(color: string): THREE.MeshPhysicalMaterial {
     metalness: 0,
     clearcoat: 0.35,
     clearcoatRoughness: 0.4,
-    flatShading: true,
   })
   pieceCache.set(color, created)
   return created
 }
 
-const shadeCache = new Map<string, THREE.MeshPhysicalMaterial>()
+useGLTF.preload(settlementModelUrl)
+useGLTF.preload(cityModelUrl)
+useGLTF.preload(roadModelUrl)
 
-/**
- * A darker shade of the SAME owner colour, used for roofs, trim, timber and
- * doorways. Deriving these from the player's hue instead of using a neutral
- * grey means a piece still scans as "yours" at a glance, while the value
- * contrast gives the silhouette internal detail.
- */
-function shadeMaterial(color: string, factor: number, key: string): THREE.MeshPhysicalMaterial {
-  const id = color + ':' + key
-  const cached = shadeCache.get(id)
-  if (cached) return cached
-  const created = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(color).multiplyScalar(factor),
-    roughness: 0.6,
-    metalness: 0,
-    flatShading: true,
-  })
-  shadeCache.set(id, created)
-  return created
+// useGLTF caches by URL and returns the SAME scene graph on every call;
+// cloning is what lets multiple pieces of the same type/colour each have
+// their own instance instead of fighting over one shared object's
+// transform and material (same pattern as CatanBoard's BiomeTileModel).
+function useTintedModel(url: string, color: string) {
+  const { scene } = useGLTF(url)
+  return useMemo(() => {
+    const clone = scene.clone()
+    const material = pieceMaterial(color)
+    clone.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = material
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    return clone
+  }, [scene, color])
 }
 
 // ---------------------------------------------------------------------------
-// SETTLEMENT — a European cottage.
+// SETTLEMENT
 //
-// The silhouette does the work: walls, then a dual-pitch roof built from two
-// slabs that OVERHANG the walls on every side. That overhang, and the ridge
-// cap seaming the two pitches, is what separates a cottage from a box with a
-// cone on top — a real roof throws a shadow line down onto the wall below.
+// The model's own bounding box is ~symmetric around its local origin (like
+// every other GLB in this pack) — Meshy centres a model on its bounding
+// box, not on its feet — so SETTLEMENT_HALF_HEIGHT lifts it to rest ON the
+// group origin instead of straddling it. SETTLEMENT_SCALE targets a
+// footprint radius (~0.13) in the neighbourhood of BoardInteractions'
+// VERTEX_HITBOX_RADIUS (0.16), matching the old procedural piece's size.
 // ---------------------------------------------------------------------------
-const ROOF_PITCH = 0.72 // radians, ~41°: steep enough to read at table scale
+const SETTLEMENT_SCALE = 0.2
+const SETTLEMENT_HALF_HEIGHT = 0.9507 * SETTLEMENT_SCALE
 
 export function SettlementModel({ color }: { color: string }) {
-  const wall = pieceMaterial(color)
-  const roof = shadeMaterial(color, 0.55, 'roof')
-  const trim = shadeMaterial(color, 0.32, 'trim')
-
-  return (
-    <group>
-      <mesh position={[0, 0.065, 0]} material={wall} castShadow receiveShadow>
-        <boxGeometry args={[0.2, 0.13, 0.17]} />
-      </mesh>
-
-      {/* recessed doorway, sunk into the wall face */}
-      <mesh position={[0, 0.042, 0.0852]} material={trim} castShadow>
-        <boxGeometry args={[0.05, 0.075, 0.007]} />
-      </mesh>
-
-      {/* dual-pitch roof — two overhanging slabs */}
-      <mesh
-        position={[0, 0.168, 0.052]}
-        rotation={[ROOF_PITCH, 0, 0]}
-        material={roof}
-        castShadow
-        receiveShadow
-      >
-        <boxGeometry args={[0.235, 0.02, 0.15]} />
-      </mesh>
-      <mesh
-        position={[0, 0.168, -0.052]}
-        rotation={[-ROOF_PITCH, 0, 0]}
-        material={roof}
-        castShadow
-        receiveShadow
-      >
-        <boxGeometry args={[0.235, 0.02, 0.15]} />
-      </mesh>
-
-      {/* ridge cap sealing the seam between the pitches */}
-      <mesh position={[0, 0.214, 0]} material={trim} castShadow>
-        <boxGeometry args={[0.243, 0.018, 0.026]} />
-      </mesh>
-
-      <mesh position={[0.062, 0.228, 0.03]} material={trim} castShadow receiveShadow>
-        <boxGeometry args={[0.032, 0.085, 0.032]} />
-      </mesh>
-    </group>
-  )
+  const instance = useTintedModel(settlementModelUrl, color)
+  return <primitive object={instance} position={[0, SETTLEMENT_HALF_HEIGHT, 0]} scale={SETTLEMENT_SCALE} />
 }
 
 // ---------------------------------------------------------------------------
-// CITY — a fortified twin-tower keep.
+// CITY
 //
-// Deliberately over-scaled against the cottage: roughly twice the footprint
-// and height, so an upgrade is legible across the table without reading any
-// UI. Merlons are generated around each tower rim rather than placed by
-// hand, which keeps their spacing exact at any radius.
+// Same centred-bbox convention as the settlement above. Scaled larger
+// (~0.21 footprint radius vs settlement's ~0.13) so an upgrade stays
+// legible across the table without reading any UI, matching the old
+// procedural piece's "deliberately over-scaled" design intent.
 // ---------------------------------------------------------------------------
-const MERLONS_PER_TOWER = 8
-
-function CrenellatedTower({
-  radius,
-  height,
-  body,
-  trim,
-}: {
-  radius: number
-  height: number
-  body: THREE.Material
-  trim: THREE.Material
-}) {
-  const merlons = useMemo(
-    () =>
-      Array.from({ length: MERLONS_PER_TOWER }, (_, i) => {
-        const angle = (i / MERLONS_PER_TOWER) * Math.PI * 2
-        return {
-          x: Math.cos(angle) * radius * 0.88,
-          z: Math.sin(angle) * radius * 0.88,
-          angle,
-        }
-      }),
-    [radius],
-  )
-
-  return (
-    <group>
-      {/* Slight taper (wider at the base) reads as load-bearing masonry. */}
-      <mesh position={[0, height / 2, 0]} material={body} castShadow receiveShadow>
-        <cylinderGeometry args={[radius, radius * 1.12, height, 8]} />
-      </mesh>
-
-      {/* parapet ring the battlements stand on */}
-      <mesh position={[0, height + 0.012, 0]} material={trim} castShadow receiveShadow>
-        <cylinderGeometry args={[radius * 1.16, radius * 1.16, 0.024, 8]} />
-      </mesh>
-
-      {merlons.map((m, i) => (
-        <mesh
-          key={i}
-          position={[m.x, height + 0.046, m.z]}
-          rotation={[0, -m.angle, 0]}
-          material={body}
-          castShadow
-        >
-          <boxGeometry args={[radius * 0.44, 0.044, radius * 0.44]} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
+const CITY_SCALE = 0.4
+const CITY_HALF_HEIGHT = 0.9509 * CITY_SCALE
 
 export function CityModel({ color }: { color: string }) {
-  const stone = pieceMaterial(color)
-  const trim = shadeMaterial(color, 0.5, 'stone')
-  const gate = shadeMaterial(color, 0.3, 'gate')
-
-  return (
-    <group>
-      <mesh position={[0, 0.032, 0]} material={trim} castShadow receiveShadow>
-        <boxGeometry args={[0.32, 0.064, 0.24]} />
-      </mesh>
-
-      {/* curtain wall joining the towers */}
-      <mesh position={[0, 0.142, 0]} material={stone} castShadow receiveShadow>
-        <boxGeometry args={[0.17, 0.155, 0.13]} />
-      </mesh>
-      <mesh position={[0, 0.228, 0]} material={trim} castShadow>
-        <boxGeometry args={[0.182, 0.022, 0.142]} />
-      </mesh>
-
-      {/* gatehouse arch */}
-      <mesh position={[0, 0.106, 0.0668]} material={gate} castShadow>
-        <boxGeometry args={[0.062, 0.09, 0.008]} />
-      </mesh>
-
-      {/* Twin towers at uneven heights — the asymmetry is what reads as
-          architecture rather than as a symmetrical toy. */}
-      <group position={[-0.108, 0.064, 0]}>
-        <CrenellatedTower radius={0.062} height={0.3} body={stone} trim={trim} />
-      </group>
-      <group position={[0.108, 0.064, 0]}>
-        <CrenellatedTower radius={0.055} height={0.225} body={stone} trim={trim} />
-      </group>
-    </group>
-  )
+  const instance = useTintedModel(cityModelUrl, color)
+  return <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={CITY_SCALE} />
 }
 
 // ---------------------------------------------------------------------------
-// ROAD — a timber log path.
+// ROAD
 //
-// Two rails running the length of the edge with cross-ties beneath them.
-// Held to four meshes on purpose: roads are by far the most numerous piece
-// (up to 60 on a full 4-player board), so this is the one model where mesh
-// count actually matters.
+// The only piece whose scale is dynamic, not fixed — `span` is the edge's
+// actual world-space length, and the model has to stretch to fill it
+// exactly (same reasoning as PortMarkers' DOCK_LENGTH_OFFSET: the model's
+// own length has to be measured, not guessed). ROAD_NATIVE_LENGTH is the
+// model's own X bounding-box span (its long axis); scaling uniformly by
+// span/ROAD_NATIVE_LENGTH stretches it to fit without distorting its
+// authored cross-section proportions. The model's long axis is local X,
+// but EdgeSlot's parent group already rotates local +Z along the edge (see
+// BoardInteractions.tsx) — the same axis-swap dock.glb and hills-tile.glb
+// needed — so a 90° yaw remaps X onto that Z.
 // ---------------------------------------------------------------------------
-export function RoadModel({ color, span }: { color: string; span: number }) {
-  const rail = pieceMaterial(color)
-  const timber = shadeMaterial(color, 0.62, 'timber')
+const ROAD_NATIVE_LENGTH = 1.80281
+const ROAD_HALF_HEIGHT_UNSCALED = 0.37317
 
+export function RoadModel({ color, span }: { color: string; span: number }) {
+  const instance = useTintedModel(roadModelUrl, color)
+  const scale = span / ROAD_NATIVE_LENGTH
   return (
-    <group>
-      {[-0.036, 0.036].map((x) => (
-        <mesh
-          key={x}
-          position={[x, 0.055, 0]}
-          // The parent group already rotates local +Z along the edge, so
-          // tipping the cylinder onto X lays each log down the roadway.
-          rotation={[Math.PI / 2, 0, 0]}
-          material={rail}
-          castShadow
-          receiveShadow
-        >
-          <cylinderGeometry args={[0.026, 0.026, span, 6]} />
-        </mesh>
-      ))}
-      {[-0.27, 0.27].map((t) => (
-        <mesh key={t} position={[0, 0.028, span * t]} material={timber} castShadow receiveShadow>
-          <boxGeometry args={[0.125, 0.03, 0.05]} />
-        </mesh>
-      ))}
-    </group>
+    <primitive
+      object={instance}
+      position={[0, ROAD_HALF_HEIGHT_UNSCALED * scale, 0]}
+      rotation={[0, Math.PI / 2, 0]}
+      scale={scale}
+    />
   )
 }

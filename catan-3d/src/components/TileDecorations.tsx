@@ -119,7 +119,7 @@ export function HillBumps({ seed }: DecorProps) {
         color: HILL_COLORS[Math.floor(random() * HILL_COLORS.length)],
       }
     })
-  }, [terrain])
+  }, [seed, terrain])
 
   return (
     <group>
@@ -197,7 +197,7 @@ export function ForestTrees({ seed }: DecorProps) {
     }
     // Tallest first so the silhouette layers back-to-front sensibly.
     return out.sort((a, b) => b.foliageHeight - a.foliageHeight)
-  }, [terrain])
+  }, [seed, terrain])
 
   return (
     <group>
@@ -249,7 +249,7 @@ export function PastureSheep({ seed }: DecorProps) {
         faceZ: Math.sin(faceAngle) * bodyRadius * 0.85,
       }
     })
-  }, [terrain])
+  }, [seed, terrain])
 
   return (
     <group>
@@ -371,7 +371,7 @@ export function DesertRocks({ seed }: DecorProps) {
         color: DESERT_ROCK_COLORS[Math.floor(random() * DESERT_ROCK_COLORS.length)],
       }
     })
-  }, [terrain])
+  }, [seed, terrain])
 
   return (
     <group>

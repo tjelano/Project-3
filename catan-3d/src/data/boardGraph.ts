@@ -27,6 +27,9 @@ export interface BoardGraph {
   // vertex id -> the ids of the edges touching it, for road/settlement
   // connectivity checks (does the player have a road at this intersection?).
   vertexEdgeIds: Map<string, string[]>
+  // tile id -> its center, for determining which way a boundary edge's
+  // port should face (see outwardEdgeAngle).
+  tileCenters: Map<string, { x: number; z: number }>
 }
 
 // Flat-top hex corners sit at 30/90/150/210/270/330 degrees from center —
@@ -52,6 +55,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
   const tileVertexIds = new Map<string, string[]>()
   const vertexTileIds = new Map<string, string[]>()
   const vertexEdgeIds = new Map<string, string[]>()
+  const tileCenters = new Map<string, { x: number; z: number }>()
 
   const getVertex = (x: number, z: number): BoardVertex => {
     const rx = roundCoord(x)
@@ -66,6 +70,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
   }
 
   for (const tile of tiles) {
+    tileCenters.set(tile.id, { x: tile.x, z: tile.z })
     const corners = CORNER_ANGLES.map((angle) =>
       getVertex(tile.x + HEX_RADIUS * Math.sin(angle), tile.z + HEX_RADIUS * Math.cos(angle)),
     )
@@ -115,6 +120,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
     tileVertexIds,
     vertexTileIds,
     vertexEdgeIds,
+    tileCenters,
   }
 }
 
@@ -167,15 +173,28 @@ const PORT_TYPE_SEQUENCE: PortType[] = ['ore', '3:1', 'wool', '3:1', 'grain', '3
 // The edge's own perpendicular, not the direction from the board center
 // through its midpoint — see the comment on Port.angle for why those
 // differ. Rotating the edge's direction vector 90 degrees gives two
-// candidate normals; the one with a positive dot product against the
-// midpoint position is the one pointing away from the board center.
+// candidate normals; the correct one is whichever points away from the
+// SINGLE tile this boundary edge actually belongs to (every boundary edge
+// has exactly one, by definition). That's exact for any board shape —
+// unlike the previous "distance from the board's overall origin"
+// approximation, which silently flipped sign on boundary edges near a
+// concave notch in an irregular player-drawn custom shape (a symmetric
+// built-in shape never has one, which is why this only ever showed up on
+// a custom board).
 function outwardEdgeAngle(graph: BoardGraph, edge: BoardEdge): number {
   const a = graph.vertexById.get(edge.a)!
   const b = graph.vertexById.get(edge.b)!
   const dx = b.x - a.x
   const dz = b.z - a.z
   const candidate = { x: -dz, z: dx }
-  const pointsOutward = candidate.x * edge.x + candidate.z * edge.z > 0
+
+  const tilesA = graph.vertexTileIds.get(edge.a) ?? []
+  const tilesB = new Set(graph.vertexTileIds.get(edge.b) ?? [])
+  const adjacentTileId = tilesA.find((id) => tilesB.has(id))
+  const tileCenter = adjacentTileId ? graph.tileCenters.get(adjacentTileId) : undefined
+  const reference = tileCenter ? { x: edge.x - tileCenter.x, z: edge.z - tileCenter.z } : edge
+
+  const pointsOutward = candidate.x * reference.x + candidate.z * reference.z > 0
   const normal = pointsOutward ? candidate : { x: dz, z: -dx }
   return Math.atan2(normal.x, normal.z)
 }

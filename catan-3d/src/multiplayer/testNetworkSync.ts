@@ -112,8 +112,6 @@ async function main() {
 
   let clientA: SupabaseClient | undefined
   let clientB: SupabaseClient | undefined
-  let channelA: RealtimeChannel | undefined
-  let channelB: RealtimeChannel | undefined
 
   const connectionOk = await runStep('Supabase Connection', async () => {
     if (!existsSync(ENV_PATH)) {
@@ -157,8 +155,8 @@ async function main() {
   // listener is wired up here, before either channel subscribes, even
   // though the things they're listening FOR (track/send) don't happen
   // until later, reported-separately steps below.
-  channelA = clientA!.channel(`room:${roomCode}`, { config: { presence: { key: 'client-a', enabled: true } } })
-  channelB = clientB!.channel(`room:${roomCode}`, { config: { presence: { key: 'client-b', enabled: true } } })
+  const channelA = clientA!.channel(`room:${roomCode}`, { config: { presence: { key: 'client-a', enabled: true } } })
+  const channelB = clientB!.channel(`room:${roomCode}`, { config: { presence: { key: 'client-b', enabled: true } } })
 
   let clientBSeenByA = false
   let clientASeenByB = false

@@ -60,16 +60,20 @@ describe('buildHexBoard', () => {
   it('builds the board in a 3-4-5-4-3 column structure', () => {
     const board = buildHexBoard()
 
+    // tile.col is centered around 0 (-2..2 for the standard board's 5
+    // columns), not a raw 0-based index — the convention needed once board
+    // shapes became arbitrary cell lists (BoardCell) rather than a fixed
+    // column-heights array.
     const colCounts = board.reduce((acc, tile) => {
       acc[tile.col] = (acc[tile.col] || 0) + 1
       return acc
     }, {} as Record<number, number>)
 
-    expect(colCounts[0]).toBe(3)
+    expect(colCounts[-2]).toBe(3)
+    expect(colCounts[-1]).toBe(4)
+    expect(colCounts[0]).toBe(5)
     expect(colCounts[1]).toBe(4)
-    expect(colCounts[2]).toBe(5)
-    expect(colCounts[3]).toBe(4)
-    expect(colCounts[4]).toBe(3)
+    expect(colCounts[2]).toBe(3)
   })
 
   it('produces identical boards for the same seed', () => {

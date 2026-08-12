@@ -4,7 +4,6 @@ import * as THREE from 'three'
 import { FRAME_INNER, WATER_OVERLAP, WATER_Y, WAVE_AMPLITUDE } from '../three/layout'
 import { createSeaMaterial } from '../three/materials'
 
-const WATER_SIZE = FRAME_INNER + WATER_OVERLAP
 // ~0.19 units per facet. Fine enough that the swell reads as rolling water,
 // coarse enough that individual triangles stay legible as facets.
 const WATER_SEGMENTS = 64
@@ -51,9 +50,10 @@ const WAVE_GLSL = /* glsl */ `
   }
 `
 
-export function Ocean() {
+export function Ocean({ innerSize = FRAME_INNER }: { innerSize?: number }) {
   const shaderRef = useRef<THREE.WebGLProgramParametersWithUniforms | null>(null)
   const { gl } = useThree()
+  const waterSize = innerSize + WATER_OVERLAP
 
   // Shader compile/link failures in three.js do NOT throw a catchable JS
   // exception — the broken program is silently left in place and nothing
@@ -67,6 +67,11 @@ export function Ocean() {
 
   useEffect(() => {
     const previous = gl.debug.onShaderError
+    // gl is a raw Three.js WebGLRenderer — an imperative, non-React-owned
+    // object useThree() merely hands back a reference to, not React state.
+    // onShaderError is the ONE hook three.js exposes for this (see comment
+    // above); there's no non-mutating alternative to assign it through.
+    // eslint-disable-next-line react-hooks/immutability
     gl.debug.onShaderError = (context, program, vertexShader, fragmentShader) => {
       console.error(
         '[Catan] Ocean wave shader failed to compile/link — falling back to a static sea material.',
@@ -84,10 +89,10 @@ export function Ocean() {
   }, [gl])
 
   const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, WATER_SEGMENTS, WATER_SEGMENTS)
+    const geo = new THREE.PlaneGeometry(waterSize, waterSize, WATER_SEGMENTS, WATER_SEGMENTS)
     geo.rotateX(-Math.PI / 2)
     return geo
-  }, [])
+  }, [waterSize])
 
   const material = useMemo(() => {
     // Surface properties live in three/materials.ts; this file only adds motion.

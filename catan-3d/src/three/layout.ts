@@ -17,6 +17,40 @@ export const FRAME_INNER = 11.7
 /** Outer footprint. The difference is the rim thickness (~0.95 a side). */
 export const FRAME_OUTER = 13.6
 
+// The standard board's own largest tile-center-to-center span (z-axis: rows
+// -2..2, ROW_SPACING apart) — used to back OUT how much margin FRAME_INNER
+// actually carries beyond the island itself, so that same per-side margin
+// can be re-applied to any OTHER board shape's real extent below, instead
+// of every shape staying hardcoded to the standard board's specific size.
+const STANDARD_MAX_CENTER_EXTENT = 4 * Math.sqrt(3)
+const FRAME_MARGIN_PER_SIDE = (FRAME_INNER - STANDARD_MAX_CENTER_EXTENT) / 2
+const FRAME_RIM_THICKNESS = FRAME_OUTER - FRAME_INNER
+
+/**
+ * The tray's actual clear opening for a GIVEN board — grows for a wider
+ * board than standard (Newfoundland/Peanut/any custom BoardShapeEditor.tsx
+ * shape), using the exact same per-side margin FRAME_INNER already reserves
+ * for the standard board, so the water and rim always read as proportional
+ * however big the island gets. Never shrinks below FRAME_INNER — a small
+ * custom shape still gets the same tray the game has always shipped with;
+ * only bigger boards grow it, smaller ones don't shrink it.
+ */
+export function computeFrameInnerSize(tiles: { x: number; z: number }[]): number {
+  let maxAbsX = 0
+  let maxAbsZ = 0
+  for (const tile of tiles) {
+    maxAbsX = Math.max(maxAbsX, Math.abs(tile.x))
+    maxAbsZ = Math.max(maxAbsZ, Math.abs(tile.z))
+  }
+  const maxCenterExtent = Math.max(maxAbsX, maxAbsZ) * 2
+  return Math.max(FRAME_INNER, maxCenterExtent + FRAME_MARGIN_PER_SIDE * 2)
+}
+
+/** Outer footprint for a given inner opening — same rim thickness regardless of board size. */
+export function computeFrameOuterSize(innerSize: number): number {
+  return innerSize + FRAME_RIM_THICKNESS
+}
+
 /** Corner rounding, applied to both the opening and the outer edge. */
 export const FRAME_RADIUS = 0.55
 

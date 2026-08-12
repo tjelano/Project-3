@@ -1,6 +1,13 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { BASIN_Y, FRAME_DEPTH, FRAME_INNER, FRAME_OUTER, FRAME_RADIUS, FRAME_TOP_Y } from '../three/layout'
+import {
+  BASIN_Y,
+  FRAME_DEPTH,
+  FRAME_INNER,
+  FRAME_RADIUS,
+  FRAME_TOP_Y,
+  computeFrameOuterSize,
+} from '../three/layout'
 import { BASIN_MATERIAL, BRASS_MATERIAL, WALNUT_MATERIAL } from '../three/materials'
 
 /**
@@ -74,25 +81,30 @@ function buildRingGeometry(outer: number, inner: number, depth: number, bevel: n
   return geometry
 }
 
-export function BoardFrame() {
-  const walnutGeometry = useMemo(() => buildRingGeometry(FRAME_OUTER, FRAME_INNER, FRAME_DEPTH, BEVEL), [])
+export function BoardFrame({ innerSize = FRAME_INNER }: { innerSize?: number }) {
+  const outerSize = computeFrameOuterSize(innerSize)
+
+  const walnutGeometry = useMemo(
+    () => buildRingGeometry(outerSize, innerSize, FRAME_DEPTH, BEVEL),
+    [outerSize, innerSize],
+  )
 
   const inlayGeometry = useMemo(
     () =>
       buildRingGeometry(
-        FRAME_INNER + INLAY_INSET * 2 + INLAY_WIDTH * 2,
-        FRAME_INNER + INLAY_INSET * 2,
+        innerSize + INLAY_INSET * 2 + INLAY_WIDTH * 2,
+        innerSize + INLAY_INSET * 2,
         0.05,
         0.012,
       ),
-    [],
+    [innerSize],
   )
 
   const basinGeometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(FRAME_INNER, FRAME_INNER)
+    const geo = new THREE.PlaneGeometry(innerSize, innerSize)
     geo.rotateX(-Math.PI / 2)
     return geo
-  }, [])
+  }, [innerSize])
 
   return (
     <group>

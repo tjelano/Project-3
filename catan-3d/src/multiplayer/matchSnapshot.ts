@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../lib/supabaseClient'
-import type { Building, DevCardType, Player } from '../game/types'
+import type { Building, DevCardType, GameRules, Player } from '../game/types'
+import type { BoardCell, BoardShapeId } from '../data/hexBoard'
 import type { GamePhase, SetupStage } from '../App'
 
 const TABLE = 'match_snapshots'
@@ -15,6 +16,24 @@ const TABLE = 'match_snapshots'
  */
 export interface MatchSnapshot {
   hostName: string
+  // Optional because snapshots saved before board shapes existed won't have
+  // it — restoreFromSnapshot in App.tsx falls back to 'standard' when absent.
+  boardShapeId?: BoardShapeId
+  // Set together, only when the match was started on a player-drawn shape.
+  customBoardCells?: BoardCell[]
+  // Optional for the same reason boardShapeId is — snapshots saved before
+  // house rules existed default to DEFAULT_GAME_RULES on restore. Player
+  // colors need no separate field: they're already on each Player below.
+  gameRules?: GameRules
+  // Optional for the same reason — absent on pre-house-rules snapshots,
+  // which restoreFromSnapshot treats as 0 (safe: at worst it re-protects a
+  // handful of already-past rolls from the noSevensFirstTwoRolls check).
+  totalRollsThisGame?: number
+  // Same optional/backward-compatible treatment — absent snapshots restore
+  // to 0, which is always correct at the start of whatever turn is current
+  // on restore (a genuinely mid-streak reconnect just loses that streak's
+  // memory, not a correctness bug — the streak resets every new turn anyway).
+  consecutiveDoublesThisTurn?: number
   playerNames: string[]
   players: Player[]
   settlements: Record<string, Building>

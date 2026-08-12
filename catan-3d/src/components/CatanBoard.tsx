@@ -1,6 +1,6 @@
 import { useMemo, memo } from 'react'
 import { useGLTF } from '@react-three/drei'
-import { TILE_HEIGHT, type Biome, type HexTileData } from '../data/hexBoard'
+import { TILE_HEIGHT, BIOME_ELEVATION, type Biome, type HexTileData } from '../data/hexBoard'
 import { NumberToken } from './TileDecorations'
 import forestTileModelUrl from '../assets/models/forest-tile.glb'
 import hillsTileModelUrl from '../assets/models/hills-tile.glb'
@@ -24,19 +24,6 @@ const BIOME_MODEL_URLS: Record<Biome, string> = {
 // spin puts it back in line without needing the source file re-exported.
 const BIOME_MODEL_ROTATION_Y: Partial<Record<Biome, number>> = {
   hills: Math.PI / 2,
-}
-
-// Ore/brick/wood/desert sit low enough to clip into the water at the
-// shared TILE_HEIGHT/2 height every tile used to sit at — these four get
-// an extra lift on top of that. Graduated rather than uniform: reads as
-// real elevation (rocky peaks rising above flat farmland) instead of
-// every tile just being nudged up by the same flat amount. Fields and
-// pasture are left at 0 — they already sit correctly.
-const BIOME_ELEVATION: Partial<Record<Biome, number>> = {
-  mountains: 0.2,
-  forest: 0.08,
-  hills: 0.15,
-  desert: 0.12,
 }
 
 // Edit these directly to nudge a biome's number chit up (positive) or down
@@ -71,14 +58,14 @@ function BiomeTileModel({ biome }: { biome: Biome }) {
 }
 
 const HexTile = memo(function HexTile({ tile }: { tile: HexTileData }) {
-  const elevation = BIOME_ELEVATION[tile.biome] ?? 0
+  const elevation = BIOME_ELEVATION[tile.biome]
   return (
     <group position={[tile.x, 0, tile.z]}>
       {/* Local y = 0 here is the nominal tile top (matching every model's
           own authored scale — see BIOME_MODEL_URLS) — lifting by
           TILE_HEIGHT/2 keeps this group at the same reference height the
           old procedural terrain used, so every vertex/edge/port coordinate
-          in boardGraph stays valid. BIOME_ELEVATION adds on top of that
+          in boardGraph stays valid. BIOME_ELEVATION adds on top of that,
           per-biome. Decorations report their Y in this same terrain-local
           space, which is why the chit still mounts in this group (and
           rises with its tile) too. */}

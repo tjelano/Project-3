@@ -48,6 +48,7 @@ describe('assignPorts', () => {
       tileVertexIds: new Map(),
       vertexTileIds: new Map(),
       vertexEdgeIds: new Map(),
+      tileCenters: new Map(),
     }
     const ports = assignPorts(emptyGraph)
     expect(ports).toEqual([])

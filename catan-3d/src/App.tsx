@@ -7,6 +7,7 @@ import { SceneRig } from './components/SceneRig'
 import { BoardFrame } from './components/BoardFrame'
 import { CanvasErrorBoundary } from './components/CanvasErrorBoundary'
 import { Ocean } from './components/Ocean'
+import { computeFrameInnerSize, computeFrameOuterSize } from './three/layout'
 import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
@@ -16,16 +17,22 @@ import { PlayerHand3D, TableSeatHands } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
-import { useRoomChannel, type RoomPlayer } from './multiplayer/useRoomChannel'
+import {
+  useRoomChannel,
+  type RoomPlayer,
+  type HoverChangedPayload,
+  type ChatMessagePayload,
+} from './multiplayer/useRoomChannel'
 import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
-import { buildHexBoard } from './data/hexBoard'
+import { buildHexBoard, type BoardCell, type BoardShapeId } from './data/hexBoard'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
   CITY_COST,
+  DEFAULT_GAME_RULES,
   DEV_CARD_COST,
   DEV_CARD_SINGULAR,
   LARGEST_ARMY_MIN_KNIGHTS,
@@ -34,19 +41,22 @@ import {
   RESOURCE_ORDER,
   ROAD_COST,
   SETTLEMENT_COST,
-  WINNING_SCORE,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
   createInitialPlayers,
   deductCost,
   getPlayerScore,
+  emptyResources,
+  getPublicScore,
   removeOne,
   shuffle,
   totalResourceCount,
   type Building,
   type DevCardType,
+  type GameRules,
   type Player,
+  type PlayerColorToken,
   type ResourceType,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
@@ -55,6 +65,11 @@ export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly'
 export interface BannerMessage {
+  text: string
+  variant: 'info' | 'warning'
+}
+export interface EventLogEntry {
+  id: number
   text: string
   variant: 'info' | 'warning'
 }
@@ -95,8 +110,37 @@ function App() {
   } | null>(null)
 
   const [tiles, setTiles] = useState(() => buildHexBoard())
+  // Persists across restarts within a session (resetGame's own optional
+  // shapeId argument overrides it only on a fresh Start Game submission) —
+  // "New Game" reshuffles the board but keeps whatever shape was chosen.
+  const [boardShapeId, setBoardShapeId] = useState<BoardShapeId>('standard')
+  // Same persistence pattern as boardShapeId — chosen once at Start Game,
+  // survives a same-session restart, only changes on a fresh submission.
+  const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
+  // Counts ACCEPTED rolls only (incremented inside applyRollResult, which
+  // every client — roller and spectators alike — runs identically), never
+  // a rerolled 7 — that's what lets noSevensFirstTwoRolls check "is this
+  // one of the first two" consistently across every client without any of
+  // them needing to separately coordinate it. Reset on every resetGame.
+  const [totalRollsThisGame, setTotalRollsThisGame] = useState(0)
+  // Consecutive doubles rolled by the CURRENT player, THIS turn — for the
+  // doublesRerollRule (extra roll on a double, hand wiped on the third in a
+  // row). Reset on every turn advance (applyTurnAdvance), not just a new
+  // game, since it only ever describes an in-progress streak within the
+  // active player's current turn.
+  const [consecutiveDoublesThisTurn, setConsecutiveDoublesThisTurn] = useState(0)
+  // Set together with boardShapeId, only when a player-drawn shape is
+  // active — takes priority over boardShapeId in buildHexBoard whenever
+  // non-empty (see resetGame/restoreFromSnapshot below).
+  const [customBoardCells, setCustomBoardCells] = useState<BoardCell[] | undefined>(undefined)
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
   const graph = useMemo(() => buildBoardGraph(tiles), [tiles])
+  // Newfoundland/Peanut/any custom BoardShapeEditor.tsx shape can be wider
+  // than standard — the tray, water and shadow frustum all derive their
+  // size from the board's OWN real extent instead of a fixed constant, so
+  // a bigger island always has a big-enough table under it.
+  const frameInnerSize = useMemo(() => computeFrameInnerSize(tiles), [tiles])
+  const frameOuterSize = useMemo(() => computeFrameOuterSize(frameInnerSize), [frameInnerSize])
   const vertexAdjacency = useMemo(() => buildVertexAdjacency(graph.edges), [graph.edges])
   const edgeById = useMemo(() => new Map(graph.edges.map((edge) => [edge.id, edge])), [graph.edges])
   const ports = useMemo(() => assignPorts(graph), [graph])
@@ -111,6 +155,11 @@ function App() {
   const [settlements, setSettlements] = useState<Record<string, Building>>({})
   const [roads, setRoads] = useState<Record<string, number>>({})
   const [banner, setBanner] = useState<BannerMessage | null>(null)
+  const [eventLog, setEventLog] = useState<EventLogEntry[]>([])
+  // Online-only — chat has no meaning in local Pass & Play (one shared
+  // screen already shows everything to everyone). Capped the same way
+  // eventLog is, for the same unbounded-growth reason.
+  const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([])
   const [diceRoll, setDiceRoll] = useState<DiceRollTarget | null>(null)
   const [physicsRoll, setPhysicsRoll] = useState<PhysicsRollTarget | null>(null)
   // Which dice component is mounted: 'physics' for the player who's actually
@@ -121,6 +170,11 @@ function App() {
   // screen) and for an online player who hasn't seen anyone roll yet.
   const [diceDisplayMode, setDiceDisplayMode] = useState<'physics' | 'remote'>('physics')
   const [isRolling, setIsRolling] = useState(false)
+  // The active player's live build-hover, mirrored from another online
+  // client (see onHoverChanged above) so everyone can see what they're
+  // considering. Always null in local Pass & Play — there's only one
+  // shared screen, which already shows the hover directly.
+  const [remoteHover, setRemoteHover] = useState<HoverChangedPayload>({ playerId: -1, vertexId: null, edgeId: null })
   const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
@@ -176,13 +230,28 @@ function App() {
 
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
 
+  // Historical log behind the single-active EventBanner — every inform()/
+  // warn() call appends here too, capped to the last 20 so the panel never
+  // grows unbounded over a long match. id is a plain incrementing counter
+  // (not the array index) so React keys stay stable as old entries fall
+  // off the front.
+  const eventLogIdRef = useRef(0)
+  const logEvent = (text: string, variant: BannerMessage['variant']) => {
+    eventLogIdRef.current += 1
+    setEventLog((prev) => [...prev.slice(-19), { id: eventLogIdRef.current, text, variant }])
+  }
+
   const warn = (text: string) => {
     console.warn(`[Catan] ${text}`)
 
     setBanner({ text, variant: 'warning' })
+    logEvent(text, 'warning')
   }
 
-  const inform = (text: string) => setBanner({ text, variant: 'info' })
+  const inform = (text: string) => {
+    setBanner({ text, variant: 'info' })
+    logEvent(text, 'info')
+  }
 
   const canPerformAction = (): boolean => {
     if (winner) return false
@@ -214,8 +283,13 @@ function App() {
     setFreeRoadsRemaining(0)
     setDevCardPlayedThisTurn(false)
     setHasRolledThisTurn(false)
+    setConsecutiveDoublesThisTurn(0)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
+    // Otherwise the outgoing player's last hovered spot lingers highlighted
+    // on every spectator's screen until the new active player happens to
+    // hover something themselves.
+    setRemoteHover({ playerId: -1, vertexId: null, edgeId: null })
     // Personal cue, like turnEnd — this function runs on EVERY client (the
     // local actor's own endTurn() and every receiver's onTurnPassed), so an
     // unconditional playSfx here meant the player who just clicked End Turn
@@ -535,6 +609,8 @@ function App() {
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastBankTrade,
+    broadcastHoverChanged,
+    broadcastChatMessage,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -626,7 +702,35 @@ function App() {
         ),
       )
     },
+    // The active player's live vertex/edge hover, mirrored so spectators
+    // can see what they're considering — Supabase broadcasts don't echo
+    // back to their own sender by default, so this only ever fires on
+    // OTHER clients, never the active player's own.
+    onHoverChanged: (payload) => setRemoteHover(payload),
+    // Broadcasts never echo back to their own sender, so this only ever
+    // fires for messages OTHER players sent — sendChatMessage below
+    // appends the local player's own message directly.
+    onChatMessage: (payload) => setChatMessages((prev) => [...prev.slice(-49), payload]),
   })
+
+  // Broadcasts the LOCAL player's own message and appends it to their own
+  // chat history in the same call — Supabase doesn't echo a broadcast back
+  // to its own sender, so without this the sender would never see their
+  // own message appear. Online-only: onlineInfo is required, not just
+  // checked, since a message needs a real localPlayerId/Name to attribute.
+  const sendChatMessage = (text: string) => {
+    if (!onlineInfo) return
+    const trimmed = text.trim()
+    if (!trimmed) return
+    const payload: ChatMessagePayload = {
+      senderId: onlineInfo.localPlayerId,
+      senderName: onlineInfo.localPlayerName,
+      text: trimmed,
+      timestamp: Date.now(),
+    }
+    broadcastChatMessage(payload)
+    setChatMessages((prev) => [...prev.slice(-49), payload])
+  }
 
   // Local (non-online) games are always "your turn" — whoever is at the
   // keyboard controls whichever player is active, same as it always has.
@@ -718,34 +822,38 @@ function App() {
 
   // Longest Road and Largest Army transfer the instant another player
   // strictly exceeds the current holder — a tie leaves the incumbent in
-  // place. See pickTrophyHolder for the exact rule.
-  useEffect(() => {
-    setLongestRoadHolderId((prev) => pickTrophyHolder(prev, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH))
-  }, [longestRoadLengths])
+  // place. See pickTrophyHolder for the exact rule. Applied directly during
+  // render rather than in a useEffect: pickTrophyHolder is pure and cheap,
+  // and the !== guard is what makes this self-terminating (the condition
+  // goes false the instant state catches up) rather than an infinite render
+  // loop — the same "adjust state during render" pattern React's own docs
+  // recommend for state fully derived from other state.
+  const nextLongestRoadHolderId = pickTrophyHolder(longestRoadHolderId, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH)
+  if (nextLongestRoadHolderId !== longestRoadHolderId) {
+    setLongestRoadHolderId(nextLongestRoadHolderId)
+  }
 
-  useEffect(() => {
-    setLargestArmyHolderId((prev) => pickTrophyHolder(prev, knightCounts, LARGEST_ARMY_MIN_KNIGHTS))
-  }, [knightCounts])
+  const nextLargestArmyHolderId = pickTrophyHolder(largestArmyHolderId, knightCounts, LARGEST_ARMY_MIN_KNIGHTS)
+  if (nextLargestArmyHolderId !== largestArmyHolderId) {
+    setLargestArmyHolderId(nextLargestArmyHolderId)
+  }
 
   // The moment any player's score reaches the win threshold, halt the game.
-  useEffect(() => {
-    if (winner || !gameStarted) return
+  // Same render-time pattern — !winner is the self-terminating guard.
+  if (!winner && gameStarted) {
     const found = players.find(
-      (p) => getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId) >= WINNING_SCORE,
+      (p) => getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId) >= gameRules.victoryPointTarget,
     )
     if (found) setWinner(found)
-  }, [players, settlements, winner, gameStarted, longestRoadHolderId, largestArmyHolderId])
+  }
 
   // The one piece of the discard self-healing (below, near
-  // activeDiscarderId) that DOES need a real effect: gamePhase is
-  // persisted state, not something derivable in render, so releasing the
-  // phase once the (self-healed) queue empties out still has to happen
-  // here — same shape as the winner-detection effect just above.
-  useEffect(() => {
-    if (gamePhase === 'discard' && validDiscardPlayerIds.length === 0) {
-      setGamePhase('moveRobber')
-    }
-  }, [gamePhase, validDiscardPlayerIds])
+  // activeDiscarderId): releases gamePhase once the (self-healed) queue
+  // empties out. Same render-time pattern as the winner check above —
+  // gamePhase !== 'discard' is what makes it self-terminating.
+  if (gamePhase === 'discard' && validDiscardPlayerIds.length === 0) {
+    setGamePhase('moveRobber')
+  }
 
   // Does this player have a road touching the given intersection? Used for
   // both road and settlement connectivity checks.
@@ -854,9 +962,19 @@ function App() {
       return
     }
     const neighbors = vertexAdjacency.get(vertexId) ?? []
-    if (neighbors.some((neighborId) => settlements[neighborId] != null)) {
+    if (!gameRules.allowAdjacentSettlements && neighbors.some((neighborId) => settlements[neighborId] != null)) {
       warn('Too close to another settlement.')
       return
+    }
+    if (isSetup && gameRules.coastalOnlySetupPlacement) {
+      // Interior vertices always touch exactly 3 land tiles in this hex
+      // grid (tiles has no ocean entries) — anything touching fewer is on
+      // the board's outer edge, i.e. coastal.
+      const touchingTiles = graph.vertexTileIds.get(vertexId) ?? []
+      if (touchingTiles.length >= 3) {
+        warn('Setup settlements must touch the coast.')
+        return
+      }
     }
     if (player.settlementsRemaining <= 0) {
       warn('You have no settlements left to place.')
@@ -968,13 +1086,47 @@ function App() {
   // mirror it via their own closed-form Dice3D) and apply it exactly like a
   // predetermined roll used to be applied.
   const handlePhysicsSettled = (d1: number, d2: number) => {
-    if (onlineInfo) {
-      broadcastDiceRolled({ dice: [d1, d2], total: d1 + d2, playerId: players[currentPlayerIndex].id })
+    const total = d1 + d2
+    const isDouble = d1 === d2
+    // House rule: a 7 rolled within the first two rolls of the game is
+    // voided and rerolled instead of applied. Only the roller's own client
+    // runs real physics, so this decision — unlike everything else a roll
+    // triggers — can only be made here, before the result is ever
+    // broadcast or handed to applyRollResult (which every client, roller
+    // and spectators alike, runs identically and which increments the
+    // counter this check reads). total===7 can never be a double (no pair
+    // of dice sums to an odd number), so this never conflicts with the
+    // doubles handling below.
+    if (gameRules.noSevensFirstTwoRolls && totalRollsThisGame < 2 && total === 7) {
+      inform('Rolled a 7 on an early roll — rerolling (No 7s house rule).')
+      playSfx('diceRoll')
+      setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+      return
     }
-    applyRollResult(d1 + d2)
+    if (onlineInfo) {
+      broadcastDiceRolled({ dice: [d1, d2], total, playerId: players[currentPlayerIndex].id })
+    }
+    const doublesCount = applyRollResult(total, isDouble)
+
+    // House rule: a double grants the SAME player an immediate bonus roll,
+    // same turn. Only the roller's own client can trigger it (only this
+    // client runs real physics) — applyRollResult above already ran the
+    // shared bookkeeping (counting the double, wiping the hand on a third
+    // in a row) identically on every client, roller and spectators alike.
+    if (gameRules.doublesRerollRule && isDouble && doublesCount < 3) {
+      inform('Doubles! Rolling again.')
+      playSfx('diceRoll')
+      setIsRolling(true)
+      setDiceDisplayMode('physics')
+      setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+    }
   }
 
-  const applyRollResult = (total: number) => {
+  // Returns the resulting consecutive-doubles count, so handlePhysicsSettled
+  // (the only caller that ever needs it) can decide whether to trigger a
+  // bonus roll without re-deriving it from state that may not have
+  // committed yet.
+  const applyRollResult = (total: number, isDouble: boolean): number => {
     setIsRolling(false)
     setLastRoll(total)
     // Marks the roll as done for whoever's turn this is — every client sets
@@ -983,6 +1135,19 @@ function App() {
     // opens the moveRobber phase) but never touches currentPlayerIndex or
     // fires TURN_PASSED; only the End Turn button does that.
     setHasRolledThisTurn(true)
+    // Only reachable with an ACCEPTED roll (a rerolled 7 returns early in
+    // handlePhysicsSettled above and never reaches here), so this stays a
+    // reliable "how many rolls has the game had" count for noSevensFirstTwoRolls.
+    setTotalRollsThisGame((n) => n + 1)
+    const doublesCount = isDouble ? consecutiveDoublesThisTurn + 1 : 0
+    setConsecutiveDoublesThisTurn(doublesCount)
+    // Every roll gets its own log entry — the branches below (7, resource
+    // yields) may call inform() again right after this, which overwrites
+    // the single active EventBanner (last write wins, same synchronous
+    // batch), but logEvent inside inform() APPENDS rather than replacing,
+    // so this line still shows up in EventLogPanel's history even when the
+    // banner itself never visibly displays it.
+    inform(`${players[currentPlayerIndex].name} rolled a ${total}.`)
 
     if (total === 7) {
       const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
@@ -995,7 +1160,7 @@ function App() {
         inform('Rolled 7 — move the Robber.')
         setGamePhase('moveRobber')
       }
-      return
+      return doublesCount
     }
 
     const robberTile = tileById.get(robberTileId)
@@ -1039,11 +1204,26 @@ function App() {
     } else {
       setBanner(null)
     }
+
+    // House rule: a third consecutive double empties the roller's hand —
+    // unconditionally, overriding whatever this same roll's own resource
+    // yield above just granted. total===7 can never be a double, so this
+    // never races the discard/moveRobber branch further up.
+    if (gameRules.doublesRerollRule && doublesCount >= 3) {
+      const loser = players[currentPlayerIndex]
+      setPlayers((prev) => prev.map((p) => (p.id === loser.id ? { ...p, resources: emptyResources() } : p)))
+      inform(`${loser.name} rolled doubles three times in a row — hand emptied!`)
+    }
+
+    return doublesCount
   }
 
   const handleDiceSettled = () => {
     if (!diceRoll) return
-    applyRollResult(diceRoll.d1 + diceRoll.d2)
+    // Spectator-side mirror of a broadcast roll — never triggers its own
+    // bonus reroll (only the roller's handlePhysicsSettled does that), so
+    // the returned doublesCount has no caller here.
+    applyRollResult(diceRoll.d1 + diceRoll.d2, diceRoll.d1 === diceRoll.d2)
   }
 
   // Flags or unflags one card (by its 3D hand instance id, e.g. "lumber-2")
@@ -1108,6 +1288,14 @@ function App() {
     for (const vertexId of vertexIds) {
       const building = settlements[vertexId]
       if (building && building.ownerId !== thief.id && !victimIds.includes(building.ownerId)) {
+        // Friendly Robber: skip anyone at 2 or fewer PUBLIC victory points
+        // (matches what everyone at the table can already see — a hidden
+        // VP card shouldn't spare or expose a player this check wouldn't
+        // otherwise apply to).
+        if (gameRules.friendlyRobber) {
+          const owner = playerById.get(building.ownerId)
+          if (owner && getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId) <= 2) continue
+        }
         victimIds.push(building.ownerId)
       }
     }
@@ -1439,10 +1627,38 @@ function App() {
     // every client's first buildHexBoard() call still lands on the
     // IDENTICAL tile layout without any of them needing to coordinate one.
     boardSeed?: string,
+    // Present only on a fresh Start Game submission (LocalSetup/OnlineSetup
+    // both always pass one). Omitted on restart/return-to-menu, which fall
+    // back to the CURRENT boardShapeId state — "New Game" reshuffles tiles
+    // but deliberately keeps whatever shape was originally chosen.
+    shapeId?: BoardShapeId,
+    // Set together with shapeId on a fresh submission — a player-drawn
+    // shape's raw cells, or undefined if they picked a built-in one (which
+    // must still WIN over a stale custom shape from an earlier game this
+    // session, hence gating on isFreshSubmission below rather than `??`).
+    customCells?: BoardCell[],
+    // Present only on a fresh submission — same "keeps the prior value on
+    // restart" treatment as shapeId, gated on the SAME isFreshSubmission
+    // flag rather than its own presence check.
+    rules?: GameRules,
+    colorTokens?: PlayerColorToken[],
   ) => {
+    const isFreshSubmission = shapeId !== undefined
+    const effectiveShapeId = shapeId ?? boardShapeId
+    const effectiveCustomCells = isFreshSubmission ? customCells : customBoardCells
+    const effectiveRules = isFreshSubmission ? (rules ?? gameRules) : gameRules
+    setBoardShapeId(effectiveShapeId)
+    setCustomBoardCells(effectiveCustomCells)
+    setGameRules(effectiveRules)
+    setTotalRollsThisGame(0)
+    setConsecutiveDoublesThisTurn(0)
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
-    const freshTiles = buildHexBoard(online ? (boardSeed ?? online.roomCode) : undefined)
+    const freshTiles = buildHexBoard(
+      online ? (boardSeed ?? online.roomCode) : undefined,
+      effectiveShapeId,
+      effectiveCustomCells,
+    )
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
@@ -1451,7 +1667,7 @@ function App() {
     // whatever was last entered, so those flows don't reset names to defaults.
     const resolvedNames = names ?? playerNames
     if (names) setPlayerNames(names)
-    setPlayers(createInitialPlayers(count, resolvedNames))
+    setPlayers(createInitialPlayers(count, resolvedNames, isFreshSubmission ? colorTokens : undefined))
     // createInitialPlayers assigns ids in `resolvedNames` order (1-based),
     // so this is the one place a client learns "which seat am I" — every
     // client built its players array from the identical names array, so the
@@ -1502,10 +1718,22 @@ function App() {
     snapshot: MatchSnapshot,
     online: { roomCode: string; localPlayerName: string; isHost: boolean },
   ) => {
-    const freshTiles = buildHexBoard(online.roomCode)
+    // Snapshots saved before board shapes existed won't have this field —
+    // 'standard' is the only shape that could have produced them.
+    const shapeId = snapshot.boardShapeId ?? 'standard'
+    setBoardShapeId(shapeId)
+    setCustomBoardCells(snapshot.customBoardCells)
+    // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
+    // default to standard behavior.
+    setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
+    setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
+    setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
+    const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
     setPlayerNames(snapshot.playerNames)
+    // Player colors are already on each snapshot.players entry (colorToken)
+    // — no separate restore step needed.
     setPlayers(snapshot.players)
     setOnlineInfo({
       roomCode: online.roomCode,
@@ -1550,7 +1778,21 @@ function App() {
     if (info.snapshot && info.online) {
       restoreFromSnapshot(info.snapshot, info.online)
     } else {
-      resetGame(info.playerCount, info.names, info.online)
+      // resetGame treats a defined shapeId as "this is a fresh submission,
+      // not a restart" — info.boardShapeId is left undefined by the setup
+      // screens specifically when a custom shape was chosen, so it has to
+      // be defaulted here rather than passed through as-is, or a custom
+      // pick would be mistaken for a restart-with-no-shape-change.
+      resetGame(
+        info.playerCount,
+        info.names,
+        info.online,
+        undefined,
+        info.boardShapeId ?? 'standard',
+        info.customBoardCells,
+        info.gameRules ?? DEFAULT_GAME_RULES,
+        info.colorTokens,
+      )
     }
     setGameStarted(true)
   }
@@ -1588,6 +1830,11 @@ function App() {
     if (!onlineInfo?.isHost || !gameStarted) return
     const snapshot: MatchSnapshot = {
       hostName: onlineInfo.localPlayerName,
+      boardShapeId,
+      customBoardCells,
+      gameRules,
+      totalRollsThisGame,
+      consecutiveDoublesThisTurn,
       playerNames,
       players,
       settlements,
@@ -1611,6 +1858,11 @@ function App() {
   }, [
     onlineInfo,
     gameStarted,
+    boardShapeId,
+    customBoardCells,
+    gameRules,
+    totalRollsThisGame,
+    consecutiveDoublesThisTurn,
     playerNames,
     players,
     settlements,
@@ -1669,9 +1921,9 @@ function App() {
           }}
         >
           <color attach="background" args={['#070c16']} />
-          <SceneRig />
-          <BoardFrame />
-          <Ocean />
+          <SceneRig outerSize={frameOuterSize} />
+          <BoardFrame innerSize={frameInnerSize} />
+          <Ocean innerSize={frameInnerSize} />
           <CatanBoard tiles={tiles} />
           <BoardInteractions
             key={boardInstance}
@@ -1686,6 +1938,11 @@ function App() {
             // stops a non-active online player from placing something only
             // their own screen would ever see, not real network sync.
             locked={!!winner || !isMyTurn}
+            remoteHover={remoteHover}
+            onHoverChange={(target) => {
+              if (!onlineInfo) return
+              broadcastHoverChanged({ playerId: players[currentPlayerIndex].id, ...target })
+            }}
           />
           <RobberLayer
             tiles={tiles}
@@ -1726,7 +1983,11 @@ function App() {
             minPolarAngle={Math.PI / 6}
             maxPolarAngle={Math.PI / 2.35}
             minDistance={6}
-            maxDistance={18}
+            // 18 was tuned so the standard tray (outerSize 13.6) is fully
+            // visible at max zoom-out — scaling by that same ratio keeps a
+            // bigger board's tray from being zoomed-out-of-reach; never
+            // less than 18, so standard's own feel is untouched.
+            maxDistance={Math.max(18, frameOuterSize * (18 / 13.6))}
             enablePan={false}
             enableDamping
             dampingFactor={0.08}
@@ -1773,6 +2034,9 @@ function App() {
         onConfirmDiscard={confirmDiscard}
         roomCode={onlineInfo?.roomCode ?? null}
         viewerPlayerId={localPlayer.id}
+        eventLog={eventLog}
+        chatMessages={chatMessages}
+        onSendChatMessage={sendChatMessage}
       />
     </div>
   )

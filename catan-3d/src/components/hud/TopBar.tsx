@@ -21,6 +21,16 @@ const PLAYER_STYLES: Record<PlayerColorToken, { dot: string; label: string; acti
     label: 'text-player-4',
     activePill: 'bg-player-4/15 ring-1 ring-player-4/70',
   },
+  'player-5': {
+    dot: 'bg-player-5',
+    label: 'text-player-5',
+    activePill: 'bg-player-5/15 ring-1 ring-player-5/70',
+  },
+  'player-6': {
+    dot: 'bg-player-6',
+    label: 'text-player-6',
+    activePill: 'bg-player-6/15 ring-1 ring-player-6/70',
+  },
 }
 
 function RestartIcon({ className }: { className?: string }) {

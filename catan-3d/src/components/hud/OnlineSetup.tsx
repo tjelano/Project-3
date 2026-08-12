@@ -3,7 +3,23 @@ import { isSupabaseConfigured } from '../../lib/supabaseClient'
 import { generateRoomCode, normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
 import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
+import { BOARD_SHAPE_LABELS, type BoardShapeId } from '../../data/hexBoard'
+import { loadCustomBoardShapes, saveCustomBoardShape, type CustomBoardShape } from '../../data/customBoardShapes'
+import { BoardShapeEditor } from './BoardShapeEditor'
+import { HouseRulesEditor, DEFAULT_GAME_RULES } from './HouseRulesEditor'
+import { CollapsibleSection } from './CollapsibleSection'
+import { PLAYER_COLORS, type GameRules, type PlayerColorToken } from '../../game/types'
 import type { GameStartInfo } from './StartScreen'
+
+const CREATE_SHAPE_VALUE = '__create__'
+const ALL_COLOR_TOKENS: PlayerColorToken[] = [
+  'player-1',
+  'player-2',
+  'player-3',
+  'player-4',
+  'player-5',
+  'player-6',
+]
 
 type OnlineMode = 'choose' | 'host' | 'join' | 'lobby'
 
@@ -18,6 +34,17 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   const [mode, setMode] = useState<OnlineMode>('choose')
   const [selfName, setSelfName] = useState('')
   const [targetCount, setTargetCount] = useState(3)
+  // Either a built-in BoardShapeId, or a saved custom shape's own id —
+  // resolved against customShapes when the host actually starts the game.
+  const [selectedShapeValue, setSelectedShapeValue] = useState<string>('standard')
+  const [customShapes, setCustomShapes] = useState<CustomBoardShape[]>(() => loadCustomBoardShapes())
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
+  const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
+  // The LOCAL player's own pick — every other seat's color comes back
+  // through their own presence entry (RoomPlayer.colorToken), same as
+  // their name does. Defaults to the first color; changed live from the
+  // lobby screen once a room exists.
+  const [myColor, setMyColor] = useState<PlayerColorToken>('player-1')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
   const [isHost, setIsHost] = useState(false)
@@ -40,16 +67,30 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   // useRoomChannel depends on this object directly, and a fresh object every
   // render would reconnect to Realtime on every render.
   const self: RoomPlayer | null = useMemo(
-    () => (mode === 'lobby' && roomCode ? { name: selfName, isHost, targetCount: isHost ? targetCount : undefined } : null),
-    [mode, roomCode, selfName, isHost, targetCount],
+    () =>
+      mode === 'lobby' && roomCode
+        ? { name: selfName, isHost, targetCount: isHost ? targetCount : undefined, colorToken: myColor }
+        : null,
+    [mode, roomCode, selfName, isHost, targetCount, myColor],
   )
 
   const { players, status, broadcastGameStarted } = useRoomChannel(roomCode, self, {
-    onGameStarted: (names, hostName) => {
+    onGameStarted: (names, hostName, receivedBoardShapeId, receivedGameRules, receivedCustomCells, receivedCustomName) => {
       if (!roomCode) return
       onStart({
         playerCount: names.length,
         names,
+        // Falls back by seat order if a player somehow started the match
+        // without ever picking (shouldn't happen — myColor always defaults
+        // to 'player-1' — but createInitialPlayers needs a real token for
+        // every seat regardless).
+        colorTokens: names.map(
+          (name, index) => players.find((p) => p.name === name)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length],
+        ),
+        gameRules: receivedGameRules,
+        boardShapeId: receivedBoardShapeId,
+        customBoardCells: receivedCustomCells,
+        customBoardName: receivedCustomName,
         online: { roomCode, localPlayerName: selfName, isHost: normalizePlayerName(selfName) === normalizePlayerName(hostName) },
       })
     },
@@ -147,7 +188,53 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
           <option value={4} className="bg-board-navy">
             4 Players
           </option>
+          <option value={5} className="bg-board-navy">
+            5 Players
+          </option>
+          <option value={6} className="bg-board-navy">
+            6 Players
+          </option>
         </select>
+        <label className="mt-2 font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Board Shape</label>
+        <select
+          value={selectedShapeValue}
+          onChange={(event) => {
+            if (event.target.value === CREATE_SHAPE_VALUE) {
+              setIsEditorOpen(true)
+              return
+            }
+            setSelectedShapeValue(event.target.value)
+          }}
+          className={FIELD_CLASS}
+        >
+          {Object.entries(BOARD_SHAPE_LABELS).map(([id, label]) => (
+            <option key={id} value={id} className="bg-board-navy">
+              {label}
+            </option>
+          ))}
+          {customShapes.map((shape) => (
+            <option key={shape.id} value={shape.id} className="bg-board-navy">
+              {shape.name}
+            </option>
+          ))}
+          <option value={CREATE_SHAPE_VALUE} className="bg-board-navy text-gold">
+            + Create Custom Shape…
+          </option>
+        </select>
+        {isEditorOpen && (
+          <BoardShapeEditor
+            onClose={() => setIsEditorOpen(false)}
+            onSave={(shape) => {
+              const next = saveCustomBoardShape(shape)
+              setCustomShapes(next)
+              setSelectedShapeValue(shape.id)
+              setIsEditorOpen(false)
+            }}
+          />
+        )}
+        <CollapsibleSection icon="📜" label="House Rules">
+          <HouseRulesEditor rules={gameRules} onChange={setGameRules} />
+        </CollapsibleSection>
         <button
           type="button"
           disabled={!selfName.trim()}
@@ -254,14 +341,49 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
           (knownTargetCount != null ? `${players.length} / ${knownTargetCount} players` : 'Waiting for host…')}
       </p>
       <div className="flex flex-col gap-1.5">
-        {players.map((player) => (
-          <div key={player.name} className="flex items-center justify-between rounded-full bg-white/5 px-3 py-1.5">
-            <span className="font-body text-sm text-white">{player.name}</span>
-            {player.isHost && (
-              <span className="font-body text-[9px] tracking-[0.1em] text-gold/70 uppercase">Host</span>
-            )}
-          </div>
-        ))}
+        {players.map((player) => {
+          const isSelf = normalizePlayerName(player.name) === normalizePlayerName(selfName)
+          const takenByOther = new Set(
+            players.filter((p) => p !== player).map((p) => p.colorToken).filter((c): c is PlayerColorToken => c != null),
+          )
+          return (
+            <div key={player.name} className="flex items-center justify-between gap-2 rounded-full bg-white/5 px-3 py-1.5">
+              <span className="font-body text-sm text-white">{player.name}</span>
+              <div className="flex items-center gap-2">
+                {player.isHost && (
+                  <span className="font-body text-[9px] tracking-[0.1em] text-gold/70 uppercase">Host</span>
+                )}
+                {isSelf ? (
+                  <select
+                    value={myColor}
+                    onChange={(event) => setMyColor(event.target.value as PlayerColorToken)}
+                    style={{ color: PLAYER_COLORS[myColor] }}
+                    className="rounded-md border border-glass-border bg-white/5 px-1.5 py-0.5 font-body text-xs font-semibold focus:border-gold/60 focus:outline-none"
+                  >
+                    {ALL_COLOR_TOKENS.map((token) => (
+                      <option
+                        key={token}
+                        value={token}
+                        disabled={takenByOther.has(token)}
+                        className="bg-board-navy"
+                        style={{ color: PLAYER_COLORS[token] }}
+                      >
+                        ●
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  player.colorToken && (
+                    <span
+                      className="h-3 w-3 rounded-full"
+                      style={{ backgroundColor: PLAYER_COLORS[player.colorToken] }}
+                    />
+                  )
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
       {isHost ? (
         <button
@@ -269,10 +391,19 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
           disabled={!isFull}
           onClick={() => {
             const names = players.map((player) => player.name)
-            broadcastGameStarted(names, selfName)
+            const customShape = customShapes.find((shape) => shape.id === selectedShapeValue)
+            const boardShapeId = customShape ? undefined : (selectedShapeValue as BoardShapeId)
+            broadcastGameStarted(names, selfName, boardShapeId ?? 'standard', gameRules, customShape?.cells, customShape?.name)
             onStart({
               playerCount: names.length,
               names,
+              colorTokens: names.map(
+                (name, index) => players.find((p) => p.name === name)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length],
+              ),
+              gameRules,
+              boardShapeId,
+              customBoardCells: customShape?.cells,
+              customBoardName: customShape?.name,
               online: { roomCode: roomCode!, localPlayerName: selfName, isHost: true },
             })
           }}

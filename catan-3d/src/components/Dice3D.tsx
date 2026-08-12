@@ -160,6 +160,13 @@ export function Dice3D({ roll, onSettled }: Dice3DProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roll?.rollId])
 
+  // react-three-fiber's idiomatic per-frame animation pattern: mutate
+  // Three.js objects held via refs directly inside useFrame, bypassing
+  // React's render cycle entirely so 60fps updates don't trigger 60fps
+  // re-renders. react-hooks/immutability doesn't recognize this as the same
+  // category of legitimate imperative escape hatch as ref.current mutation
+  // — same reasoning applies in PhysicsDice3D.tsx and Ocean.tsx.
+  /* eslint-disable react-hooks/immutability */
   useFrame((_, delta) => {
     const dt = Math.min(delta, 1 / 30)
     let restingCount = 0
@@ -278,6 +285,7 @@ export function Dice3D({ roll, onSettled }: Dice3DProps) {
       onSettled()
     }
   })
+  /* eslint-enable react-hooks/immutability */
 
   if (!roll) return null
 
@@ -286,6 +294,10 @@ export function Dice3D({ roll, onSettled }: Dice3DProps) {
       <group ref={groupRefs[0]} position={[-0.3, REST_Y, 0]}>
         <DieMesh />
       </group>
+      {/* react-hooks/refs doesn't yet trace a ref reached through array
+          indexing back to the plain useRef() call that created it — this is
+          the exact same kind of ref as the one directly above. */}
+      {/* eslint-disable-next-line react-hooks/refs */}
       <group ref={groupRefs[1]} position={[0.3, REST_Y, 0]}>
         <DieMesh />
       </group>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
-import type { DevCardType, ResourceType } from '../game/types'
+import type { DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
+import type { BoardCell, BoardShapeId } from '../data/hexBoard'
 
 export interface RoomPlayer {
   name: string
@@ -9,6 +10,9 @@ export interface RoomPlayer {
   // Only meaningful on the host's own presence entry — the lobby size every
   // other client reads to know when the room is full.
   targetCount?: number
+  // Each player's own pick, live in the lobby — everyone else's presence
+  // entries are what a joiner checks to avoid picking an already-taken color.
+  colorToken?: PlayerColorToken
 }
 
 export type RoomConnectionStatus = 'connecting' | 'connected' | 'error'
@@ -111,6 +115,22 @@ export interface NewGamePayload {
   boardSeed: string
 }
 
+export interface ChatMessagePayload {
+  senderId: number
+  senderName: string
+  text: string
+  timestamp: number
+}
+
+export interface HoverChangedPayload {
+  playerId: number
+  // Exactly one of these is set (the other null) while hovering, or both
+  // null on pointer-out — never persisted, purely "what is the active
+  // player currently pointing at" for spectators to see live.
+  vertexId: string | null
+  edgeId: string | null
+}
+
 export interface DiscardConfirmedPayload {
   playerId: number
   // Resource -> quantity tally, not a full resources object — the receiver
@@ -129,10 +149,31 @@ interface GameStartedPayload {
   // as host after rejoining through the ordinary Join flow, where they'd
   // otherwise look like just another player.
   hostName: string
+  // The host's own pick — every OTHER client has to be told, since
+  // buildHexBoard's shape argument isn't derivable from the room code the
+  // way the seed fallback is.
+  boardShapeId: BoardShapeId
+  // Set together, only when the host picked a player-drawn shape — carried
+  // as raw cells rather than an id, since other clients have no way to
+  // look a custom shape up from their own localStorage.
+  customBoardCells?: BoardCell[]
+  customBoardName?: string
+  // The host's house-rules pick. Player colors are NOT carried here —
+  // they're already visible to every client via each player's own
+  // presence entry (RoomPlayer.colorToken), so re-broadcasting them would
+  // just be a second copy that could drift.
+  gameRules: GameRules
 }
 
 export interface RoomChannelHandlers {
-  onGameStarted?: (names: string[], hostName: string) => void
+  onGameStarted?: (
+    names: string[],
+    hostName: string,
+    boardShapeId: BoardShapeId,
+    gameRules: GameRules,
+    customBoardCells?: BoardCell[],
+    customBoardName?: string,
+  ) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
   onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
@@ -163,6 +204,10 @@ export interface RoomChannelHandlers {
   onNewGame?: (payload: NewGamePayload) => void
   onDevCardBought?: (payload: DevCardBoughtPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
+  // The active player's live vertex/edge hover, so spectators can see what
+  // they're considering building before they commit to it.
+  onHoverChanged?: (payload: HoverChangedPayload) => void
+  onChatMessage?: (payload: ChatMessagePayload) => void
 }
 
 /**
@@ -205,7 +250,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     if (!roomCode || !self) return
 
     // Reset synchronously so a new room's UI never shows a stale roster from
-    // a previous subscription while this one is still connecting.
+    // a previous subscription while this one is still connecting. This is
+    // the canonical "synchronize with an external system" Effect React's own
+    // docs describe (starting a Realtime channel subscription) — there's no
+    // render-time value to derive these resets from, so the lint rule's
+    // usual fix (compute during render) doesn't apply here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('connecting')
     setPlayers([])
 
@@ -229,7 +279,14 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
 
     channel.on<GameStartedPayload>('broadcast', { event: 'game-started' }, ({ payload }) => {
-      handlersRef.current.onGameStarted?.(payload.names, payload.hostName)
+      handlersRef.current.onGameStarted?.(
+        payload.names,
+        payload.hostName,
+        payload.boardShapeId,
+        payload.gameRules,
+        payload.customBoardCells,
+        payload.customBoardName,
+      )
     })
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
       handlersRef.current.onDiceRolled?.(payload)
@@ -285,6 +342,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
       handlersRef.current.onBankTrade?.(payload)
     })
+    channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
+      handlersRef.current.onHoverChanged?.(payload)
+    })
+    channel.on<ChatMessagePayload>('broadcast', { event: 'CHAT_MESSAGE' }, ({ payload }) => {
+      handlersRef.current.onChatMessage?.(payload)
+    })
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
@@ -308,8 +371,19 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     // genuinely changes.
   }, [roomCode, self])
 
-  const broadcastGameStarted = (names: string[], hostName: string) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'game-started', payload: { names, hostName } })
+  const broadcastGameStarted = (
+    names: string[],
+    hostName: string,
+    boardShapeId: BoardShapeId,
+    gameRules: GameRules,
+    customBoardCells?: BoardCell[],
+    customBoardName?: string,
+  ) => {
+    void channelRef.current?.send({
+      type: 'broadcast',
+      event: 'game-started',
+      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName },
+    })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })
@@ -365,6 +439,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastBankTrade = (payload: BankTradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
   }
+  const broadcastHoverChanged = (payload: HoverChangedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
+  }
+  const broadcastChatMessage = (payload: ChatMessagePayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'CHAT_MESSAGE', payload })
+  }
 
   return {
     players,
@@ -388,5 +468,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastBankTrade,
+    broadcastHoverChanged,
+    broadcastChatMessage,
   }
 }

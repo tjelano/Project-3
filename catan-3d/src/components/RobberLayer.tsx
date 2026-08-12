@@ -2,20 +2,22 @@ import { useMemo, useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
-import { getTileOverlay } from '../three/hexTerrain'
-import robberModelUrl from '../assets/models/robber-figurine.glb'
+import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
+import robberModelUrl from '../assets/models/robber-figurine-v2.glb'
 
 const ROBBER_HIGHLIGHT_COLOR = '#d64545'
 
 // The model's own bounding box is ~symmetric around its local origin
-// (roughly ±0.95 on its tall axis) — Meshy centres a model on its
+// (roughly ±0.95 on its tall axis, measured via gltf-transform inspect —
+// nearly identical to the previous robber-figurine.glb's own ±0.9515,
+// despite being an unrelated export) — Meshy centres a model on its
 // bounding box, not on its feet, so local y=0 lands at chest height
 // rather than the ground. ROBBER_Y below already accounts for that by
 // adding the scaled half-height on top of the stand height, so the
 // primitive itself needs no further offset — its OWN y=0 (chest height)
 // sits at the outer group's origin, and the outer group's origin is
 // already placed half a (scaled) model-height above the stand surface.
-const ROBBER_MODEL_HALF_HEIGHT = 0.9515
+const ROBBER_MODEL_HALF_HEIGHT = 0.9512
 const ROBBER_SCALE = 0.23
 
 // Sits above where a number token would be, so it visually stacks on top —
@@ -39,6 +41,29 @@ function RobberToken({ tile }: { tile: HexTileData }) {
   return (
     <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y, tile.z]}>
       <primitive object={instance} scale={ROBBER_SCALE} />
+    </group>
+  )
+}
+
+// Same terrain-conforming overlay technique as RobberTileTarget's hover
+// highlight below, but always on (not just while hovering during a move) —
+// the figurine alone can get lost against taller terrain (mountains,
+// trees) around it, so the tile itself needs to read as "the robber is
+// here" at a glance.
+function RobberTileGlow({ tile }: { tile: HexTileData }) {
+  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.050)
+  return (
+    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+      <mesh geometry={glowGeometry}>
+        <meshStandardMaterial
+          color={ROBBER_HIGHLIGHT_COLOR}
+          emissive={ROBBER_HIGHLIGHT_COLOR}
+          emissiveIntensity={0.9}
+          transparent
+          opacity={0.45}
+          depthWrite={false}
+        />
+      </mesh>
     </group>
   )
 }
@@ -105,6 +130,7 @@ export function RobberLayer({ tiles, robberTileId, isMovingRobber, onMoveRobber 
 
   return (
     <group>
+      {robberTile && <RobberTileGlow tile={robberTile} />}
       {robberTile && <RobberToken tile={robberTile} />}
       {isMovingRobber &&
         tiles.map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMoveRobber(tile.id)} />)}

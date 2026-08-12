@@ -1,10 +1,15 @@
 import { useLayoutEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
-import { TILE_HEIGHT } from '../data/hexBoard'
+import { TILE_HEIGHT, STRUCTURE_ELEVATION } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
 import { PLAYER_COLORS, type Building, type Player } from '../game/types'
 import { CityModel, RoadModel, SettlementModel } from './GamePieces'
+import type { HoverChangedPayload } from '../multiplayer/useRoomChannel'
+
+// What a vertex/edge slot reports on hover — vertexId/edgeId are mutually
+// exclusive, both null means "no longer hovering anything".
+type HoverTarget = Pick<HoverChangedPayload, 'vertexId' | 'edgeId'>
 
 const VERTEX_HITBOX_RADIUS = 0.16
 const EDGE_HITBOX_WIDTH = 0.16
@@ -66,12 +71,18 @@ const VertexSlot = memo(function VertexSlot({
   ownerColor,
   onBuild,
   locked,
+  remoteHighlighted,
+  remoteColor,
+  onHoverChange,
 }: {
   vertex: BoardVertex
   building: Building | undefined
   ownerColor: string | undefined
   onBuild: (vertexId: string) => void
   locked: boolean
+  remoteHighlighted: boolean
+  remoteColor: string | undefined
+  onHoverChange: (target: HoverTarget) => void
 }) {
   const [hovered, setHovered] = useState(false)
 
@@ -82,7 +93,7 @@ const VertexSlot = memo(function VertexSlot({
   if (building) {
     const color = ownerColor ?? '#ffffff'
     return (
-      <group position={[vertex.x, TILE_HEIGHT / 2, vertex.z]}>
+      <group position={[vertex.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, vertex.z]}>
         <mesh
           onClick={
             locked
@@ -102,7 +113,7 @@ const VertexSlot = memo(function VertexSlot({
   }
 
   return (
-    <group position={[vertex.x, TILE_HEIGHT / 2, vertex.z]}>
+    <group position={[vertex.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, vertex.z]}>
       <mesh
         onPointerOver={
           locked
@@ -110,6 +121,7 @@ const VertexSlot = memo(function VertexSlot({
             : (event: ThreeEvent<PointerEvent>) => {
                 event.stopPropagation()
                 setHovered(true)
+                onHoverChange({ vertexId: vertex.id, edgeId: null })
               }
         }
         onPointerOut={
@@ -118,6 +130,7 @@ const VertexSlot = memo(function VertexSlot({
             : (event: ThreeEvent<PointerEvent>) => {
                 event.stopPropagation()
                 setHovered(false)
+                onHoverChange({ vertexId: null, edgeId: null })
               }
         }
         onClick={
@@ -133,10 +146,18 @@ const VertexSlot = memo(function VertexSlot({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* ghost settlement: the real cottage model, holographic */}
+      {/* ghost settlement: the real cottage model, holographic — cyan for
+          your own hover, the active player's own color when it's someone
+          else's (broadcasts never echo back to their own sender, so these
+          two branches never both fire on the same client). */}
       {hovered && (
         <GhostModel color={SETTLEMENT_GLOW}>
           <SettlementModel color={SETTLEMENT_GLOW} />
+        </GhostModel>
+      )}
+      {remoteHighlighted && (
+        <GhostModel color={remoteColor ?? SETTLEMENT_GLOW}>
+          <SettlementModel color={remoteColor ?? SETTLEMENT_GLOW} />
         </GhostModel>
       )}
     </group>
@@ -151,6 +172,9 @@ const EdgeSlot = memo(function EdgeSlot({
   ownerColor,
   onBuild,
   locked,
+  remoteHighlighted,
+  remoteColor,
+  onHoverChange,
 }: {
   edge: BoardEdge
   a: BoardVertex
@@ -159,6 +183,9 @@ const EdgeSlot = memo(function EdgeSlot({
   ownerColor: string | undefined
   onBuild: (edgeId: string) => void
   locked: boolean
+  remoteHighlighted: boolean
+  remoteColor: string | undefined
+  onHoverChange: (target: HoverTarget) => void
 }) {
   const [hovered, setHovered] = useState(false)
   const length = Math.hypot(b.x - a.x, b.z - a.z)
@@ -169,14 +196,14 @@ const EdgeSlot = memo(function EdgeSlot({
   if (ownerId != null) {
     const color = ownerColor ?? '#ffffff'
     return (
-      <group position={[edge.x, TILE_HEIGHT / 2, edge.z]} rotation={[0, angle, 0]}>
+      <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
         <RoadModel color={color} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
       </group>
     )
   }
 
   return (
-    <group position={[edge.x, TILE_HEIGHT / 2, edge.z]} rotation={[0, angle, 0]}>
+    <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
       <mesh
         onPointerOver={
           locked
@@ -184,6 +211,7 @@ const EdgeSlot = memo(function EdgeSlot({
             : (event: ThreeEvent<PointerEvent>) => {
                 event.stopPropagation()
                 setHovered(true)
+                onHoverChange({ vertexId: null, edgeId: edge.id })
               }
         }
         onPointerOut={
@@ -192,6 +220,7 @@ const EdgeSlot = memo(function EdgeSlot({
             : (event: ThreeEvent<PointerEvent>) => {
                 event.stopPropagation()
                 setHovered(false)
+                onHoverChange({ vertexId: null, edgeId: null })
               }
         }
         onClick={
@@ -207,10 +236,16 @@ const EdgeSlot = memo(function EdgeSlot({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* ghost road: the real timber-log model, holographic */}
+      {/* ghost road: the real timber-log model, holographic — same
+          own-hover-vs-active-player-color split as VertexSlot above. */}
       {hovered && (
         <GhostModel color={ROAD_GLOW}>
           <RoadModel color={ROAD_GLOW} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        </GhostModel>
+      )}
+      {remoteHighlighted && (
+        <GhostModel color={remoteColor ?? ROAD_GLOW}>
+          <RoadModel color={remoteColor ?? ROAD_GLOW} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
         </GhostModel>
       )}
     </group>
@@ -225,6 +260,11 @@ interface BoardInteractionsProps {
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
   locked?: boolean
+  // The active player's live hover, mirrored from another online client
+  // (App.tsx), and the callback that broadcasts THIS client's own hover in
+  // the other direction — see the HoverTarget type above.
+  remoteHover: HoverChangedPayload
+  onHoverChange: (target: HoverTarget) => void
 }
 
 export const BoardInteractions = memo(function BoardInteractions({
@@ -235,11 +275,14 @@ export const BoardInteractions = memo(function BoardInteractions({
   onBuildSettlement,
   onBuildRoad,
   locked = false,
+  remoteHover,
+  onHoverChange,
 }: BoardInteractionsProps) {
   const colorByPlayerId = useMemo(
     () => new Map(players.map((player) => [player.id, PLAYER_COLORS[player.colorToken]])),
     [players],
   )
+  const remoteColor = colorByPlayerId.get(remoteHover.playerId)
 
   return (
     <group>
@@ -251,6 +294,9 @@ export const BoardInteractions = memo(function BoardInteractions({
           ownerColor={settlements[vertex.id]?.ownerId != null ? colorByPlayerId.get(settlements[vertex.id].ownerId!) : undefined}
           onBuild={onBuildSettlement}
           locked={locked}
+          remoteHighlighted={remoteHover.vertexId === vertex.id}
+          remoteColor={remoteColor}
+          onHoverChange={onHoverChange}
         />
       ))}
       {graph.edges.map((edge) => (
@@ -263,6 +309,9 @@ export const BoardInteractions = memo(function BoardInteractions({
           ownerColor={roads[edge.id] != null ? colorByPlayerId.get(roads[edge.id]!) : undefined}
           onBuild={onBuildRoad}
           locked={locked}
+          remoteHighlighted={remoteHover.edgeId === edge.id}
+          remoteColor={remoteColor}
+          onHoverChange={onHoverChange}
         />
       ))}
     </group>

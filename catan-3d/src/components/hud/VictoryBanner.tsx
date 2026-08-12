@@ -5,6 +5,8 @@ const WINNER_TEXT_CLASS: Record<PlayerColorToken, string> = {
   'player-2': 'text-player-2',
   'player-3': 'text-player-3',
   'player-4': 'text-player-4',
+  'player-5': 'text-player-5',
+  'player-6': 'text-player-6',
 }
 
 const DOT_CLASS: Record<PlayerColorToken, string> = {
@@ -12,6 +14,8 @@ const DOT_CLASS: Record<PlayerColorToken, string> = {
   'player-2': 'bg-player-2',
   'player-3': 'bg-player-3',
   'player-4': 'bg-player-4',
+  'player-5': 'bg-player-5',
+  'player-6': 'bg-player-6',
 }
 
 interface VictoryBannerProps {

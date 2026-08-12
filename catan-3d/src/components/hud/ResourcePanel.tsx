@@ -5,6 +5,7 @@ import {
   type DevCardType,
   type Resources,
 } from '../../game/types'
+import { CollapsibleSection } from './CollapsibleSection'
 
 export function ResourcePanel({
   resources,
@@ -79,29 +80,30 @@ export function ResourcePanel({
         <span className="font-data text-[9px] text-white/50">({devCards.length})</span>
       </button>
 
-      <span className="mt-2 px-1 font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">
-        Play a Card
-      </span>
-      <div className="flex flex-col gap-1.5 rounded-xl border border-glass-border bg-white/5 p-2">
-        {devCardCounts.map(({ type, playable }) => {
-          const playLabel = DEV_CARD_PLAY_LABELS[type]
-          if (!playLabel) return null
-          return (
-            <button
-              key={type}
-              type="button"
-              disabled={!canPlayDevCards || playable <= 0}
-              onClick={() => onPlayDevCard(type)}
-              className="flex items-center justify-between rounded-full border border-glass-border bg-white/5 px-2.5 py-1 font-body text-[9px] tracking-[0.08em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
-            >
-              <span>{playLabel}</span>
-              {playable > 0 && <span className="font-data text-[9px] text-gold/80">{playable}</span>}
-            </button>
-          )
-        })}
-        {knightsPlayed > 0 && (
-          <span className="px-1 font-data text-[9px] text-white/40">{knightsPlayed} knights played</span>
-        )}
+      <div className="mt-2">
+        <CollapsibleSection icon="🃏" label="Play a Card">
+          <div className="flex flex-col gap-1.5 rounded-xl border border-glass-border bg-white/5 p-2">
+            {devCardCounts.map(({ type, playable }) => {
+              const playLabel = DEV_CARD_PLAY_LABELS[type]
+              if (!playLabel) return null
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={!canPlayDevCards || playable <= 0}
+                  onClick={() => onPlayDevCard(type)}
+                  className="flex items-center justify-between rounded-full border border-glass-border bg-white/5 px-2.5 py-1 font-body text-[9px] tracking-[0.08em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
+                >
+                  <span>{playLabel}</span>
+                  {playable > 0 && <span className="font-data text-[9px] text-gold/80">{playable}</span>}
+                </button>
+              )
+            })}
+            {knightsPlayed > 0 && (
+              <span className="px-1 font-data text-[9px] text-white/40">{knightsPlayed} knights played</span>
+            )}
+          </div>
+        </CollapsibleSection>
       </div>
     </div>
   )

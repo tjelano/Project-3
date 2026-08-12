@@ -337,6 +337,55 @@ export function getTileOverlay(biome: Biome, seed: string, lift = 0.014): THREE.
   return geometry
 }
 
+// Same terrain-conforming technique as getTileOverlay above, but only the
+// OUTERMOST radial band — a thin ring tracing the tile's raised rim, rather
+// than covering the whole face. Sits entirely within RIM_START..1.0 (the
+// rim is already fully raised there), so it reads as the border itself
+// lighting up rather than a highlight sitting on top of the whole tile.
+const edgeOverlayCache = new Map<string, THREE.BufferGeometry>()
+
+export function getTileEdgeOverlay(biome: Biome, seed: string, lift = 0.014): THREE.BufferGeometry {
+  const key = `${biome}:${seed}:${lift}`
+  const cached = edgeOverlayCache.get(key)
+  if (cached) return cached
+
+  const { heightAt } = getTileTerrain(biome, seed)
+  const positions: number[] = []
+  const indices: number[] = []
+
+  const pushRing = (t: number) => {
+    const start = positions.length / 3
+    for (let i = 0; i < ANGULAR_SEGMENTS; i++) {
+      const theta = (i / ANGULAR_SEGMENTS) * Math.PI * 2
+      const r = t * hexRadiusAtAngle(theta)
+      const x = r * Math.sin(theta)
+      const z = r * Math.cos(theta)
+      positions.push(x, heightAt(x, z) + lift, z)
+    }
+    return start
+  }
+
+  const innerStart = pushRing((RADIAL_RINGS - 1) / RADIAL_RINGS)
+  const outerStart = pushRing(1)
+
+  for (let i = 0; i < ANGULAR_SEGMENTS; i++) {
+    const next = (i + 1) % ANGULAR_SEGMENTS
+    const a = innerStart + i
+    const b = outerStart + i
+    const c = outerStart + next
+    const d = innerStart + next
+    indices.push(a, b, c, a, c, d)
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  edgeOverlayCache.set(key, geometry)
+  return geometry
+}
+
 /**
  * Scatter helper: a point inside the decoration band, with its ground height
  * already sampled. Keeps every decoration component from repeating the same

@@ -180,7 +180,11 @@ export function PhysicsDice3D({ roll, onSettled }: PhysicsDice3DProps) {
         <CuboidCollider args={[DIE_SIZE / 2, DIE_SIZE / 2, DIE_SIZE / 2]} restitution={0.4} friction={0.5} />
         <DieMesh />
       </RigidBody>
+      {/* react-hooks/refs doesn't yet trace a ref reached through array
+          indexing back to the plain useRef() call that created it — this is
+          the exact same kind of ref as bodyRefs[0] just above. */}
       <RigidBody
+        // eslint-disable-next-line react-hooks/refs
         ref={bodyRefs[1]}
         colliders={false}
         restitution={0.4}

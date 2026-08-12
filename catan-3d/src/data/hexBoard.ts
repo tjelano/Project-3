@@ -11,6 +11,37 @@ export const BIOME_COLORS: Record<Biome, string> = {
   desert: '#dbc38f',
 }
 
+// Edit these directly to move a biome's tile up (higher) or down (lower).
+// Each model has a very different amount of its own sculpted geometry
+// below its local origin (mountains' base runs nearly 3x deeper than
+// fields'), so a single shared elevation value doesn't produce a visually
+// level board — these six were measured directly from each GLB's real
+// vertex data (a triangle-area-weighted histogram of upward-facing
+// surfaces only, which excludes each model's flat underside base plate and
+// isolates the actual visible terrain plateau) so every biome's plateau
+// starts aligned to brick (hills)'s. Consumed by CatanBoard.tsx for tile +
+// number-chit height (the chit rides along automatically since it's nested
+// in the same elevation group). Docks are NOT derived from this
+// (PortMarkers.tsx anchors them at a fixed TILE_HEIGHT/2) — raising them to
+// match would leave them floating above the shoreline instead of resting
+// on it.
+export const BIOME_ELEVATION: Record<Biome, number> = {
+  hills: 0.15,
+  mountains: 0.31,
+  forest: 0.21,
+  desert: 0.245,
+  fields: 0.13,
+  pasture: 0.12,
+}
+
+// Edit this directly to move every settlement/road/hover-ghost up (higher)
+// or down (lower) — all of them share this one height (BoardInteractions.tsx).
+// A vertex or edge can touch tiles of DIFFERENT biomes/elevations, so
+// there's no single tile to derive a "correct" height from; started at
+// 0.31 (mountains' own BIOME_ELEVATION, the tallest biome) so nothing
+// clips into any tile, at the cost of floating a bit above shorter ones.
+export const STRUCTURE_ELEVATION = 0.10
+
 export interface HexTileData {
   id: string
   col: number
@@ -21,8 +52,48 @@ export interface HexTileData {
   number: number | null
 }
 
-// Standard Catan board shape: 5 columns of heights 3-4-5-4-3.
-const COLUMN_HEIGHTS = [3, 4, 5, 4, 3]
+export type BoardShapeId = 'standard' | 'newfoundland' | 'peanut'
+
+export const BOARD_SHAPE_LABELS: Record<BoardShapeId, string> = {
+  standard: 'Standard',
+  newfoundland: 'Found Island',
+  peanut: 'Twin Island',
+}
+
+// One land hex, addressed in "odd-q" vertical offset coordinates — the
+// standard scheme for column-based hex grids. Even columns sit at integer
+// multiples of ROW_SPACING; odd columns are shifted down by half a row (see
+// cellPosition below). This is what guarantees ANY set of cells — including
+// ones a player draws by hand in the board editor (BoardShapeEditor.tsx) —
+// assembles into a geometrically valid board with no manual adjacency
+// reasoning: two cells are true hex-neighbors exactly when their
+// cellPosition() outputs land one hex-step apart, which falls straight out
+// of the col/row arithmetic.
+export interface BoardCell {
+  col: number
+  row: number
+}
+
+function isOddColumn(col: number): boolean {
+  return ((col % 2) + 2) % 2 === 1
+}
+
+// The 6 odd-q neighbor coordinates of a cell — exported for
+// BoardShapeEditor.tsx's live "is this one connected landmass" check, so a
+// player drawing a shape gets warned before saving something assignPorts'
+// boundary-walk couldn't handle.
+export function cellNeighbors(cell: BoardCell): BoardCell[] {
+  const { col, row } = cell
+  const diagonalRow = isOddColumn(col) ? row + 1 : row - 1
+  return [
+    { col, row: row - 1 },
+    { col, row: row + 1 },
+    { col: col - 1, row },
+    { col: col - 1, row: diagonalRow },
+    { col: col + 1, row },
+    { col: col + 1, row: diagonalRow },
+  ]
+}
 
 // Flat-top hexagon spacing (radius = center-to-vertex distance).
 export const HEX_RADIUS = 1
@@ -43,23 +114,141 @@ export const TILE_HEIGHT = 0.44
 const COLUMN_SPACING = HEX_RADIUS * 1.5
 const ROW_SPACING = HEX_RADIUS * Math.sqrt(3)
 
-// Standard Catan resource counts: 4 forest, 4 pasture, 4 fields, 3 hills,
-// 3 mountains, 1 desert — shuffled fresh on every buildHexBoard() call.
-const BIOME_POOL: Biome[] = [
-  'hills', 'hills', 'hills',
-  'forest', 'forest', 'forest', 'forest',
-  'pasture', 'pasture', 'pasture', 'pasture',
-  'fields', 'fields', 'fields', 'fields',
-  'mountains', 'mountains', 'mountains',
-  'desert',
-]
+// Exported so BoardShapeEditor.tsx's 2D grid can position cells using the
+// EXACT same math the real board uses — guarantees "what you clicked" and
+// "what renders" can never silently drift apart.
+export function cellPosition(cell: BoardCell): { x: number; z: number } {
+  return {
+    x: cell.col * COLUMN_SPACING,
+    z: (cell.row + (isOddColumn(cell.col) ? 0.5 : 0)) * ROW_SPACING,
+  }
+}
 
-// Standard Catan number-token distribution: 18 tokens for the 18 non-desert
-// tiles (2 and 12 appear once, everything else from 3-11 except 7 twice —
-// 7 has no token because it triggers the robber instead). Shuffled fresh on
-// every buildHexBoard() call and dealt only to non-desert tiles, so wherever
-// the desert lands it's automatically skipped.
-const NUMBER_POOL: number[] = [5, 3, 10, 6, 8, 4, 11, 9, 4, 12, 6, 2, 9, 3, 11, 5, 10, 8]
+// Authored as column heights (contiguous, centered — easy to write and
+// review by hand) and expanded into explicit BoardCell[] below. Newfoundland
+// and peanut are INSPIRED by real fan-made Catan maps
+// (catancollector.com/maps-scenarios), not reproductions — their specific
+// tile content and any special rules (Seafarers ships, gold hexes, the
+// Pirate, multi-island layouts, etc.) are deliberately not carried over,
+// only a general coastline shape. Kept to adjacent-column height
+// differences of at most 1 so each shape stays a single connected landmass
+// — the same property assignPorts' boundary-walk depends on.
+const BUILT_IN_COLUMN_HEIGHTS: Record<BoardShapeId, number[]> = {
+  standard: [3, 4, 5, 4, 3],
+  newfoundland: [2, 3, 4, 4, 3, 2, 1],
+  peanut: [3, 3, 2, 3, 2, 3, 3],
+}
+
+// Expands a column-heights array into explicit, centered cells. Each
+// column's row range is centered on z=0 as closely as an INTEGER row start
+// allows, given that column's own odd-q parity shift — exact centering
+// isn't always achievable (a column's height parity and its position's
+// column parity can conflict), so this rounds to the nearest valid integer
+// start. That's a purely cosmetic sub-hex nudge, never an adjacency
+// correctness issue: every cell still lands on a valid odd-q coordinate, so
+// two cells one column and one row-step apart are always true neighbors
+// regardless of the rounding.
+function columnHeightsToCells(heights: number[]): BoardCell[] {
+  const cells: BoardCell[] = []
+  const colOffset = (heights.length - 1) / 2
+  heights.forEach((height, colIndex) => {
+    const col = colIndex - colOffset
+    const shift = isOddColumn(col) ? 0.5 : 0
+    const rowStart = Math.round(-(height - 1) / 2 - shift)
+    for (let i = 0; i < height; i++) {
+      cells.push({ col, row: rowStart + i })
+    }
+  })
+  return cells
+}
+
+const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = Object.fromEntries(
+  Object.entries(BUILT_IN_COLUMN_HEIGHTS).map(([id, heights]) => [id, columnHeightsToCells(heights)]),
+) as Record<BoardShapeId, BoardCell[]>
+
+// Standard Catan resource RATIO: 4 forest, 4 pasture, 4 fields, 3 hills,
+// 3 mountains per 18 non-desert tiles, always exactly 1 desert. Every board
+// shape scales this same ratio to its own tile count via
+// allocateProportional's largest-remainder rounding — plugging in the
+// standard board's own 18 reproduces exactly [4,4,4,3,3] with no rounding
+// drift, which is what makes this a strict generalization rather than a
+// behavior change for the existing board.
+const BIOME_WEIGHTS: Record<Exclude<Biome, 'desert'>, number> = {
+  forest: 4,
+  pasture: 4,
+  fields: 4,
+  hills: 3,
+  mountains: 3,
+}
+
+// Largest-remainder apportionment: split `total` across `weights` as close
+// to their exact proportions as an integer count allows, giving the leftover
+// unit(s) to whichever category's rounded-down count is furthest below its
+// true share. Standard rounding (round-half-up per category independently)
+// can't guarantee the parts sum to `total` at all; this always does.
+function allocateProportional<K extends string>(weights: Record<K, number>, total: number): Record<K, number> {
+  const entries = Object.entries(weights) as [K, number][]
+  const sumWeights = entries.reduce((sum, [, weight]) => sum + weight, 0)
+  const exact = entries.map(([key, weight]) => [key, (weight * total) / sumWeights] as const)
+
+  const result = {} as Record<K, number>
+  let allocated = 0
+  for (const [key, value] of exact) {
+    const floor = Math.floor(value)
+    result[key] = floor
+    allocated += floor
+  }
+
+  const remainders = exact
+    .map(([key, value]) => [key, value - result[key]] as const)
+    .sort((a, b) => b[1] - a[1])
+  for (let i = 0; allocated < total; i++, allocated++) {
+    result[remainders[i % remainders.length][0]] += 1
+  }
+  return result
+}
+
+// Standard's own ratio is 1 desert per 19 tiles — scaling that same ratio
+// to a bigger board (rather than staying hardcoded at exactly 1) is what
+// keeps a sprawling custom BoardShapeEditor.tsx shape from reading as
+// "standard, but stretched" with a single lonely desert lost in a much
+// bigger island. Never below 1 — every board needs at least one tile for
+// the robber to start on.
+function desertCountFor(tileCount: number): number {
+  return Math.max(1, Math.round(tileCount / 19))
+}
+
+function buildBiomePool(tileCount: number): Biome[] {
+  const desertCount = desertCountFor(tileCount)
+  const nonDesertCount = tileCount - desertCount
+  const counts = allocateProportional(BIOME_WEIGHTS, nonDesertCount)
+  const pool: Biome[] = new Array(desertCount).fill('desert')
+  for (const [biome, count] of Object.entries(counts) as [Biome, number][]) {
+    for (let i = 0; i < count; i++) pool.push(biome)
+  }
+  return pool
+}
+
+// Standard Catan number-token distribution: every number 3-11 except 7
+// appears twice, 2 and 12 (the rarest rolls by design) appear once — 18
+// tokens for 18 non-desert tiles. Generalizes to other tile counts by
+// filling one full pass of all 10 values first (matching the extremes'
+// single appearance), then additional passes of just the inner 8 — for
+// nonDesertCount=18 this reproduces the exact standard distribution.
+const INNER_NUMBERS = [3, 4, 5, 6, 8, 9, 10, 11]
+const EXTREME_NUMBERS = [2, 12]
+
+function buildNumberPool(nonDesertCount: number): number[] {
+  const pool: number[] = []
+  for (let round = 0; pool.length < nonDesertCount; round++) {
+    const values = round === 0 ? [...INNER_NUMBERS, ...EXTREME_NUMBERS] : INNER_NUMBERS
+    for (const value of values) {
+      if (pool.length >= nonDesertCount) break
+      pool.push(value)
+    }
+  }
+  return pool
+}
 
 function shuffle<T>(items: T[], random: () => number): T[] {
   const result = [...items]
@@ -71,33 +260,40 @@ function shuffle<T>(items: T[], random: () => number): T[] {
 }
 
 /**
- * Online matches must pass `seed` (the room code) — every client calls this
- * independently, and without a shared seed each would land on a completely
- * different tile layout, silently corrupting resource distribution the
- * instant dice rolls start syncing (same total, different tiles under it).
- * Local Pass & Play omits it and keeps its original Math.random() board.
+ * Shared by every board source — the 3 built-in shapes below AND custom
+ * player-drawn ones from BoardShapeEditor.tsx — so a hand-drawn board gets
+ * the exact same biome ratio / number distribution / seeded-shuffle
+ * treatment as Standard. Online matches must pass `seed` (the room code) —
+ * every client calls this independently, and without a shared seed each
+ * would land on a completely different tile layout, silently corrupting
+ * resource distribution the instant dice rolls start syncing (same total,
+ * different tiles under it). Local Pass & Play omits it and keeps its
+ * original Math.random() board.
  */
-export function buildHexBoard(seed?: string): HexTileData[] {
+export function buildHexBoardFromCells(cells: BoardCell[], seed?: string): HexTileData[] {
   const random = seed ? createSeededRandom(seed) : Math.random
-  const tiles: HexTileData[] = []
-  const biomeSequence = shuffle(BIOME_POOL, random)
-  const numberSequence = shuffle(NUMBER_POOL, random)
+  const tileCount = cells.length
+  const biomeSequence = shuffle(buildBiomePool(tileCount), random)
+  const numberSequence = shuffle(buildNumberPool(tileCount - desertCountFor(tileCount)), random)
   let biomeIndex = 0
   let numberIndex = 0
 
-  COLUMN_HEIGHTS.forEach((height, col) => {
-    const x = (col - 2) * COLUMN_SPACING
-    const rowOffset = (height - 1) / 2
-
-    for (let row = 0; row < height; row++) {
-      const z = (row - rowOffset) * ROW_SPACING
-      const biome = biomeSequence[biomeIndex]
-      const number = biome === 'desert' ? null : numberSequence[numberIndex++]
-
-      tiles.push({ id: `${col}-${row}`, col, row, x, z, biome, number })
-      biomeIndex++
-    }
+  return cells.map((cell) => {
+    const { x, z } = cellPosition(cell)
+    const biome = biomeSequence[biomeIndex]
+    const number = biome === 'desert' ? null : numberSequence[numberIndex++]
+    biomeIndex++
+    return { id: `${cell.col}-${cell.row}`, col: cell.col, row: cell.row, x, z, biome, number }
   })
+}
 
-  return tiles
+/**
+ * `shapeId` defaults to 'standard', so every pre-existing call site (tests
+ * included) is unaffected. `customCells`, when non-empty, overrides
+ * `shapeId` entirely — this is how a saved BoardShapeEditor.tsx shape gets
+ * played, while keeping the simple id-based path for the 3 built-ins.
+ */
+export function buildHexBoard(seed?: string, shapeId: BoardShapeId = 'standard', customCells?: BoardCell[]): HexTileData[] {
+  const cells = customCells && customCells.length > 0 ? customCells : BOARD_SHAPES[shapeId]
+  return buildHexBoardFromCells(cells, seed)
 }

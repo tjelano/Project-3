@@ -1745,7 +1745,14 @@ function App() {
     // whatever was last entered, so those flows don't reset names to defaults.
     const resolvedNames = names ?? playerNames
     if (names) setPlayerNames(names)
-    setPlayers(createInitialPlayers(count, resolvedNames, isFreshSubmission ? colorTokens : undefined))
+    setPlayers(
+      createInitialPlayers(
+        count,
+        resolvedNames,
+        isFreshSubmission ? colorTokens : undefined,
+        effectiveRules.victoryPointTarget,
+      ),
+    )
     // createInitialPlayers assigns ids in `resolvedNames` order (1-based),
     // so this is the one place a client learns "which seat am I" — every
     // client built its players array from the identical names array, so the
@@ -1768,7 +1775,7 @@ function App() {
     setSettlements({})
     setRoads({})
     setBanner(null)
-    setDevDeck(shuffle(buildDevCardDeck()))
+    setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
     setWinner(null)
     setPendingTrade(null)
     setFreeRoadsRemaining(0)

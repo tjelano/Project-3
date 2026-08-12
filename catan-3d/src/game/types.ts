@@ -159,14 +159,28 @@ export const DEFAULT_GAME_RULES: GameRules = {
   doublesRerollRule: false,
 }
 
-// Standard 25-card Catan development deck.
-export function buildDevCardDeck(): DevCardType[] {
+// A victoryPointTarget set above WINNING_SCORE needs proportionally more of
+// everything to actually be reachable — under the standard piece/deck counts
+// the hard ceiling on a single player's score is roughly 13 (4 cities + 1
+// settlement + both bonuses) plus whatever share of the 5 shared VP cards
+// they draw, so a target much past that softlocks the game: nobody can ever
+// win. Scales UP only (never below standard, even for a target set BELOW
+// WINNING_SCORE) so a short custom game never gets fewer pieces than normal
+// Catan provides.
+function victoryPointScale(victoryPointTarget: number): number {
+  return Math.max(1, victoryPointTarget / WINNING_SCORE)
+}
+
+// Standard 25-card Catan development deck (at the default WINNING_SCORE
+// target — see victoryPointScale above for how a higher one grows this).
+export function buildDevCardDeck(victoryPointTarget: number = WINNING_SCORE): DevCardType[] {
+  const scale = victoryPointScale(victoryPointTarget)
   const deck: DevCardType[] = []
-  for (let i = 0; i < 14; i++) deck.push('knight')
-  for (let i = 0; i < 5; i++) deck.push('victoryPoint')
-  for (let i = 0; i < 2; i++) deck.push('roadBuilding')
-  for (let i = 0; i < 2; i++) deck.push('yearOfPlenty')
-  for (let i = 0; i < 2; i++) deck.push('monopoly')
+  for (let i = 0; i < Math.ceil(14 * scale); i++) deck.push('knight')
+  for (let i = 0; i < Math.ceil(5 * scale); i++) deck.push('victoryPoint')
+  for (let i = 0; i < Math.ceil(2 * scale); i++) deck.push('roadBuilding')
+  for (let i = 0; i < Math.ceil(2 * scale); i++) deck.push('yearOfPlenty')
+  for (let i = 0; i < Math.ceil(2 * scale); i++) deck.push('monopoly')
   return deck
 }
 
@@ -201,16 +215,27 @@ const DEFAULT_COLOR_TOKENS: PlayerColorToken[] = [
   'player-6',
 ]
 
-export function createInitialPlayers(playerCount: number, names?: string[], colorTokens?: PlayerColorToken[]): Player[] {
+export function createInitialPlayers(
+  playerCount: number,
+  names?: string[],
+  colorTokens?: PlayerColorToken[],
+  // See victoryPointScale above — a higher target grants every player more
+  // settlements/cities/roads to build with, proportionally.
+  victoryPointTarget: number = WINNING_SCORE,
+): Player[] {
   const resolvedColorTokens = (colorTokens ?? DEFAULT_COLOR_TOKENS).slice(0, playerCount)
+  const scale = victoryPointScale(victoryPointTarget)
+  const settlementsRemaining = Math.ceil(STARTING_SETTLEMENTS * scale)
+  const roadsRemaining = Math.ceil(STARTING_ROADS * scale)
+  const citiesRemaining = Math.ceil(STARTING_CITIES * scale)
   return resolvedColorTokens.map((colorToken, index) => ({
     id: index + 1,
     name: names?.[index]?.trim() || `Player ${index + 1}`,
     colorToken,
     resources: emptyResources(),
-    settlementsRemaining: STARTING_SETTLEMENTS,
-    roadsRemaining: STARTING_ROADS,
-    citiesRemaining: STARTING_CITIES,
+    settlementsRemaining,
+    roadsRemaining,
+    citiesRemaining,
     devCards: [],
     devCardsBoughtThisTurn: [],
     knightsPlayed: 0,

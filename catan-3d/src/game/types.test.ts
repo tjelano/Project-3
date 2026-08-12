@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   LARGEST_ARMY_VP,
   LONGEST_ROAD_VP,
+  STARTING_CITIES,
+  STARTING_ROADS,
+  STARTING_SETTLEMENTS,
   WINNING_SCORE,
   buildDevCardDeck,
   buildSetupOrder,
@@ -42,7 +45,7 @@ describe('buildSetupOrder', () => {
 })
 
 describe('buildDevCardDeck', () => {
-  it('matches the standard 25-card distribution', () => {
+  it('matches the standard 25-card distribution at the default target', () => {
     const deck = buildDevCardDeck()
     const count = (t: string) => deck.filter((c) => c === t).length
     expect(deck).toHaveLength(25)
@@ -51,6 +54,21 @@ describe('buildDevCardDeck', () => {
     expect(count('roadBuilding')).toBe(2)
     expect(count('yearOfPlenty')).toBe(2)
     expect(count('monopoly')).toBe(2)
+  })
+
+  it('scales every card type up proportionally for a higher victory point target', () => {
+    const deck = buildDevCardDeck(WINNING_SCORE * 2)
+    const count = (t: string) => deck.filter((c) => c === t).length
+    expect(count('knight')).toBe(28)
+    expect(count('victoryPoint')).toBe(10)
+    expect(count('roadBuilding')).toBe(4)
+    expect(count('yearOfPlenty')).toBe(4)
+    expect(count('monopoly')).toBe(4)
+  })
+
+  it('never shrinks the deck below standard for a target below WINNING_SCORE', () => {
+    const deck = buildDevCardDeck(3)
+    expect(deck).toHaveLength(25)
   })
 })
 
@@ -163,5 +181,29 @@ describe('createInitialPlayers', () => {
     const players = createInitialPlayers(4)
     expect(new Set(players.map((p) => p.id)).size).toBe(4)
     expect(new Set(players.map((p) => p.colorToken)).size).toBe(4)
+  })
+
+  it('grants standard piece counts at the default victory point target', () => {
+    for (const player of createInitialPlayers(4)) {
+      expect(player.settlementsRemaining).toBe(STARTING_SETTLEMENTS)
+      expect(player.roadsRemaining).toBe(STARTING_ROADS)
+      expect(player.citiesRemaining).toBe(STARTING_CITIES)
+    }
+  })
+
+  it('scales piece counts up proportionally for a higher victory point target', () => {
+    for (const player of createInitialPlayers(4, undefined, undefined, WINNING_SCORE * 2)) {
+      expect(player.settlementsRemaining).toBe(STARTING_SETTLEMENTS * 2)
+      expect(player.roadsRemaining).toBe(STARTING_ROADS * 2)
+      expect(player.citiesRemaining).toBe(STARTING_CITIES * 2)
+    }
+  })
+
+  it('never grants fewer than standard piece counts for a target below WINNING_SCORE', () => {
+    for (const player of createInitialPlayers(4, undefined, undefined, 3)) {
+      expect(player.settlementsRemaining).toBe(STARTING_SETTLEMENTS)
+      expect(player.roadsRemaining).toBe(STARTING_ROADS)
+      expect(player.citiesRemaining).toBe(STARTING_CITIES)
+    }
   })
 })

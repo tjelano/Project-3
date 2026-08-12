@@ -14,12 +14,16 @@ import { BoardShapeEditor } from './BoardShapeEditor'
 import { TrashIcon } from './TrashIcon'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EyeIcon } from './EyeIcon'
+import { CopyIcon } from './CopyIcon'
 import { HouseRulesEditor, DEFAULT_GAME_RULES } from './HouseRulesEditor'
 import { CollapsibleSection } from './CollapsibleSection'
 import { PLAYER_COLORS, type GameRules, type PlayerColorToken } from '../../game/types'
 import type { GameStartInfo } from './StartScreen'
 
 const CREATE_SHAPE_VALUE = '__create__'
+// How long the copy button shows its "copied" checkmark before reverting —
+// matches RoomCodeTag.tsx's in-game version.
+const COPIED_FEEDBACK_MS = 1500
 const ALL_COLOR_TOKENS: PlayerColorToken[] = [
   'player-1',
   'player-2',
@@ -83,11 +87,24 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   const [myColor, setMyColor] = useState<PlayerColorToken>('player-1')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
-  // Defaults visible — this only protects streamers who opt to hide it, it
-  // shouldn't surprise everyone else with a masked code by default. Same
-  // toggle idea as RoomCodeTag.tsx's in-game version, kept as its own
-  // separate piece of state since this is a different screen entirely.
-  const [isRoomCodeVisible, setIsRoomCodeVisible] = useState(true)
+  // Defaults hidden — protects anyone streaming/screen-sharing from having
+  // their code sniped the instant this lobby renders. Same toggle idea as
+  // RoomCodeTag.tsx's in-game version, kept as its own separate piece of
+  // state since this is a different screen entirely.
+  const [isRoomCodeVisible, setIsRoomCodeVisible] = useState(false)
+  // Feedback for the copy button — briefly swaps its icon to a checkmark.
+  const [justCopiedRoomCode, setJustCopiedRoomCode] = useState(false)
+
+  const handleCopyRoomCode = () => {
+    if (!roomCode) return
+    // Copies the REAL code regardless of isRoomCodeVisible — sharing it
+    // through a side channel (chat, voice) shouldn't require exposing it
+    // on-screen.
+    void navigator.clipboard.writeText(roomCode)
+    setJustCopiedRoomCode(true)
+    setTimeout(() => setJustCopiedRoomCode(false), COPIED_FEEDBACK_MS)
+  }
+
   const [isHost, setIsHost] = useState(false)
   // True while checking whether roomCodeInput already has a match in
   // progress — a real network round-trip, so Join Room needs its own
@@ -437,17 +454,27 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
 
   return (
     <div className="mt-8 flex flex-col gap-3 text-left">
-      <div className="relative rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-center">
+      <div className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 text-center">
         <p className="font-body text-[10px] tracking-[0.2em] text-gold/70 uppercase">Room Code</p>
-        <p className="font-display text-3xl tracking-[0.3em] text-gold">{isRoomCodeVisible ? roomCode : '••••'}</p>
-        <button
-          type="button"
-          onClick={() => setIsRoomCodeVisible((prev) => !prev)}
-          aria-label={isRoomCodeVisible ? 'Hide room code' : 'Show room code'}
-          className="absolute top-2 right-2 text-gold/50 transition-colors hover:text-gold"
-        >
-          <EyeIcon open={isRoomCodeVisible} className="h-4 w-4" />
-        </button>
+        <div className="mt-1 flex items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsRoomCodeVisible((prev) => !prev)}
+            aria-label={isRoomCodeVisible ? 'Hide room code' : 'Show room code'}
+            className="text-gold/50 transition-colors hover:text-gold"
+          >
+            <EyeIcon open={isRoomCodeVisible} className="h-4 w-4" />
+          </button>
+          <p className="font-display text-3xl tracking-[0.3em] text-gold">{isRoomCodeVisible ? roomCode : '••••'}</p>
+          <button
+            type="button"
+            onClick={handleCopyRoomCode}
+            aria-label="Copy room code"
+            className="text-gold/50 transition-colors hover:text-gold"
+          >
+            <CopyIcon copied={justCopiedRoomCode} className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <p className="text-center font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
         {status === 'connecting' && 'Connecting…'}

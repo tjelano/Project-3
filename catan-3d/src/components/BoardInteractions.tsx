@@ -3,7 +3,7 @@ import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { TILE_HEIGHT, STRUCTURE_ELEVATION } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
-import { PLAYER_COLORS, type Building, type Player } from '../game/types'
+import { PLAYER_COLORS, type Building, type Player, type PlayerColorToken } from '../game/types'
 import { CityModel, RoadModel, SettlementModel } from './GamePieces'
 import type { HoverChangedPayload } from '../multiplayer/useRoomChannel'
 
@@ -21,8 +21,13 @@ const EDGE_LENGTH_SCALE = 0.82
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
 
-// One shared translucent material per glow colour, cached the same way
-// GamePieces' own pieceMaterial/shadeMaterial are — a hover happens often
+// A ghost preview needs SOME piece geometry to borrow — GhostModel below
+// immediately overwrites every mesh's material with the shared hologram
+// tint, so which colour variant supplies that geometry is irrelevant (all
+// six are identical meshes with different roof textures, per GamePieces.tsx).
+const GHOST_GEOMETRY_COLOR: PlayerColorToken = 'player-1'
+
+// One shared translucent material per glow colour — a hover happens often
 // enough that allocating a fresh material per frame would be wasteful.
 const hologramCache = new Map<string, THREE.MeshStandardMaterial>()
 function hologramMaterial(color: string): THREE.MeshStandardMaterial {
@@ -42,12 +47,12 @@ function hologramMaterial(color: string): THREE.MeshStandardMaterial {
 
 // Renders a real GamePieces model (SettlementModel/CityModel/RoadModel) as a
 // holographic preview by swapping every one of its meshes' materials for the
-// SAME shared hologram instance above. Deliberately NOT done by passing a
-// translucent colour straight into the model: GamePieces caches its
-// pieceMaterial/shadeMaterial per colour and shares those instances across
-// every ALREADY-BUILT piece of that colour on the board — mutating one
-// in place would make every real settlement of that colour go translucent
-// too. Traversing and reassigning each mesh's OWN .material pointer instead
+// SAME shared hologram instance above. Deliberately NOT done by mutating the
+// model's own pre-textured material in place: GamePieces clones its scene
+// per instance but useGLTF still caches the SOURCE scene/materials per URL,
+// so mutating a mesh's material object directly (rather than reassigning the
+// pointer) could bleed into every other piece loaded from that same GLB.
+// Traversing and reassigning each mesh's OWN .material pointer instead
 // touches nothing shared.
 function GhostModel({ color, children }: { color: string; children: ReactNode }) {
   const ref = useRef<THREE.Group>(null)
@@ -68,7 +73,7 @@ function GhostModel({ color, children }: { color: string; children: ReactNode })
 const VertexSlot = memo(function VertexSlot({
   vertex,
   building,
-  ownerColor,
+  ownerColorToken,
   onBuild,
   locked,
   remoteHighlighted,
@@ -77,7 +82,7 @@ const VertexSlot = memo(function VertexSlot({
 }: {
   vertex: BoardVertex
   building: Building | undefined
-  ownerColor: string | undefined
+  ownerColorToken: PlayerColorToken | undefined
   onBuild: (vertexId: string) => void
   locked: boolean
   remoteHighlighted: boolean
@@ -91,7 +96,10 @@ const VertexSlot = memo(function VertexSlot({
   // than the base model) so the owner can click their own settlement to
   // upgrade it into a city.
   if (building) {
-    const color = ownerColor ?? '#ffffff'
+    // Falls back to player-1's model only if a building somehow references a
+    // playerId not present in `players` — a data-integrity edge case that
+    // shouldn't happen, not a real "no owner" state.
+    const colorToken = ownerColorToken ?? 'player-1'
     return (
       <group position={[vertex.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, vertex.z]}>
         <mesh
@@ -107,7 +115,11 @@ const VertexSlot = memo(function VertexSlot({
           <sphereGeometry args={[VERTEX_HITBOX_RADIUS * 1.3, 12, 12]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
-        {building.type === 'city' ? <CityModel color={color} /> : <SettlementModel color={color} />}
+        {building.type === 'city' ? (
+          <CityModel colorToken={colorToken} />
+        ) : (
+          <SettlementModel colorToken={colorToken} />
+        )}
       </group>
     )
   }
@@ -152,12 +164,12 @@ const VertexSlot = memo(function VertexSlot({
           two branches never both fire on the same client). */}
       {hovered && (
         <GhostModel color={SETTLEMENT_GLOW}>
-          <SettlementModel color={SETTLEMENT_GLOW} />
+          <SettlementModel colorToken={GHOST_GEOMETRY_COLOR} />
         </GhostModel>
       )}
       {remoteHighlighted && (
         <GhostModel color={remoteColor ?? SETTLEMENT_GLOW}>
-          <SettlementModel color={remoteColor ?? SETTLEMENT_GLOW} />
+          <SettlementModel colorToken={GHOST_GEOMETRY_COLOR} />
         </GhostModel>
       )}
     </group>
@@ -169,7 +181,7 @@ const EdgeSlot = memo(function EdgeSlot({
   a,
   b,
   ownerId,
-  ownerColor,
+  ownerColorToken,
   onBuild,
   locked,
   remoteHighlighted,
@@ -180,7 +192,7 @@ const EdgeSlot = memo(function EdgeSlot({
   a: BoardVertex
   b: BoardVertex
   ownerId: number | undefined
-  ownerColor: string | undefined
+  ownerColorToken: PlayerColorToken | undefined
   onBuild: (edgeId: string) => void
   locked: boolean
   remoteHighlighted: boolean
@@ -194,10 +206,11 @@ const EdgeSlot = memo(function EdgeSlot({
   // A road has already been built here — render it permanently in the
   // owner's color instead of a hoverable hitbox.
   if (ownerId != null) {
-    const color = ownerColor ?? '#ffffff'
+    // Same data-integrity-only fallback as VertexSlot above.
+    const colorToken = ownerColorToken ?? 'player-1'
     return (
       <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
-        <RoadModel color={color} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        <RoadModel colorToken={colorToken} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
       </group>
     )
   }
@@ -240,12 +253,12 @@ const EdgeSlot = memo(function EdgeSlot({
           own-hover-vs-active-player-color split as VertexSlot above. */}
       {hovered && (
         <GhostModel color={ROAD_GLOW}>
-          <RoadModel color={ROAD_GLOW} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+          <RoadModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
         </GhostModel>
       )}
       {remoteHighlighted && (
         <GhostModel color={remoteColor ?? ROAD_GLOW}>
-          <RoadModel color={remoteColor ?? ROAD_GLOW} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+          <RoadModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
         </GhostModel>
       )}
     </group>
@@ -278,11 +291,15 @@ export const BoardInteractions = memo(function BoardInteractions({
   remoteHover,
   onHoverChange,
 }: BoardInteractionsProps) {
-  const colorByPlayerId = useMemo(
-    () => new Map(players.map((player) => [player.id, PLAYER_COLORS[player.colorToken]])),
+  // colorToken picks which pre-textured GLB a real piece loads (see
+  // GamePieces.tsx); the hex derived from it below is only for the ghost
+  // hologram tint, which has no colorToken of its own to work with.
+  const colorTokenByPlayerId = useMemo(
+    () => new Map(players.map((player) => [player.id, player.colorToken])),
     [players],
   )
-  const remoteColor = colorByPlayerId.get(remoteHover.playerId)
+  const remoteColorToken = colorTokenByPlayerId.get(remoteHover.playerId)
+  const remoteColor = remoteColorToken ? PLAYER_COLORS[remoteColorToken] : undefined
 
   return (
     <group>
@@ -291,7 +308,11 @@ export const BoardInteractions = memo(function BoardInteractions({
           key={vertex.id}
           vertex={vertex}
           building={settlements[vertex.id]}
-          ownerColor={settlements[vertex.id]?.ownerId != null ? colorByPlayerId.get(settlements[vertex.id].ownerId!) : undefined}
+          ownerColorToken={
+            settlements[vertex.id]?.ownerId != null
+              ? colorTokenByPlayerId.get(settlements[vertex.id].ownerId!)
+              : undefined
+          }
           onBuild={onBuildSettlement}
           locked={locked}
           remoteHighlighted={remoteHover.vertexId === vertex.id}
@@ -306,7 +327,7 @@ export const BoardInteractions = memo(function BoardInteractions({
           a={graph.vertexById.get(edge.a)!}
           b={graph.vertexById.get(edge.b)!}
           ownerId={roads[edge.id]}
-          ownerColor={roads[edge.id] != null ? colorByPlayerId.get(roads[edge.id]!) : undefined}
+          ownerColorToken={roads[edge.id] != null ? colorTokenByPlayerId.get(roads[edge.id]!) : undefined}
           onBuild={onBuildRoad}
           locked={locked}
           remoteHighlighted={remoteHover.edgeId === edge.id}

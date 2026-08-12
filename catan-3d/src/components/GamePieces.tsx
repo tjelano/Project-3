@@ -1,112 +1,137 @@
 import { useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import settlementModelUrl from '../assets/models/settlement.glb'
-import cityModelUrl from '../assets/models/settlement-city.glb'
-import roadModelUrl from '../assets/models/road.glb'
+import type { PlayerColorToken } from '../game/types'
+import settlementPlayer1Url from '../assets/models/pieces/settlement-player-1.glb'
+import settlementPlayer2Url from '../assets/models/pieces/settlement-player-2.glb'
+import settlementPlayer3Url from '../assets/models/pieces/settlement-player-3.glb'
+import settlementPlayer4Url from '../assets/models/pieces/settlement-player-4.glb'
+import settlementPlayer5Url from '../assets/models/pieces/settlement-player-5.glb'
+import settlementPlayer6Url from '../assets/models/pieces/settlement-player-6.glb'
+import cityPlayer1Url from '../assets/models/pieces/settlement-city-player-1.glb'
+import cityPlayer2Url from '../assets/models/pieces/settlement-city-player-2.glb'
+import cityPlayer3Url from '../assets/models/pieces/settlement-city-player-3.glb'
+import cityPlayer4Url from '../assets/models/pieces/settlement-city-player-4.glb'
+import cityPlayer5Url from '../assets/models/pieces/settlement-city-player-5.glb'
+import cityPlayer6Url from '../assets/models/pieces/settlement-city-player-6.glb'
+import roadPlayer1Url from '../assets/models/pieces/road-player-1.glb'
+import roadPlayer2Url from '../assets/models/pieces/road-player-2.glb'
+import roadPlayer3Url from '../assets/models/pieces/road-player-3.glb'
+import roadPlayer4Url from '../assets/models/pieces/road-player-4.glb'
+import roadPlayer5Url from '../assets/models/pieces/road-player-5.glb'
+import roadPlayer6Url from '../assets/models/pieces/road-player-6.glb'
 
 /**
- * Authored miniatures for the player-built pieces (replacing the earlier
- * procedural geometry). None of the three source GLBs carry a material —
- * gltf-transform inspect confirms "No materials found" for all of them —
- * so there's nothing baked-in to fight: the SAME plain per-color material
- * is applied to the whole (single-mesh) model, the direct GLB equivalent
- * of the old pieceMaterial/shadeMaterial cached-per-colour system.
+ * Authored miniatures for the player-built pieces. Each piece type is the
+ * SAME model in all six variants (identical geometry, verified via
+ * gltf-transform inspect — every colour's bounding box matches exactly) —
+ * only the roof material differs, baked into the GLB itself. There's no
+ * runtime tinting step anymore: the correct pre-textured file is loaded
+ * directly for a piece's owner colour.
  */
 
-const pieceCache = new Map<string, THREE.MeshPhysicalMaterial>()
-
-function pieceMaterial(color: string): THREE.MeshPhysicalMaterial {
-  const cached = pieceCache.get(color)
-  if (cached) return cached
-  const created = new THREE.MeshPhysicalMaterial({
-    color,
-    roughness: 0.45,
-    metalness: 0,
-    clearcoat: 0.35,
-    clearcoatRoughness: 0.4,
-  })
-  pieceCache.set(color, created)
-  return created
+const SETTLEMENT_URLS: Record<PlayerColorToken, string> = {
+  'player-1': settlementPlayer1Url,
+  'player-2': settlementPlayer2Url,
+  'player-3': settlementPlayer3Url,
+  'player-4': settlementPlayer4Url,
+  'player-5': settlementPlayer5Url,
+  'player-6': settlementPlayer6Url,
+}
+const CITY_URLS: Record<PlayerColorToken, string> = {
+  'player-1': cityPlayer1Url,
+  'player-2': cityPlayer2Url,
+  'player-3': cityPlayer3Url,
+  'player-4': cityPlayer4Url,
+  'player-5': cityPlayer5Url,
+  'player-6': cityPlayer6Url,
+}
+const ROAD_URLS: Record<PlayerColorToken, string> = {
+  'player-1': roadPlayer1Url,
+  'player-2': roadPlayer2Url,
+  'player-3': roadPlayer3Url,
+  'player-4': roadPlayer4Url,
+  'player-5': roadPlayer5Url,
+  'player-6': roadPlayer6Url,
 }
 
-useGLTF.preload(settlementModelUrl)
-useGLTF.preload(cityModelUrl)
-useGLTF.preload(roadModelUrl)
+for (const url of Object.values(SETTLEMENT_URLS)) useGLTF.preload(url)
+for (const url of Object.values(CITY_URLS)) useGLTF.preload(url)
+for (const url of Object.values(ROAD_URLS)) useGLTF.preload(url)
 
 // useGLTF caches by URL and returns the SAME scene graph on every call;
-// cloning is what lets multiple pieces of the same type/colour each have
-// their own instance instead of fighting over one shared object's
-// transform and material (same pattern as CatanBoard's BiomeTileModel).
-function useTintedModel(url: string, color: string) {
+// cloning is what lets multiple pieces of the same colour each have their
+// own instance instead of fighting over one shared object's transform
+// (same pattern as CatanBoard's BiomeTileModel).
+function useClonedModel(url: string) {
   const { scene } = useGLTF(url)
   return useMemo(() => {
     const clone = scene.clone()
-    const material = pieceMaterial(color)
     clone.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        child.material = material
         child.castShadow = true
         child.receiveShadow = true
       }
     })
     return clone
-  }, [scene, color])
+  }, [scene])
 }
 
 // ---------------------------------------------------------------------------
 // SETTLEMENT
 //
-// The model's own bounding box is ~symmetric around its local origin (like
-// every other GLB in this pack) — Meshy centres a model on its bounding
-// box, not on its feet — so SETTLEMENT_HALF_HEIGHT lifts it to rest ON the
-// group origin instead of straddling it. SETTLEMENT_SCALE targets a
-// footprint radius (~0.13) in the neighbourhood of BoardInteractions'
-// VERTEX_HITBOX_RADIUS (0.16), matching the old procedural piece's size.
+// bboxMin/Max: [-0.78397, -1, -0.67759] / [0.78397, 1, 0.67759] (identical
+// across all six colour variants) — centred on the bounding box, not on its
+// feet, so SETTLEMENT_HALF_HEIGHT lifts it to rest ON the group origin
+// instead of straddling it. SETTLEMENT_SCALE targets a footprint radius
+// (~0.13) in the neighbourhood of BoardInteractions' VERTEX_HITBOX_RADIUS
+// (0.16), matching the old procedural piece's size.
 // ---------------------------------------------------------------------------
-const SETTLEMENT_SCALE = 0.2
-const SETTLEMENT_HALF_HEIGHT = 0.9507 * SETTLEMENT_SCALE
+const SETTLEMENT_SCALE = 0.166
+const SETTLEMENT_HALF_HEIGHT = 1 * SETTLEMENT_SCALE
 
-export function SettlementModel({ color }: { color: string }) {
-  const instance = useTintedModel(settlementModelUrl, color)
+export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }) {
+  const instance = useClonedModel(SETTLEMENT_URLS[colorToken])
   return <primitive object={instance} position={[0, SETTLEMENT_HALF_HEIGHT, 0]} scale={SETTLEMENT_SCALE} />
 }
 
 // ---------------------------------------------------------------------------
 // CITY
 //
-// Same centred-bbox convention as the settlement above. Scaled larger
-// (~0.21 footprint radius vs settlement's ~0.13) so an upgrade stays
-// legible across the table without reading any UI, matching the old
-// procedural piece's "deliberately over-scaled" design intent.
+// bboxMin/Max: [-0.74005, -1, -0.71151] / [0.74005, 1, 0.71151]. Same
+// centred-bbox convention as the settlement above. Scaled larger (~0.21
+// footprint radius vs settlement's ~0.13) so an upgrade stays legible
+// across the table without reading any UI, matching the old procedural
+// piece's "deliberately over-scaled" design intent.
 // ---------------------------------------------------------------------------
-const CITY_SCALE = 0.4
-const CITY_HALF_HEIGHT = 0.9509 * CITY_SCALE
+const CITY_SCALE = 0.284
+const CITY_HALF_HEIGHT = 1 * CITY_SCALE
 
-export function CityModel({ color }: { color: string }) {
-  const instance = useTintedModel(cityModelUrl, color)
+export function CityModel({ colorToken }: { colorToken: PlayerColorToken }) {
+  const instance = useClonedModel(CITY_URLS[colorToken])
   return <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={CITY_SCALE} />
 }
 
 // ---------------------------------------------------------------------------
 // ROAD
 //
-// The only piece whose scale is dynamic, not fixed — `span` is the edge's
-// actual world-space length, and the model has to stretch to fill it
-// exactly (same reasoning as PortMarkers' DOCK_LENGTH_OFFSET: the model's
-// own length has to be measured, not guessed). ROAD_NATIVE_LENGTH is the
-// model's own X bounding-box span (its long axis); scaling uniformly by
+// bboxMin/Max: [-1, -0.39223, -0.19363] / [1, 0.39223, 0.19363]. The only
+// piece whose scale is dynamic, not fixed — `span` is the edge's actual
+// world-space length, and the model has to stretch to fill it exactly (same
+// reasoning as PortMarkers' DOCK_LENGTH_OFFSET: the model's own length has
+// to be measured, not guessed). ROAD_NATIVE_LENGTH is the model's own X
+// bounding-box span (its long axis); scaling uniformly by
 // span/ROAD_NATIVE_LENGTH stretches it to fit without distorting its
-// authored cross-section proportions. The model's long axis is local X,
-// but EdgeSlot's parent group already rotates local +Z along the edge (see
+// authored cross-section proportions. The model's long axis is local X, but
+// EdgeSlot's parent group already rotates local +Z along the edge (see
 // BoardInteractions.tsx) — the same axis-swap dock.glb and hills-tile.glb
 // needed — so a 90° yaw remaps X onto that Z.
 // ---------------------------------------------------------------------------
-const ROAD_NATIVE_LENGTH = 1.80281
-const ROAD_HALF_HEIGHT_UNSCALED = 0.37317
+const ROAD_NATIVE_LENGTH = 2
+const ROAD_HALF_HEIGHT_UNSCALED = 0.39223
 
-export function RoadModel({ color, span }: { color: string; span: number }) {
-  const instance = useTintedModel(roadModelUrl, color)
+export function RoadModel({ colorToken, span }: { colorToken: PlayerColorToken; span: number }) {
+  const instance = useClonedModel(ROAD_URLS[colorToken])
   const scale = span / ROAD_NATIVE_LENGTH
   return (
     <primitive

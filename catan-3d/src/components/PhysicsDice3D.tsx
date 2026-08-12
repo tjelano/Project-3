@@ -46,6 +46,13 @@ const CUBE_INERTIA_FACTOR = 1 / 6
 const LINEAR_SLEEP_THRESHOLD = 0.05
 const ANGULAR_SLEEP_THRESHOLD = 0.08
 const SETTLE_HOLD_DURATION = 0.35
+// Friction (0.5) and restitution (0.4) bleed energy fast enough that a real
+// throw can go fully quiet in well under a second — without a floor, that
+// reads as the dice "teleporting" straight to their result instead of
+// visibly tumbling. Matches Dice3D's own fixed TUMBLE_DURATION (1.3s) so
+// the roller's real-physics roll and a spectator's mirrored one feel like
+// roughly the same length of roll.
+const MIN_ROLL_DURATION = 1.2
 // Safety net: force a result even if friction/restitution somehow never
 // fully quiet the simulation down (e.g. a die stuck rocking in a corner).
 const MAX_ROLL_DURATION = 6
@@ -83,6 +90,10 @@ function randomSpinVelocity(): THREE.Vector3 {
 export function PhysicsDice3D({ roll, onSettled }: PhysicsDice3DProps) {
   const bodyRefs = [useRef<RapierRigidBody>(null), useRef<RapierRigidBody>(null)]
   const lastRollId = useRef<number | null>(null)
+  // Set the instant a new roll comes in, cleared once the throw has
+  // actually been applied — see the useFrame check below for why this
+  // can't just happen directly in the effect below.
+  const pendingThrowRollId = useRef<number | null>(null)
   const hasThrown = useRef(false)
   const settledFired = useRef(true)
   const quietElapsed = useRef(0)
@@ -92,42 +103,59 @@ export function PhysicsDice3D({ roll, onSettled }: PhysicsDice3DProps) {
   useEffect(() => {
     if (!roll || roll.rollId === lastRollId.current) return
     lastRollId.current = roll.rollId
-    hasThrown.current = true
-    settledFired.current = false
-    quietElapsed.current = 0
-    totalElapsed.current = 0
-
-    bodyRefs.forEach((ref, i) => {
-      const body = ref.current
-      if (!body) return
-
-      // Spawn dead-center on the board, mirroring Dice3D's spawn spread —
-      // a small per-die jitter around the same origin the burst explodes
-      // outward from.
-      const spawnX = (Math.random() - 0.5) * 0.3 + (i === 0 ? -0.3 : 0.3)
-      const spawnZ = (Math.random() - 0.5) * 0.3
-      const spawnY = FLOOR_TOP_Y + 1.5 + Math.random() * 0.6
-
-      body.setTranslation({ x: spawnX, y: spawnY, z: spawnZ }, true)
-      body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true)
-      body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true)
-
-      // impulse = mass * Δvelocity, torqueImpulse = I * ΔangularVelocity —
-      // scaling the target velocities by the body's own (density-derived)
-      // mass/inertia is what makes the resulting motion match those
-      // target speeds regardless of how heavy Rapier considers this die.
-      const mass = body.mass()
-      const momentOfInertia = CUBE_INERTIA_FACTOR * mass * DIE_SIZE * DIE_SIZE
-      body.applyImpulse(randomOutwardVelocity().multiplyScalar(mass), true)
-      body.applyTorqueImpulse(randomSpinVelocity().multiplyScalar(momentOfInertia), true)
-    })
+    pendingThrowRollId.current = roll.rollId
     // Only re-run when a genuinely new roll comes in — body refs are
     // stable across re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roll?.rollId])
 
   useFrame((_, delta) => {
+    // <RigidBody>'s own ref only attaches once ITS internal effect has run
+    // (@react-three/rapier lazily creates the Rapier body there) — on a
+    // FRESH mount of this whole component (every roll online, since the
+    // dice display toggles to Dice3D and back between turns; only the
+    // game's very first roll locally, since <PhysicsDice3D> stays mounted
+    // after that) that effect isn't guaranteed to have run yet by the time
+    // THIS component's own effect above fires. Applying the throw straight
+    // from that effect against a still-null ref used to silently no-op —
+    // the die never got an impulse, sat at its default spawn pose the
+    // whole "roll", and read as face 1 (identity rotation) once settled:
+    // exactly the "teleports to the middle, always shows a 2" bug. Retrying
+    // here every frame instead means a not-yet-attached ref just delays the
+    // throw by a frame or two — imperceptible — rather than dropping it.
+    if (pendingThrowRollId.current != null && bodyRefs.every((ref) => ref.current != null)) {
+      pendingThrowRollId.current = null
+      hasThrown.current = true
+      settledFired.current = false
+      quietElapsed.current = 0
+      totalElapsed.current = 0
+
+      bodyRefs.forEach((ref, i) => {
+        const body = ref.current!
+
+        // Spawn dead-center on the board, mirroring Dice3D's spawn spread —
+        // a small per-die jitter around the same origin the burst explodes
+        // outward from.
+        const spawnX = (Math.random() - 0.5) * 0.3 + (i === 0 ? -0.3 : 0.3)
+        const spawnZ = (Math.random() - 0.5) * 0.3
+        const spawnY = FLOOR_TOP_Y + 1.5 + Math.random() * 0.6
+
+        body.setTranslation({ x: spawnX, y: spawnY, z: spawnZ }, true)
+        body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true)
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+
+        // impulse = mass * Δvelocity, torqueImpulse = I * ΔangularVelocity —
+        // scaling the target velocities by the body's own (density-derived)
+        // mass/inertia is what makes the resulting motion match those
+        // target speeds regardless of how heavy Rapier considers this die.
+        const mass = body.mass()
+        const momentOfInertia = CUBE_INERTIA_FACTOR * mass * DIE_SIZE * DIE_SIZE
+        body.applyImpulse(randomOutwardVelocity().multiplyScalar(mass), true)
+        body.applyTorqueImpulse(randomSpinVelocity().multiplyScalar(momentOfInertia), true)
+      })
+    }
+
     if (!hasThrown.current || settledFired.current) return
     const dt = Math.min(delta, 1 / 30)
     totalElapsed.current += dt
@@ -151,7 +179,9 @@ export function PhysicsDice3D({ roll, onSettled }: PhysicsDice3DProps) {
     quietElapsed.current = allQuiet ? quietElapsed.current + dt : 0
 
     const forceSettle = totalElapsed.current > MAX_ROLL_DURATION
-    if (forceSettle || (allQuiet && quietElapsed.current >= SETTLE_HOLD_DURATION)) {
+    const naturallySettled =
+      totalElapsed.current >= MIN_ROLL_DURATION && allQuiet && quietElapsed.current >= SETTLE_HOLD_DURATION
+    if (forceSettle || naturallySettled) {
       settledFired.current = true
       const values = bodyRefs.map((ref) => {
         const body = ref.current

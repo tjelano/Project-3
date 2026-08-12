@@ -169,6 +169,14 @@ function App() {
   // eventLog is, for the same unbounded-growth reason.
   const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([])
   const [diceRoll, setDiceRoll] = useState<DiceRollTarget | null>(null)
+  // Who actually rolled the dice currently animating in `diceRoll` — a
+  // mirrored roll's 3D tumble takes real time to settle, and a TURN_PASSED
+  // broadcast for THAT SAME roll can arrive and be processed on this client
+  // before the animation finishes (near-instant handler vs. an animation).
+  // applyRollResult needs this to tell "the roll that's finally settling"
+  // apart from "whoever is current BY THE TIME it settles" — see its own
+  // comment for why conflating the two mis-marks the new turn as pre-rolled.
+  const [diceRollPlayerId, setDiceRollPlayerId] = useState<number | null>(null)
   const [physicsRoll, setPhysicsRoll] = useState<PhysicsRollTarget | null>(null)
   // Which dice component is mounted: 'physics' for the player who's actually
   // rolling (real Rapier simulation, outcome not known until it settles) and
@@ -311,14 +319,17 @@ function App() {
     }
   }
 
-  // Shared by a local Roll Dice click AND by mirroring another player's
-  // DICE_ROLLED broadcast — both just need the 3D dice to animate toward
-  // the same (d1, d2), after which handleDiceSettled/applyRollResult below
-  // runs identically regardless of which client actually rolled.
-  const beginDiceAnimation = (d1: number, d2: number) => {
+  // Only ever mirrors another player's DICE_ROLLED broadcast (the local
+  // roller's own roll runs real physics via PhysicsDice3D/handlePhysicsSettled
+  // instead) — the 3D dice animate toward the same (d1, d2), after which
+  // handleDiceSettled/applyRollResult below applies the result. playerId is
+  // remembered alongside it so applyRollResult can tell whether this roll is
+  // still current by the time the animation actually finishes.
+  const beginDiceAnimation = (d1: number, d2: number, playerId: number) => {
     setIsRolling(true)
     playSfx('diceRoll')
     setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
+    setDiceRollPlayerId(playerId)
   }
 
   // --- Structural placement mutations --------------------------------
@@ -638,7 +649,7 @@ function App() {
     // roller clicks their own End Turn button.
     onDiceRolled: (payload) => {
       setDiceDisplayMode('remote')
-      beginDiceAnimation(payload.dice[0], payload.dice[1])
+      beginDiceAnimation(payload.dice[0], payload.dice[1], payload.playerId)
     },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
@@ -1123,22 +1134,25 @@ function App() {
       setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
       return
     }
+    const rollerId = players[currentPlayerIndex].id
     if (onlineInfo) {
-      broadcastDiceRolled({ dice: [d1, d2], total, playerId: players[currentPlayerIndex].id })
+      broadcastDiceRolled({ dice: [d1, d2], total, playerId: rollerId })
     }
-    const doublesCount = applyRollResult(total, isDouble)
+    const doublesCount = applyRollResult(total, isDouble, rollerId)
 
-    // House rule: a double grants the SAME player an immediate bonus roll,
-    // same turn. Only the roller's own client can trigger it (only this
-    // client runs real physics) — applyRollResult above already ran the
-    // shared bookkeeping (counting the double, wiping the hand on a third
-    // in a row) identically on every client, roller and spectators alike.
+    // House rule: a double grants the SAME player another roll, same turn —
+    // but the PLAYER triggers it themselves via a second Roll Dice click,
+    // not an automatic re-roll. Un-flagging hasRolledThisTurn puts the
+    // button back in its "Roll Dice" state (rollDice's own guard already
+    // requires isMyTurn, so nobody else can roll on the active player's
+    // behalf); it stays that way until they roll again or hit 3 in a row.
+    // Only the roller's own client decides this (only this client runs real
+    // physics) — applyRollResult above already ran the shared bookkeeping
+    // (counting the double, wiping the hand on a third in a row) identically
+    // on every client, roller and spectators alike.
     if (gameRules.doublesRerollRule && isDouble && doublesCount < 3) {
-      inform('Doubles! Rolling again.')
-      playSfx('diceRoll')
-      setIsRolling(true)
-      setDiceDisplayMode('physics')
-      setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+      inform('Doubles! Roll again.')
+      setHasRolledThisTurn(false)
     }
   }
 
@@ -1146,39 +1160,58 @@ function App() {
   // (the only caller that ever needs it) can decide whether to trigger a
   // bonus roll without re-deriving it from state that may not have
   // committed yet.
-  const applyRollResult = (total: number, isDouble: boolean): number => {
+  const applyRollResult = (total: number, isDouble: boolean, rollerId: number): number => {
     setIsRolling(false)
-    setLastRoll(total)
-    // Marks the roll as done for whoever's turn this is — every client sets
-    // this, active or not, since it's a fact about the active player's turn,
-    // not this browser's own state. Distributes resources (and, on a 7,
-    // opens the moveRobber phase) but never touches currentPlayerIndex or
-    // fires TURN_PASSED; only the End Turn button does that.
-    setHasRolledThisTurn(true)
+    const roller = playerById.get(rollerId)
+    // True on the roller's own client (no network delay, always still their
+    // turn by the time this runs) and on a spectator's client for a NORMAL
+    // roll. False only when a mirrored roll's animation is still tumbling
+    // after this client already processed TURN_PASSED for it — a spectator's
+    // dice take real time to settle, and a fast End Turn click right behind
+    // a roll (or, with doublesRerollRule on, a quick manual re-roll click)
+    // can land the near-instant TURN_PASSED handler before that animation
+    // finishes. Every "whose turn is it" flag below has to be skipped in
+    // that case, or the new turn gets falsely marked as already-rolled
+    // before its player ever touched Roll Dice. Resource distribution
+    // further down is NOT gated behind this: it must always apply so this
+    // client's board stays in sync with the roller's, whichever turn it's
+    // since become.
+    const isStillRollersTurn = players[currentPlayerIndex]?.id === rollerId
+    if (isStillRollersTurn) {
+      setLastRoll(total)
+      setHasRolledThisTurn(true)
+    }
     // Only reachable with an ACCEPTED roll (a rerolled 7 returns early in
     // handlePhysicsSettled above and never reaches here), so this stays a
     // reliable "how many rolls has the game had" count for noSevensFirstTwoRolls.
     setTotalRollsThisGame((n) => n + 1)
-    const doublesCount = isDouble ? consecutiveDoublesThisTurn + 1 : 0
-    setConsecutiveDoublesThisTurn(doublesCount)
+    const doublesCount = isDouble && isStillRollersTurn ? consecutiveDoublesThisTurn + 1 : 0
+    if (isStillRollersTurn) setConsecutiveDoublesThisTurn(doublesCount)
     // Every roll gets its own log entry — the branches below (7, resource
     // yields) may call inform() again right after this, which overwrites
     // the single active EventBanner (last write wins, same synchronous
     // batch), but logEvent inside inform() APPENDS rather than replacing,
     // so this line still shows up in EventLogPanel's history even when the
     // banner itself never visibly displays it.
-    inform(`${players[currentPlayerIndex].name} rolled a ${total}.`)
+    inform(`${roller?.name ?? 'A player'} rolled a ${total}.`)
 
     if (total === 7) {
-      const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
-      if (overLimitIds.length > 0) {
-        setDiscardPlayerIds(overLimitIds)
-        setDiscardSelection([])
-        setGamePhase('discard')
-        inform('Rolled 7 — players over 7 cards must discard half.')
-      } else {
-        inform('Rolled 7 — move the Robber.')
-        setGamePhase('moveRobber')
+      // A stale 7 can't reach here in practice (End Turn stays disabled
+      // until 'discard'/'moveRobber' resolves back to 'playing', so the
+      // roller's own turn can't have already passed) but the guard is kept
+      // for the same reason as everything else above: opening a robber
+      // phase for a turn that's no longer the roller's would be wrong.
+      if (isStillRollersTurn) {
+        const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+        if (overLimitIds.length > 0) {
+          setDiscardPlayerIds(overLimitIds)
+          setDiscardSelection([])
+          setGamePhase('discard')
+          inform('Rolled 7 — players over 7 cards must discard half.')
+        } else {
+          inform('Rolled 7 — move the Robber.')
+          setGamePhase('moveRobber')
+        }
       }
       return doublesCount
     }
@@ -1228,22 +1261,23 @@ function App() {
     // House rule: a third consecutive double empties the roller's hand —
     // unconditionally, overriding whatever this same roll's own resource
     // yield above just granted. total===7 can never be a double, so this
-    // never races the discard/moveRobber branch further up.
-    if (gameRules.doublesRerollRule && doublesCount >= 3) {
-      const loser = players[currentPlayerIndex]
-      setPlayers((prev) => prev.map((p) => (p.id === loser.id ? { ...p, resources: emptyResources() } : p)))
-      inform(`${loser.name} rolled doubles three times in a row — hand emptied!`)
+    // never races the discard/moveRobber branch further up. doublesCount is
+    // forced to 0 whenever !isStillRollersTurn (above), so reaching >= 3
+    // here already guarantees roller is still the active player.
+    if (gameRules.doublesRerollRule && doublesCount >= 3 && roller) {
+      setPlayers((prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)))
+      inform(`${roller.name} rolled doubles three times in a row — hand emptied!`)
     }
 
     return doublesCount
   }
 
   const handleDiceSettled = () => {
-    if (!diceRoll) return
+    if (!diceRoll || diceRollPlayerId == null) return
     // Spectator-side mirror of a broadcast roll — never triggers its own
     // bonus reroll (only the roller's handlePhysicsSettled does that), so
     // the returned doublesCount has no caller here.
-    applyRollResult(diceRoll.d1 + diceRoll.d2, diceRoll.d1 === diceRoll.d2)
+    applyRollResult(diceRoll.d1 + diceRoll.d2, diceRoll.d1 === diceRoll.d2, diceRollPlayerId)
   }
 
   // Flags or unflags one card (by its 3D hand instance id, e.g. "lumber-2")

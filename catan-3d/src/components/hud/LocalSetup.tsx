@@ -9,6 +9,7 @@ import {
 } from '../../data/customBoardShapes'
 import { BoardShapeEditor } from './BoardShapeEditor'
 import { TrashIcon } from './TrashIcon'
+import { ConfirmDialog } from './ConfirmDialog'
 import { HouseRulesEditor, DEFAULT_GAME_RULES } from './HouseRulesEditor'
 import { CollapsibleSection } from './CollapsibleSection'
 import { PLAYER_COLORS, type GameRules, type PlayerColorToken } from '../../game/types'
@@ -56,6 +57,11 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
   // picked, instead of always defaulting to whichever shape happens to be
   // first in the list.
   const effectiveShapeToManage = customShapes.some((shape) => shape.id === shapeToManage) ? shapeToManage : ''
+  // Set only while the "Delete Map" confirm dialog is open — holds the
+  // exact shape it targets so a delete elsewhere in the meantime (there
+  // isn't one today, but this keeps the dialog from ever acting on a
+  // shape other than the one it was opened for) can't retarget it.
+  const [pendingDeleteShapeId, setPendingDeleteShapeId] = useState<string | null>(null)
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   const [colorTokens, setColorTokens] = useState<PlayerColorToken[]>(ALL_COLOR_TOKENS)
   // Sized to 4 regardless of the current count, so switching the dropdown
@@ -167,7 +173,13 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
       {customShapes.length > 0 && (
         <select
           value={effectiveShapeToManage}
-          onChange={(event) => setShapeToManage(event.target.value)}
+          onChange={(event) => {
+            if (event.target.value === CREATE_SHAPE_VALUE) {
+              setIsEditorOpen(true)
+              return
+            }
+            setShapeToManage(event.target.value)
+          }}
           className="mt-2 w-full rounded-lg border border-glass-border bg-white/5 px-3 py-2 text-center font-body text-sm text-white focus:border-gold/60 focus:outline-none"
         >
           <option value="" disabled className="bg-board-navy">
@@ -178,6 +190,9 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
               {shape.name}
             </option>
           ))}
+          <option value={CREATE_SHAPE_VALUE} className="bg-board-navy text-gold">
+            + Create Custom Shape…
+          </option>
         </select>
       )}
 
@@ -246,18 +261,24 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
       {customShapes.length > 0 && (
         <button
           type="button"
-          onClick={() => {
-            const shape = customShapes.find((s) => s.id === effectiveShapeToManage)
-            if (shape && window.confirm(`Delete "${shape.name}"? This can't be undone.`)) {
-              handleDeleteShape(effectiveShapeToManage)
-            }
-          }}
+          onClick={() => setPendingDeleteShapeId(effectiveShapeToManage)}
           disabled={!effectiveShapeToManage}
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-glass-border bg-white/5 py-2.5 font-body text-xs tracking-[0.1em] text-player-1/80 uppercase transition-all hover:scale-[1.02] hover:bg-player-1/10 hover:text-player-1 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-white/5 disabled:hover:text-player-1/80"
         >
           <TrashIcon className="h-3.5 w-3.5" />
           Delete Map
         </button>
+      )}
+
+      {pendingDeleteShapeId && (
+        <ConfirmDialog
+          message={`Delete "${customShapes.find((s) => s.id === pendingDeleteShapeId)?.name}"? This can't be undone.`}
+          onConfirm={() => {
+            handleDeleteShape(pendingDeleteShapeId)
+            setPendingDeleteShapeId(null)
+          }}
+          onCancel={() => setPendingDeleteShapeId(null)}
+        />
       )}
     </div>
   )

@@ -52,12 +52,27 @@ export interface HexTileData {
   number: number | null
 }
 
-export type BoardShapeId = 'standard' | 'newfoundland' | 'peanut'
+export type BoardShapeId =
+  | 'standard'
+  | 'newfoundland'
+  | 'peanut'
+  | 'bigPeanut'
+  | 'apocalypse'
+  | 'newIsland'
+  | 'northAmerica'
+  | 'southAmerica'
+  | 'bigBasic'
 
 export const BOARD_SHAPE_LABELS: Record<BoardShapeId, string> = {
   standard: 'Standard',
   newfoundland: 'Found Island',
   peanut: 'Twin Island',
+  bigPeanut: 'Big Peanut',
+  apocalypse: 'Apocalypse',
+  newIsland: 'New Island',
+  northAmerica: 'North America',
+  southAmerica: 'South America',
+  bigBasic: 'Big Basic',
 }
 
 // One land hex, addressed in "odd-q" vertical offset coordinates — the
@@ -133,7 +148,9 @@ export function cellPosition(cell: BoardCell): { x: number; z: number } {
 // only a general coastline shape. Kept to adjacent-column height
 // differences of at most 1 so each shape stays a single connected landmass
 // — the same property assignPorts' boundary-walk depends on.
-const BUILT_IN_COLUMN_HEIGHTS: Record<BoardShapeId, number[]> = {
+type ColumnShapeId = 'standard' | 'newfoundland' | 'peanut'
+
+const BUILT_IN_COLUMN_HEIGHTS: Record<ColumnShapeId, number[]> = {
   standard: [3, 4, 5, 4, 3],
   newfoundland: [2, 3, 4, 4, 3, 2, 1],
   peanut: [3, 3, 2, 3, 2, 3, 3],
@@ -162,9 +179,90 @@ function columnHeightsToCells(heights: number[]): BoardCell[] {
   return cells
 }
 
-const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = Object.fromEntries(
-  Object.entries(BUILT_IN_COLUMN_HEIGHTS).map(([id, heights]) => [id, columnHeightsToCells(heights)]),
-) as Record<BoardShapeId, BoardCell[]>
+// Player-drawn shapes (BoardShapeEditor.tsx), promoted to permanent
+// built-ins so every player has them without needing localStorage — cells
+// copied verbatim from each shape's saved CustomBoardShape.cells. Each one
+// already passed the editor's own "single connected landmass" check at
+// save time (that's a save-blocking requirement there), so this doesn't
+// re-derive them from a column-heights array the way the 3 originals do.
+type PromotedShapeId = 'bigPeanut' | 'apocalypse' | 'newIsland' | 'northAmerica' | 'southAmerica' | 'bigBasic'
+
+const PROMOTED_CUSTOM_SHAPES: Record<PromotedShapeId, BoardCell[]> = {
+  bigPeanut: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: 0, row: -2 }, { col: -1, row: -3 }, { col: -2, row: -3 },
+    { col: -3, row: -3 }, { col: -4, row: -2 }, { col: -4, row: -1 }, { col: -4, row: 0 }, { col: -3, row: 0 },
+    { col: -2, row: 1 }, { col: -1, row: 1 }, { col: -1, row: 2 }, { col: -1, row: 3 }, { col: 0, row: 4 },
+    { col: 1, row: 4 }, { col: 2, row: 4 }, { col: 3, row: 3 }, { col: 3, row: 2 }, { col: 3, row: 1 },
+    { col: 2, row: 1 }, { col: 1, row: 0 }, { col: -3, row: -1 }, { col: -3, row: -2 }, { col: -2, row: -2 },
+    { col: -1, row: -2 }, { col: -2, row: -1 }, { col: -2, row: 0 }, { col: -1, row: -1 }, { col: -1, row: 0 },
+    { col: 0, row: 1 }, { col: 0, row: 2 }, { col: 0, row: 3 }, { col: 1, row: 2 }, { col: 1, row: 1 },
+    { col: 2, row: 2 }, { col: 2, row: 3 }, { col: 1, row: 3 },
+  ],
+  apocalypse: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: 0, row: -2 }, { col: 0, row: -3 }, { col: 0, row: 1 },
+    { col: 0, row: 2 }, { col: 1, row: 1 }, { col: 2, row: 1 }, { col: 3, row: 0 }, { col: 3, row: -1 },
+    { col: 3, row: -2 }, { col: 2, row: -2 }, { col: 1, row: -3 }, { col: -1, row: -3 }, { col: -2, row: -2 },
+    { col: -3, row: -2 }, { col: -3, row: -1 }, { col: -3, row: 0 }, { col: -2, row: 1 }, { col: -1, row: 1 },
+    { col: -1, row: 0 }, { col: -2, row: 0 }, { col: -2, row: -1 }, { col: -1, row: -2 }, { col: -1, row: -1 },
+    { col: 1, row: 0 }, { col: 2, row: 0 }, { col: 1, row: -1 }, { col: 2, row: -1 }, { col: 1, row: -2 },
+  ],
+  newIsland: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: -1, row: -2 }, { col: -2, row: -2 }, { col: -2, row: -1 },
+    { col: -2, row: 0 }, { col: -2, row: 1 }, { col: -2, row: 2 }, { col: -2, row: 3 }, { col: -3, row: 2 },
+    { col: -1, row: 1 }, { col: 0, row: 2 }, { col: 0, row: 1 }, { col: -1, row: 0 }, { col: -1, row: -1 },
+    { col: 1, row: -1 }, { col: 2, row: 0 }, { col: 3, row: 0 },
+  ],
+  northAmerica: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: 0, row: -2 }, { col: -1, row: -3 }, { col: -2, row: -3 },
+    { col: -3, row: -4 }, { col: -4, row: -3 }, { col: -3, row: -3 }, { col: -3, row: -2 }, { col: -2, row: -1 },
+    { col: -2, row: 0 }, { col: -2, row: 1 }, { col: -2, row: 2 }, { col: -1, row: 2 }, { col: -1, row: 3 },
+    { col: 0, row: 4 }, { col: 1, row: 4 }, { col: 2, row: 5 }, { col: 2, row: 4 }, { col: 0, row: 3 },
+    { col: 0, row: 2 }, { col: 0, row: 1 }, { col: -1, row: 1 }, { col: -1, row: 0 }, { col: -1, row: -1 },
+    { col: -1, row: -2 }, { col: -2, row: -2 }, { col: 1, row: 1 }, { col: 2, row: 2 }, { col: 3, row: 2 },
+    { col: 2, row: 1 }, { col: 1, row: 0 }, { col: 1, row: -1 }, { col: 2, row: 0 }, { col: 2, row: -1 },
+    { col: 2, row: -2 }, { col: 3, row: -2 }, { col: 3, row: -1 },
+  ],
+  southAmerica: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: 0, row: -2 }, { col: 0, row: -3 }, { col: -1, row: -4 },
+    { col: -2, row: -3 }, { col: -2, row: -2 }, { col: -2, row: -1 }, { col: -1, row: -1 }, { col: -1, row: 0 },
+    { col: -1, row: 1 }, { col: -1, row: 2 }, { col: -1, row: 3 }, { col: -1, row: 4 }, { col: 0, row: 3 },
+    { col: 0, row: 2 }, { col: 0, row: 1 }, { col: -1, row: -2 }, { col: -1, row: -3 }, { col: 1, row: -3 },
+    { col: 2, row: -2 }, { col: 3, row: -2 }, { col: 3, row: -1 }, { col: 2, row: -1 }, { col: 1, row: -2 },
+    { col: 1, row: -1 }, { col: 2, row: 0 }, { col: 1, row: 0 }, { col: 1, row: 1 },
+  ],
+  bigBasic: [
+    { col: 0, row: 0 }, { col: 0, row: -1 }, { col: 0, row: -2 }, { col: 0, row: -3 }, { col: 0, row: -4 },
+    { col: 0, row: 1 }, { col: 0, row: 2 }, { col: 0, row: 3 }, { col: 1, row: 2 }, { col: 2, row: 2 },
+    { col: 3, row: 1 }, { col: -1, row: 2 }, { col: -2, row: 2 }, { col: -3, row: 1 }, { col: -3, row: 0 },
+    { col: -3, row: -1 }, { col: -3, row: -2 }, { col: -3, row: -3 }, { col: -2, row: -3 }, { col: -1, row: -4 },
+    { col: 1, row: -4 }, { col: 2, row: -3 }, { col: 3, row: -3 }, { col: 3, row: -2 }, { col: 3, row: -1 },
+    { col: 3, row: 0 }, { col: 2, row: 1 }, { col: 1, row: 1 }, { col: 1, row: 0 }, { col: 1, row: -1 },
+    { col: 1, row: -2 }, { col: 1, row: -3 }, { col: 2, row: -2 }, { col: 2, row: -1 }, { col: 2, row: 0 },
+    { col: -2, row: 1 }, { col: -1, row: 1 }, { col: -1, row: 0 }, { col: -2, row: 0 }, { col: -1, row: -1 },
+    { col: -2, row: -1 }, { col: -1, row: -2 }, { col: -2, row: -2 }, { col: -1, row: -3 },
+  ],
+}
+
+// Desert count for these 4 was requested explicitly (not derived from
+// desertCountFor's automatic ~1-per-19-tiles ratio, which would give
+// bigPeanut/southAmerica the same count coincidentally but undershoots
+// northAmerica and bigBasic) — kept as an explicit override rather than
+// relying on that coincidence so intent survives even if a shape's cell
+// list ever changes. apocalypse/newIsland were never given an explicit
+// count, so they fall through to the automatic ratio like any other shape.
+const DESERT_COUNT_OVERRIDES: Partial<Record<BoardShapeId, number>> = {
+  bigPeanut: 2,
+  northAmerica: 3,
+  southAmerica: 2,
+  bigBasic: 4,
+}
+
+const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = {
+  ...(Object.fromEntries(
+    Object.entries(BUILT_IN_COLUMN_HEIGHTS).map(([id, heights]) => [id, columnHeightsToCells(heights)]),
+  ) as Record<ColumnShapeId, BoardCell[]>),
+  ...PROMOTED_CUSTOM_SHAPES,
+}
 
 // Standard Catan resource RATIO: 4 forest, 4 pasture, 4 fields, 3 hills,
 // 3 mountains per 18 non-desert tiles, always exactly 1 desert. Every board
@@ -218,8 +316,7 @@ function desertCountFor(tileCount: number): number {
   return Math.max(1, Math.round(tileCount / 19))
 }
 
-function buildBiomePool(tileCount: number): Biome[] {
-  const desertCount = desertCountFor(tileCount)
+function buildBiomePool(tileCount: number, desertCount: number): Biome[] {
   const nonDesertCount = tileCount - desertCount
   const counts = allocateProportional(BIOME_WEIGHTS, nonDesertCount)
   const pool: Biome[] = new Array(desertCount).fill('desert')
@@ -270,11 +367,12 @@ function shuffle<T>(items: T[], random: () => number): T[] {
  * different tiles under it). Local Pass & Play omits it and keeps its
  * original Math.random() board.
  */
-export function buildHexBoardFromCells(cells: BoardCell[], seed?: string): HexTileData[] {
+export function buildHexBoardFromCells(cells: BoardCell[], seed?: string, desertOverride?: number): HexTileData[] {
   const random = seed ? createSeededRandom(seed) : Math.random
   const tileCount = cells.length
-  const biomeSequence = shuffle(buildBiomePool(tileCount), random)
-  const numberSequence = shuffle(buildNumberPool(tileCount - desertCountFor(tileCount)), random)
+  const desertCount = desertOverride ?? desertCountFor(tileCount)
+  const biomeSequence = shuffle(buildBiomePool(tileCount, desertCount), random)
+  const numberSequence = shuffle(buildNumberPool(tileCount - desertCount), random)
   let biomeIndex = 0
   let numberIndex = 0
 
@@ -294,6 +392,11 @@ export function buildHexBoardFromCells(cells: BoardCell[], seed?: string): HexTi
  * played, while keeping the simple id-based path for the 3 built-ins.
  */
 export function buildHexBoard(seed?: string, shapeId: BoardShapeId = 'standard', customCells?: BoardCell[]): HexTileData[] {
-  const cells = customCells && customCells.length > 0 ? customCells : BOARD_SHAPES[shapeId]
-  return buildHexBoardFromCells(cells, seed)
+  const isCustom = customCells != null && customCells.length > 0
+  const cells = isCustom ? customCells : BOARD_SHAPES[shapeId]
+  // Overrides only apply to the shapeId path — a player's own freshly-drawn
+  // custom shape in the editor always gets the automatic ratio, regardless
+  // of what a promoted built-in with the same tile count happens to use.
+  const desertOverride = isCustom ? undefined : DESERT_COUNT_OVERRIDES[shapeId]
+  return buildHexBoardFromCells(cells, seed, desertOverride)
 }

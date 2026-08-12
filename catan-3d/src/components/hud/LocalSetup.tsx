@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import type { GameStartInfo } from './StartScreen'
 import { BOARD_SHAPE_LABELS, type BoardShapeId } from '../../data/hexBoard'
-import { loadCustomBoardShapes, saveCustomBoardShape, type CustomBoardShape } from '../../data/customBoardShapes'
+import {
+  deleteCustomBoardShape,
+  loadCustomBoardShapes,
+  saveCustomBoardShape,
+  type CustomBoardShape,
+} from '../../data/customBoardShapes'
 import { BoardShapeEditor } from './BoardShapeEditor'
+import { TrashIcon } from './TrashIcon'
 import { HouseRulesEditor, DEFAULT_GAME_RULES } from './HouseRulesEditor'
 import { CollapsibleSection } from './CollapsibleSection'
 import { PLAYER_COLORS, type GameRules, type PlayerColorToken } from '../../game/types'
@@ -37,6 +43,19 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
   const [selectedShapeValue, setSelectedShapeValue] = useState<string>('standard')
   const [customShapes, setCustomShapes] = useState<CustomBoardShape[]>(() => loadCustomBoardShapes())
   const [isEditorOpen, setIsEditorOpen] = useState(false)
+  // Which custom shape the delete button targets — a real <select>, exactly
+  // like Player Count/Board Shape above, gets the browser's own native
+  // dropdown arrow and option-list styling for free. Falls back to the
+  // first remaining shape whenever the stored id no longer exists (e.g.
+  // right after a delete), computed during render rather than a
+  // useEffect — same "adjust state during render" pattern used for
+  // derived state elsewhere in this app.
+  const [shapeToManage, setShapeToManage] = useState('')
+  // Falls back to '' (the placeholder option) rather than the first shape's
+  // id, so the box reads "Custom Islands" until something is actively
+  // picked, instead of always defaulting to whichever shape happens to be
+  // first in the list.
+  const effectiveShapeToManage = customShapes.some((shape) => shape.id === shapeToManage) ? shapeToManage : ''
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   const [colorTokens, setColorTokens] = useState<PlayerColorToken[]>(ALL_COLOR_TOKENS)
   // Sized to 4 regardless of the current count, so switching the dropdown
@@ -53,6 +72,17 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
 
   const setColor = (index: number, color: PlayerColorToken) => {
     setColorTokens((prev) => prev.map((c, i) => (i === index ? color : c)))
+  }
+
+  const handleDeleteShape = (id: string) => {
+    const next = deleteCustomBoardShape(id)
+    setCustomShapes(next)
+    // The deleted shape can't remain selected — falls back to Standard
+    // rather than leaving the form pointing at a shape that no longer
+    // exists.
+    if (selectedShapeValue === id) {
+      setSelectedShapeValue('standard')
+    }
   }
 
   const handleStart = () => {
@@ -134,6 +164,23 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
         </option>
       </select>
 
+      {customShapes.length > 0 && (
+        <select
+          value={effectiveShapeToManage}
+          onChange={(event) => setShapeToManage(event.target.value)}
+          className="mt-2 w-full rounded-lg border border-glass-border bg-white/5 px-3 py-2 text-center font-body text-sm text-white focus:border-gold/60 focus:outline-none"
+        >
+          <option value="" disabled className="bg-board-navy">
+            Custom Islands
+          </option>
+          {customShapes.map((shape) => (
+            <option key={shape.id} value={shape.id} className="bg-board-navy">
+              {shape.name}
+            </option>
+          ))}
+        </select>
+      )}
+
       {isEditorOpen && (
         <BoardShapeEditor
           onClose={() => setIsEditorOpen(false)}
@@ -195,6 +242,23 @@ export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void
       >
         Start Game
       </button>
+
+      {customShapes.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            const shape = customShapes.find((s) => s.id === effectiveShapeToManage)
+            if (shape && window.confirm(`Delete "${shape.name}"? This can't be undone.`)) {
+              handleDeleteShape(effectiveShapeToManage)
+            }
+          }}
+          disabled={!effectiveShapeToManage}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-glass-border bg-white/5 py-2.5 font-body text-xs tracking-[0.1em] text-player-1/80 uppercase transition-all hover:scale-[1.02] hover:bg-player-1/10 hover:text-player-1 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-white/5 disabled:hover:text-player-1/80"
+        >
+          <TrashIcon className="h-3.5 w-3.5" />
+          Delete Map
+        </button>
+      )}
     </div>
   )
 }

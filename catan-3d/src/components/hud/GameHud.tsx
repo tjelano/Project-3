@@ -87,11 +87,6 @@ interface GameHudProps {
   // Online-only — ChatBoxPanel only renders when roomCode is set.
   chatMessages: ChatMessagePayload[]
   onSendChatMessage: (text: string) => void
-  // moveableCardHolders house rule — only ever true online (matches
-  // TableSeatHands itself being online-only).
-  moveableCardHoldersEnabled: boolean
-  isPlacingCardHolder: boolean
-  onToggleMoveCardHolder: () => void
 }
 
 export function GameHud({
@@ -136,9 +131,6 @@ export function GameHud({
   eventLog,
   chatMessages,
   onSendChatMessage,
-  moveableCardHoldersEnabled,
-  isPlacingCardHolder,
-  onToggleMoveCardHolder,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   const currentPlayer = players[currentPlayerIndex]
@@ -214,19 +206,6 @@ export function GameHud({
         />
       </div>
       <EventLogPanel events={eventLog} />
-      {moveableCardHoldersEnabled && (
-        <button
-          type="button"
-          onClick={onToggleMoveCardHolder}
-          className={`pointer-events-auto absolute bottom-56 left-4 rounded-lg border px-3 py-2 font-body text-[10px] tracking-[0.1em] uppercase transition-colors ${
-            isPlacingCardHolder
-              ? 'border-gold bg-gold/20 text-gold'
-              : 'border-glass-border bg-board-navy/70 text-white/70 backdrop-blur-xl hover:text-white'
-          }`}
-        >
-          {isPlacingCardHolder ? 'Click the table to place…' : 'Move Card Holder'}
-        </button>
-      )}
       {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}

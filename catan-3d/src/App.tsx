@@ -13,7 +13,7 @@ import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
-import { PlayerHand3D, TableSeatHands, CardHolderPlacementTarget } from './components/PlayerHand3D'
+import { PlayerHand3D } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
@@ -129,16 +129,6 @@ function App() {
   // game, since it only ever describes an in-progress streak within the
   // active player's current turn.
   const [consecutiveDoublesThisTurn, setConsecutiveDoublesThisTurn] = useState(0)
-  // moveableCardHolders house rule — per-player {x,z} overrides for the
-  // table-seat card holder dock (TableSeatHands), keyed by player id.
-  // Empty entries fall back to the auto arc layout. Reset on every
-  // resetGame, restored from a snapshot, broadcast live so every
-  // currently-connected client (not just a later reconnect) sees a move.
-  const [cardHolderPositions, setCardHolderPositions] = useState<Record<number, { x: number; z: number }>>({})
-  // True only while the LOCAL player is actively choosing a new spot for
-  // their own dock (CardHolderPlacementTarget renders the clickable ring
-  // only in this state) — never broadcast, purely local UI mode.
-  const [isPlacingCardHolder, setIsPlacingCardHolder] = useState(false)
   // Set together with boardShapeId, only when a player-drawn shape is
   // active — takes priority over boardShapeId in buildHexBoard whenever
   // non-empty (see resetGame/restoreFromSnapshot below).
@@ -586,14 +576,23 @@ function App() {
     if (remaining.length === 0) setGamePhase('moveRobber')
   }
 
-  // Reference-stable across renders that don't change it — useRoomChannel
-  // depends on this object directly (see OnlineSetup.tsx for why). Safe to
-  // key on the onlineInfo object itself (rather than its individual fields,
-  // as OnlineSetup.tsx must): onlineInfo already only gets a new reference
-  // when resetGame() actually calls setOnlineInfo, not on every render.
+  // A player's own color never changes once the match starts, so this is
+  // kept as its own value (not read inline from `players` below) — `players`
+  // itself churns on nearly every game action (resources, dice, builds),
+  // and folding that whole array into roomSelf's deps would re-track
+  // presence far more often than the one field that can actually change.
+  const localColorToken = players.find((p) => p.id === onlineInfo?.localPlayerId)?.colorToken
+  // Carries the SAME identity/color info the lobby's own presence entry had
+  // (see OnlineSetup.tsx's `self`) — this channel re-tracks onto the
+  // identical `room:<code>` presence topic, so leaving isHost hardcoded
+  // false and colorToken unset here would silently overwrite this player's
+  // real lobby data with wrong/missing values for the rest of the match.
   const roomSelf: RoomPlayer | null = useMemo(
-    () => (onlineInfo ? { name: onlineInfo.localPlayerName, isHost: false } : null),
-    [onlineInfo],
+    () =>
+      onlineInfo
+        ? { name: onlineInfo.localPlayerName, isHost: onlineInfo.isHost, colorToken: localColorToken }
+        : null,
+    [onlineInfo, localColorToken],
   )
 
   // A SEPARATE subscription from the lobby's (OnlineSetup unmounts, taking
@@ -621,7 +620,6 @@ function App() {
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,
-    broadcastCardHolderMoved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -722,8 +720,6 @@ function App() {
     // fires for messages OTHER players sent — sendChatMessage below
     // appends the local player's own message directly.
     onChatMessage: (payload) => setChatMessages((prev) => [...prev.slice(-49), payload]),
-    onCardHolderMoved: (payload) =>
-      setCardHolderPositions((prev) => ({ ...prev, [payload.playerId]: { x: payload.x, z: payload.z } })),
   })
 
   // Broadcasts the LOCAL player's own message and appends it to their own
@@ -743,18 +739,6 @@ function App() {
     }
     broadcastChatMessage(payload)
     setChatMessages((prev) => [...prev.slice(-49), payload])
-  }
-
-  // moveableCardHolders house rule — click-to-place target for the LOCAL
-  // player's own dock (see CardHolderPlacementTarget). Not turn-gated:
-  // repositioning your own dock is a personal table-customization, not a
-  // game action, so it's allowed any time the rule is on, whoever's turn
-  // it is. Online-only (matches TableSeatHands itself being online-only).
-  const moveCardHolder = (x: number, z: number) => {
-    if (!onlineInfo) return
-    setCardHolderPositions((prev) => ({ ...prev, [onlineInfo.localPlayerId]: { x, z } }))
-    broadcastCardHolderMoved({ playerId: onlineInfo.localPlayerId, x, z })
-    setIsPlacingCardHolder(false)
   }
 
   // Local (non-online) games are always "your turn" — whoever is at the
@@ -1694,7 +1678,6 @@ function App() {
     setGameRules(effectiveRules)
     setTotalRollsThisGame(0)
     setConsecutiveDoublesThisTurn(0)
-    setCardHolderPositions({})
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const freshTiles = buildHexBoard(
@@ -1771,7 +1754,6 @@ function App() {
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
     setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
-    setCardHolderPositions(snapshot.cardHolderPositions ?? {})
     const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
@@ -1879,7 +1861,6 @@ function App() {
       gameRules,
       totalRollsThisGame,
       consecutiveDoublesThisTurn,
-      cardHolderPositions,
       playerNames,
       players,
       settlements,
@@ -1908,7 +1889,6 @@ function App() {
     gameRules,
     totalRollsThisGame,
     consecutiveDoublesThisTurn,
-    cardHolderPositions,
     playerNames,
     players,
     settlements,
@@ -2014,22 +1994,6 @@ function App() {
             discardSelection={discardSelection}
             onToggleDiscard={toggleDiscardSelection}
           />
-          {/* Every player's hand floating at their table seat — no-ops
-              entirely for local Pass & Play (see TableSeatHands). */}
-          <TableSeatHands
-            players={players}
-            localPlayerId={onlineInfo?.localPlayerId ?? null}
-            frameInnerSize={frameInnerSize}
-            frameOuterSize={frameOuterSize}
-            cardHolderPositions={cardHolderPositions}
-          />
-          {isPlacingCardHolder && (
-            <CardHolderPlacementTarget
-              frameInnerSize={frameInnerSize}
-              frameOuterSize={frameOuterSize}
-              onPlace={moveCardHolder}
-            />
-          )}
           {/* Constrained so the camera can never drop below the horizon (which
             exposed the underside of the board and the backfaces of every
             token), fly past the island, or dolly through geometry. Damping
@@ -2096,9 +2060,6 @@ function App() {
         eventLog={eventLog}
         chatMessages={chatMessages}
         onSendChatMessage={sendChatMessage}
-        moveableCardHoldersEnabled={!!onlineInfo && gameRules.moveableCardHolders}
-        isPlacingCardHolder={isPlacingCardHolder}
-        onToggleMoveCardHolder={() => setIsPlacingCardHolder((prev) => !prev)}
       />
     </div>
   )

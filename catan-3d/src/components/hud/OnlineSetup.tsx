@@ -41,7 +41,7 @@ const SECONDARY_BUTTON_CLASS =
 export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => void }) {
   const [mode, setMode] = useState<OnlineMode>('choose')
   const [selfName, setSelfName] = useState('')
-  const [targetCount, setTargetCount] = useState(3)
+  const [targetCount, setTargetCount] = useState(2)
   // Either a built-in BoardShapeId, or a saved custom shape's own id —
   // resolved against customShapes when the host actually starts the game.
   const [selectedShapeValue, setSelectedShapeValue] = useState<string>('standard')

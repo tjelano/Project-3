@@ -148,12 +148,6 @@ export interface GameRules {
   // Rolling a double grants the SAME player an immediate extra roll, same
   // turn. Three doubles in a row empties that player's whole hand.
   doublesRerollRule: boolean
-  // Lets each player click-to-place their own table-seat card holder
-  // dock anywhere in the open water ring, instead of it being fixed by
-  // seatPosition()'s auto layout — that auto layout was tuned for the
-  // standard board's 4-seat arc and doesn't scale cleanly to bigger custom
-  // boards or 5-6 players.
-  moveableCardHolders: boolean
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -162,7 +156,6 @@ export const DEFAULT_GAME_RULES: GameRules = {
   victoryPointTarget: WINNING_SCORE,
   allowAdjacentSettlements: false,
   coastalOnlySetupPlacement: false,
-  moveableCardHolders: false,
   doublesRerollRule: false,
 }
 

@@ -51,7 +51,7 @@ function RobberToken({ tile }: { tile: HexTileData }) {
 // trees) around it, so the tile itself needs to read as "the robber is
 // here" at a glance.
 function RobberTileGlow({ tile }: { tile: HexTileData }) {
-  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.050)
+  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.060)
   return (
     <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh geometry={glowGeometry}>

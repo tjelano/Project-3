@@ -32,12 +32,6 @@ export interface SettlementBuiltPayload {
   playerId: number
 }
 
-export interface CardHolderMovedPayload {
-  playerId: number
-  x: number
-  z: number
-}
-
 export interface CityBuiltPayload {
   vertexId: string
   playerId: number
@@ -183,9 +177,6 @@ export interface RoomChannelHandlers {
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
   onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
-  // moveableCardHolders house rule — a player repositioned their own
-  // table-seat card holder dock.
-  onCardHolderMoved?: (payload: CardHolderMovedPayload) => void
   onCityBuilt?: (payload: CityBuiltPayload) => void
   onRoadBuilt?: (payload: RoadBuiltPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
@@ -284,7 +275,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<RoomPlayer>()
-      setPlayers(Object.values(state).flatMap((entries) => entries))
+      // Presence is keyed by player name, but can briefly hold more than one
+      // meta under the same key during a reconnect race (a leave the server
+      // hasn't acked yet, overlapping a fresh join) — each key's LAST meta is
+      // the current one; keeping only that instead of flatMap-ing every meta
+      // stops a mid-race sync from rendering the same player twice.
+      setPlayers(Object.values(state).map((entries) => entries[entries.length - 1]))
     })
 
     channel.on<GameStartedPayload>('broadcast', { event: 'game-started' }, ({ payload }) => {
@@ -305,9 +301,6 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
     channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, ({ payload }) => {
       handlersRef.current.onSettlementBuilt?.(payload)
-    })
-    channel.on<CardHolderMovedPayload>('broadcast', { event: 'CARD_HOLDER_MOVED' }, ({ payload }) => {
-      handlersRef.current.onCardHolderMoved?.(payload)
     })
     channel.on<CityBuiltPayload>('broadcast', { event: 'CITY_BUILT' }, ({ payload }) => {
       handlersRef.current.onCityBuilt?.(payload)
@@ -363,7 +356,6 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
 
     channel.subscribe((subStatus) => {
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-        void channel.track(self)
         setStatus('connected')
       } else if (
         subStatus === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
@@ -377,11 +369,30 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       void client.removeChannel(channel)
       channelRef.current = null
     }
-    // `self` must be reference-stable across renders that don't actually
-    // change it (memoized by the caller) — otherwise this would reconnect
-    // to Realtime on every render instead of only when the room identity
-    // genuinely changes.
-  }, [roomCode, self])
+    // Deliberately keyed on identity (room + name) only, NOT on the whole
+    // `self` object — self.name is what the presence KEY is created from
+    // above, so only a genuine identity change (a different room, or the
+    // rare case of the name itself changing) justifies leaving and
+    // rejoining the topic. The effect below re-tracks live fields (color,
+    // host/targetCount) on this SAME channel instead: track() updates an
+    // already-joined presence entry in place, while a leave+rejoin pair
+    // (which is what changing this dependency array would trigger every
+    // time e.g. a lobby color pick changes self's reference) can land the
+    // server-side leave and the new join out of order, briefly leaving TWO
+    // presence metas under the identical key — exactly the kind of ghost
+    // duplicate-player/wrong-color bug this was causing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomCode, self?.name])
+
+  // Pushes every OTHER live field of `self` (colorToken, isHost,
+  // targetCount) onto the already-joined channel from the effect above,
+  // without ever leaving/rejoining Realtime — see the comment there for why
+  // that distinction matters. Waits for 'connected' so the very first track
+  // doesn't fire before the channel has actually joined.
+  useEffect(() => {
+    if (status !== 'connected' || !self) return
+    void channelRef.current?.track(self)
+  }, [self, status])
 
   const broadcastGameStarted = (
     names: string[],
@@ -405,9 +416,6 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   }
   const broadcastSettlementBuilt = (payload: SettlementBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'SETTLEMENT_BUILT', payload })
-  }
-  const broadcastCardHolderMoved = (payload: CardHolderMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'CARD_HOLDER_MOVED', payload })
   }
   const broadcastCityBuilt = (payload: CityBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'CITY_BUILT', payload })
@@ -485,6 +493,5 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,
-    broadcastCardHolderMoved,
   }
 }

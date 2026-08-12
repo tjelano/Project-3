@@ -38,7 +38,7 @@ function readSavedLocalPlayerName(): string {
 }
 
 export function LocalSetup({ onStart }: { onStart: (info: GameStartInfo) => void }) {
-  const [playerCount, setPlayerCount] = useState(3)
+  const [playerCount, setPlayerCount] = useState(2)
   // Either a built-in BoardShapeId, or a saved custom shape's own id —
   // resolved against customShapes at start time.
   const [selectedShapeValue, setSelectedShapeValue] = useState<string>('standard')

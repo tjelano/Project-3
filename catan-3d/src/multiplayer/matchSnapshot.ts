@@ -34,10 +34,6 @@ export interface MatchSnapshot {
   // on restore (a genuinely mid-streak reconnect just loses that streak's
   // memory, not a correctness bug — the streak resets every new turn anyway).
   consecutiveDoublesThisTurn?: number
-  // moveableCardHolders house rule — per-player {x,z} overrides for the
-  // table-seat dock. Absent/missing entries fall back to the auto arc
-  // layout (seatPosition), same optional/backward-compatible treatment.
-  cardHolderPositions?: Record<number, { x: number; z: number }>
   playerNames: string[]
   players: Player[]
   settlements: Record<string, Building>

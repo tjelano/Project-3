@@ -34,6 +34,10 @@ export interface MatchSnapshot {
   // on restore (a genuinely mid-streak reconnect just loses that streak's
   // memory, not a correctness bug — the streak resets every new turn anyway).
   consecutiveDoublesThisTurn?: number
+  // Optional for the same reason — absent on snapshots saved before who-goes-
+  // first was randomized, which restoreFromSnapshot treats as 0 (seat 0),
+  // matching those matches' actual original behavior.
+  startingPlayerIndex?: number
   playerNames: string[]
   players: Player[]
   settlements: Record<string, Building>

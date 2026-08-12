@@ -26,6 +26,7 @@ import {
 import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
 import { buildHexBoard, type BoardCell, type BoardShapeId } from './data/hexBoard'
+import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import {
@@ -144,7 +145,14 @@ function App() {
   const vertexAdjacency = useMemo(() => buildVertexAdjacency(graph.edges), [graph.edges])
   const edgeById = useMemo(() => new Map(graph.edges.map((edge) => [edge.id, edge])), [graph.edges])
   const ports = useMemo(() => assignPorts(graph), [graph])
-  const setupOrder = useMemo(() => buildSetupOrder(playerCount), [playerCount])
+  // Which seat the setup snake (and the first real turn right after it)
+  // starts from — randomized per game in resetGame instead of always being
+  // seat 0 (the host), so the host isn't guaranteed to go first every match.
+  const [startingPlayerIndex, setStartingPlayerIndex] = useState(0)
+  const setupOrder = useMemo(
+    () => buildSetupOrder(playerCount, startingPlayerIndex),
+    [playerCount, startingPlayerIndex],
+  )
 
   const [players, setPlayers] = useState(() => createInitialPlayers(3))
   // O(1) lookup map for players to avoid O(N) array finds in frequent game loops/callbacks.
@@ -387,7 +395,10 @@ function App() {
       setSetupSettlementVertexId(null)
       if (nextStepIndex >= setupOrder.length) {
         setGamePhase('playing')
-        setCurrentPlayerIndex(0)
+        // The snake's starting seat (setupOrder[0], randomized in resetGame)
+        // takes the first REAL turn too, same as standard Catan rules —
+        // whoever placed first also rolls first.
+        setCurrentPlayerIndex(setupOrder[0])
         setSetupStepIndex(0)
         setSetupStage('settlement')
       } else {
@@ -1680,14 +1691,21 @@ function App() {
     setConsecutiveDoublesThisTurn(0)
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
-    const freshTiles = buildHexBoard(
-      online ? (boardSeed ?? online.roomCode) : undefined,
-      effectiveShapeId,
-      effectiveCustomCells,
-    )
+    const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
+    const freshTiles = buildHexBoard(effectiveBoardSeed, effectiveShapeId, effectiveCustomCells)
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
+    // Who goes first, randomized instead of always seat 0 (the host).
+    // Online reuses the SAME seed the board itself was just built from —
+    // every client derives the identical index independently, with no extra
+    // broadcast needed, the same trick the tile shuffle and hex rotations
+    // already rely on. Local Pass & Play has no other client to agree with,
+    // so a plain Math.random is fine.
+    const freshStartingPlayerIndex = effectiveBoardSeed
+      ? Math.floor(createSeededRandom(`${effectiveBoardSeed}-starting-player`)() * count)
+      : Math.floor(Math.random() * count)
+    setStartingPlayerIndex(freshStartingPlayerIndex)
     // Explicit names (a fresh Start Game submission) replace what's
     // remembered; omitting the argument (restart / return-to-menu) reuses
     // whatever was last entered, so those flows don't reset names to defaults.
@@ -1711,7 +1729,7 @@ function App() {
           }
         : null,
     )
-    setCurrentPlayerIndex(0)
+    setCurrentPlayerIndex(freshStartingPlayerIndex)
     setLastRoll(null)
     setSettlements({})
     setRoads({})
@@ -1754,6 +1772,7 @@ function App() {
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
     setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
+    setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
     const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
@@ -1861,6 +1880,7 @@ function App() {
       gameRules,
       totalRollsThisGame,
       consecutiveDoublesThisTurn,
+      startingPlayerIndex,
       playerNames,
       players,
       settlements,
@@ -1889,6 +1909,7 @@ function App() {
     gameRules,
     totalRollsThisGame,
     consecutiveDoublesThisTurn,
+    startingPlayerIndex,
     playerNames,
     players,
     settlements,

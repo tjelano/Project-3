@@ -217,10 +217,14 @@ export function createInitialPlayers(playerCount: number, names?: string[], colo
   }))
 }
 
-// Standard Catan setup snake order for N players: 0..N-1, then reversed
-// straight back down to 0. Each stop places one free settlement then road.
-export function buildSetupOrder(playerCount: number): number[] {
-  const ascending = Array.from({ length: playerCount }, (_, i) => i)
+// Standard Catan setup snake order for N players: startIndex, startIndex+1,
+// ... wrapping through every seat, then reversed straight back down to
+// startIndex. Each stop places one free settlement then road. startIndex
+// exists so who goes first can be randomized without disturbing the actual
+// seating order everyone continues turns in — it rotates WHERE the snake
+// begins, not the relative order players take their turns in.
+export function buildSetupOrder(playerCount: number, startIndex = 0): number[] {
+  const ascending = Array.from({ length: playerCount }, (_, i) => (startIndex + i) % playerCount)
   return [...ascending, ...[...ascending].reverse()]
 }
 

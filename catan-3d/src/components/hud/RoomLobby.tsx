@@ -292,7 +292,10 @@ export function RoomLobby(props: RoomLobbyProps) {
   // a joiner reads it back off the host's own presence entry instead.
   const hostPlayer = otherPlayers.find((p) => p.isHost) ?? (isHostRole ? undefined : players.find((p) => p.isHost))
   const targetCount = isHostRole ? props.targetCount : hostPlayer?.targetCount
-  const isFull = targetCount != null && joinedCount === targetCount
+  // >= rather than === — a stray extra join (e.g. two clients racing into
+  // the last open slot) would otherwise leave joinedCount permanently past
+  // targetCount, making Start Game impossible to ever enable again.
+  const isFull = targetCount != null && joinedCount >= targetCount
 
   // Real players (self + everyone else actually in the room) in the one
   // canonical order every client agrees on — see comparePlayers above.

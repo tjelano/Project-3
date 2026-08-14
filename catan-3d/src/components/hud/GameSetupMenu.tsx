@@ -201,6 +201,13 @@ export function GameSetupMenu({
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   const [isHouseRulesOpen, setIsHouseRulesOpen] = useState(false)
   const [isJoinOpen, setIsJoinOpen] = useState(false)
+  // A separate live draft for the VP-target field — committing every
+  // keystroke straight to gameRules.victoryPointTarget let an in-progress
+  // edit (e.g. an empty field while retyping, or a leading digit under
+  // VP_TARGET_MIN) briefly become the REAL target, which ends the match
+  // immediately once anyone reaches that many points. Only clamped +
+  // committed on blur; free to type anything in between.
+  const [vpTargetDraft, setVpTargetDraft] = useState(String(DEFAULT_GAME_RULES.victoryPointTarget))
 
   const handleStart = () => {
     if (mode === 'host') {
@@ -220,7 +227,9 @@ export function GameSetupMenu({
       <div className="relative w-full" style={{ aspectRatio: `${PANEL_WIDTH} / ${PANEL_HEIGHT}` }}>
         <img src={mainMenuUrl} alt="" className="absolute inset-0 h-full w-full select-none" draggable={false} />
 
-        {/* Player Count — one independently-positioned box per number. */}
+        {/* Player Count — one independently-positioned box per number.
+            "1" is currently just a selectable slot that behaves like 2
+            (reserved for a future dedicated single-player testing mode). */}
         {LAYOUT.playerCount.map((rect, index) => {
           const n = index + 1
           return (
@@ -375,10 +384,15 @@ export function GameSetupMenu({
                         type="number"
                         min={VP_TARGET_MIN}
                         max={VP_TARGET_MAX}
-                        value={gameRules.victoryPointTarget}
-                        onChange={(event) => {
-                          const parsed = Number(event.target.value)
-                          if (!Number.isNaN(parsed)) setGameRules({ ...gameRules, victoryPointTarget: parsed })
+                        value={vpTargetDraft}
+                        onChange={(event) => setVpTargetDraft(event.target.value)}
+                        onBlur={() => {
+                          const parsed = Number(vpTargetDraft)
+                          const clamped = Number.isNaN(parsed)
+                            ? gameRules.victoryPointTarget
+                            : Math.min(VP_TARGET_MAX, Math.max(VP_TARGET_MIN, parsed))
+                          setGameRules({ ...gameRules, victoryPointTarget: clamped })
+                          setVpTargetDraft(String(clamped))
                         }}
                         onClick={(event) => event.stopPropagation()}
                         className="w-12 shrink-0 rounded-md border border-glass-border bg-white/5 px-1 text-center font-body text-xs text-white focus:outline-none"

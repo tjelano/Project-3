@@ -34,6 +34,27 @@ export type PresencePlayer = RoomPlayer & { id: string }
 
 export type RoomConnectionStatus = 'connecting' | 'connected' | 'error'
 
+// crypto.randomUUID only works in a secure context (HTTPS or localhost) —
+// testing over a LAN IP on plain HTTP (a real setup for this app, playing
+// across devices on one network) would throw here. getRandomValues doesn't
+// have that restriction, and a last-resort Math.random fallback covers any
+// environment lacking the Crypto API at all — this id only needs to be
+// unique enough to key one browser tab's presence entry, not unguessable.
+function generateClientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      // Falls through to the getRandomValues path below.
+    }
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
 export interface DiceRolledPayload {
   dice: [number, number]
   total: number
@@ -273,7 +294,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   // payload now, same as colorToken already was). useState rather than a
   // ref specifically so it's safe to read during render for the return
   // value below.
-  const [clientId] = useState(() => crypto.randomUUID())
+  const [clientId] = useState(generateClientId)
 
   useEffect(() => {
     if (!roomCode || !self) return

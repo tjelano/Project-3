@@ -183,6 +183,7 @@ export function JoinRoomModal({
               type="button"
               disabled={!canSubmit}
               onClick={handleJoin}
+              aria-label="Join room"
               className="absolute outline-none transition-transform hover:scale-[1.02] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
               style={rectStyle(LAYOUT.joinButton)}
               {...joinButtonGlow.handlers}
@@ -206,6 +207,7 @@ export function JoinRoomModal({
             <button
               type="button"
               onClick={onClose}
+              aria-label="Back"
               className="absolute outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
               style={rectStyle(LAYOUT.backButton)}
             />

@@ -447,14 +447,15 @@ export function RegionSelectMenu({
             />
           </button>
         )}
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to setup"
-            className="absolute left-[3%] top-[3%] h-[10%] w-[8%] outline-none focus-visible:outline-2 focus-visible:outline-gold"
-          />
-        )}
+        {/* Kept visible even in readOnly (spectator) mode — a joiner
+            watching the host browse maps still needs a way to leave the
+            room, not just the host's own "back to lobby" affordance. */}
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={readOnly ? 'Leave room' : 'Back to setup'}
+          className="absolute left-[3%] top-[3%] h-[10%] w-[8%] outline-none focus-visible:outline-2 focus-visible:outline-gold"
+        />
 
         {isEditorOpen && (
           <BoardShapeEditor

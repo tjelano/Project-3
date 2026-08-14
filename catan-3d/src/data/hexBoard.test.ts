@@ -148,6 +148,35 @@ describe('buildHexBoardFromCells biome overrides', () => {
     expect(tile?.number).toBeGreaterThanOrEqual(2)
     expect(tile?.number).toBeLessThanOrEqual(12)
   })
+
+  it('handles over-painting a non-desert biome without losing numbers on unpainted tiles', () => {
+    // Regression test: painting a biome with zero natural share (or more
+    // instances than its share) can't cause the pool truncation to randomly
+    // discard the last desert entries, leaving non-desert tiles with
+    // undefined numbers. This triggered when painted non-desert tiles
+    // exceeded successful removals from the pool.
+    const smallBoard = [
+      { col: 0, row: 0 },
+      { col: 0, row: 1 },
+      { col: 0, row: 2 },
+      { col: 1, row: 0 },
+      { col: -1, row: -1 },
+    ]
+    // On a 5-tile board, mountains has 0 natural share. Painting it should
+    // not cause pool truncation to discard a desert entry, leaving another
+    // non-desert tile with undefined number.
+    const board = buildHexBoardFromCells(smallBoard, 'probe-2', undefined, { '0-0': 'mountains' })
+    // Every non-desert tile must have a valid number token
+    for (const tile of board) {
+      if (tile.biome !== 'desert') {
+        expect(tile.number).not.toBeUndefined()
+        expect(tile.number).not.toBeNull()
+        expect(tile.number).toBeGreaterThanOrEqual(2)
+        expect(tile.number).toBeLessThanOrEqual(12)
+        expect(tile.number).not.toBe(7)
+      }
+    }
+  })
 })
 
 describe('buildHexBoard with customBiomeOverrides', () => {

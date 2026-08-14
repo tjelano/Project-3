@@ -403,14 +403,24 @@ export function buildHexBoardFromCells(
   // any discarded excess is random rather than a fixed tail.
   pool = shuffle(pool, random).slice(0, tileCount - paintedCount)
 
-  const numberSequence = shuffle(buildNumberPool(tileCount - desertCount), random)
+  // Resolve every cell's biome first, then size the number pool off the
+  // board's ACTUAL non-desert tile count — not a static target, which can
+  // be wrong once painting shifts how many tiles actually end up desert
+  // (the truncation above isn't biome-aware, so it can discard a desert
+  // entry from the pool without anything correcting for it downstream).
   let poolIndex = 0
+  const biomes = cells.map((cell) => {
+    const key = `${cell.col}-${cell.row}`
+    return biomeOverrides?.[key] ?? pool[poolIndex++]
+  })
+  const actualNonDesertCount = biomes.filter((biome) => biome !== 'desert').length
+  const numberSequence = shuffle(buildNumberPool(actualNonDesertCount), random)
   let numberIndex = 0
 
-  return cells.map((cell) => {
+  return cells.map((cell, index) => {
     const { x, z } = cellPosition(cell)
     const key = `${cell.col}-${cell.row}`
-    const biome = biomeOverrides?.[key] ?? pool[poolIndex++]
+    const biome = biomes[index]
     const number = biome === 'desert' ? null : numberSequence[numberIndex++]
     return { id: key, col: cell.col, row: cell.row, x, z, biome, number }
   })

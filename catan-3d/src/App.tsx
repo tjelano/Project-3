@@ -2096,7 +2096,9 @@ function App() {
           active, so without this hint there'd be no on-screen indication
           of how the controls changed, or how to get the cursor back. */}
       <div className="pointer-events-none absolute bottom-2 left-2 z-10 font-body text-[10px] tracking-[0.08em] text-white/40 uppercase">
-        {isFreeCamActive ? 'WASD move · Mouse look · Space/Shift up/down · R reset · F exit' : 'F — Free camera'}
+        {isFreeCamActive
+          ? 'WASD move · Mouse look · Scroll zoom · Space/Shift up/down · R reset · F exit'
+          : 'F — Free camera'}
       </div>
 
       <GameHud

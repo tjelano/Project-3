@@ -7,6 +7,11 @@ import * as THREE from 'three'
 // not an instant snap or a crawl.
 const MOVE_SPEED = 8
 const VERTICAL_SPEED = 6
+// Units per wheel-delta-Y, scaled so one physical mouse-wheel notch
+// (deltaY of ~100 in most browsers) moves a little over a unit — a
+// trackpad's much smaller per-event deltas fall out proportionally, with
+// no separate tuning needed.
+const ZOOM_SPEED = 0.012
 // Radians per pixel of mouse movement while pointer-locked.
 const MOUSE_SENSITIVITY = 0.0025
 // Just under straight up/down — avoids the look direction flipping
@@ -97,6 +102,18 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
       yawRef.current -= event.movementX * MOUSE_SENSITIVITY
       pitchRef.current = THREE.MathUtils.clamp(pitchRef.current - event.movementY * MOUSE_SENSITIVITY, -MAX_PITCH, MAX_PITCH)
     }
+    // Zoom = move along the camera's actual look direction (pitch
+    // included, unlike WASD's yaw-only horizontal strafe) — scrolling
+    // "into" the scene while looking down at the board should dolly
+    // toward it, not just slide forward on the horizontal plane.
+    // Negative deltaY (scroll up/away from you) moves forward, matching
+    // OrbitControls' own scroll-to-zoom-in direction.
+    const handleWheel = (event: WheelEvent) => {
+      if (!activeRef.current) return
+      event.preventDefault()
+      const direction = camera.getWorldDirection(new THREE.Vector3())
+      camera.position.addScaledVector(direction, -event.deltaY * ZOOM_SPEED)
+    }
     // The browser releases pointer lock on its own on Escape (and on
     // alt-tab, etc.) without going through setActive — without this,
     // free-cam mode would stay "on" internally (WASD/R still doing
@@ -112,11 +129,15 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
     window.addEventListener('mousemove', handleMouseMove)
+    // passive: false — the handler needs to preventDefault() to stop the
+    // page itself from scrolling while free-cam is active.
+    window.addEventListener('wheel', handleWheel, { passive: false })
     document.addEventListener('pointerlockchange', handlePointerLockChange)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('wheel', handleWheel)
       document.removeEventListener('pointerlockchange', handlePointerLockChange)
     }
   }, [camera, gl, onActiveChange])
@@ -128,7 +149,11 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
 
     const keys = keysRef.current
     const forward = new THREE.Vector3(-Math.sin(yawRef.current), 0, -Math.cos(yawRef.current))
-    const right = new THREE.Vector3(forward.z, 0, -forward.x)
+    // forward cross up (three.js: camera looks down -Z, up is +Y) — this
+    // sign order specifically, (-forward.z, 0, forward.x), is what actually
+    // points camera-right; the flipped (forward.z, 0, -forward.x) that was
+    // here before is camera-LEFT, which is why A/D were swapped.
+    const right = new THREE.Vector3(-forward.z, 0, forward.x)
     const move = new THREE.Vector3()
     if (keys.has('w')) move.add(forward)
     if (keys.has('s')) move.sub(forward)

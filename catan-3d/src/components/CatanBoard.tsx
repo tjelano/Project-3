@@ -1,8 +1,10 @@
-import { useMemo, memo } from 'react'
+import { memo } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { TILE_HEIGHT, BIOME_ELEVATION, type Biome, type HexTileData } from '../data/hexBoard'
 import { NumberToken } from './TileDecorations'
 import { createSeededRandom } from '../utils/seededRandom'
+import { useClonedModel } from '../hooks/useClonedModel'
+import { ModelErrorBoundary } from './ModelErrorBoundary'
 import forestTileModelUrl from '../assets/models/forest-tile.glb'
 import hillsTileModelUrl from '../assets/models/hills-tile.glb'
 import mountainsTileModelUrl from '../assets/models/mountains-tile.glb'
@@ -64,8 +66,7 @@ for (const url of Object.values(BIOME_MODEL_URLS)) useGLTF.preload(url)
 // same biome each have their own instance instead of fighting over one
 // shared object's transform.
 function BiomeTileModel({ tile }: { tile: HexTileData }) {
-  const { scene } = useGLTF(BIOME_MODEL_URLS[tile.biome])
-  const instance = useMemo(() => scene.clone(), [scene])
+  const instance = useClonedModel(BIOME_MODEL_URLS[tile.biome])
   // The biome fix (if any) corrects the model's own authoring quirks first;
   // the per-tile random step is layered on top of that corrected baseline,
   // not in place of it.
@@ -86,7 +87,9 @@ const HexTile = memo(function HexTile({ tile }: { tile: HexTileData }) {
           space, which is why the chit still mounts in this group (and
           rises with its tile) too. */}
       <group position={[0, TILE_HEIGHT / 2 + elevation, 0]}>
-        <BiomeTileModel tile={tile} />
+        <ModelErrorBoundary label={`${tile.biome} tile`}>
+          <BiomeTileModel tile={tile} />
+        </ModelErrorBoundary>
         {tile.number !== null && (
           <NumberToken value={tile.number} yOffset={BIOME_CHIT_Y_OFFSET[tile.biome] ?? 0} />
         )}

@@ -4,6 +4,8 @@ import { TILE_HEIGHT } from '../data/hexBoard'
 import type { Port } from '../data/boardGraph'
 import { RESOURCE_COLORS, RESOURCE_LABELS } from '../game/types'
 import { createLabelTexture } from '../three/textLabels'
+import { useClonedModel } from '../hooks/useClonedModel'
+import { ModelErrorBoundary } from './ModelErrorBoundary'
 import dockModelUrl from '../assets/models/dock.glb'
 
 // The badge text's world size — matches the troika fontSize this replaces.
@@ -61,6 +63,17 @@ function portLabel(type: Port['type']): string {
   return type === '3:1' ? '3:1 Any' : `2:1 ${RESOURCE_LABELS[type]}`
 }
 
+// Split out as its own leaf so ModelErrorBoundary (in PortMarker below) can
+// actually catch a failed useClonedModel call — a boundary can only catch
+// throws from its DESCENDANTS' render, not from the parent component that
+// renders the boundary itself.
+function DockModelMesh() {
+  const dockInstance = useClonedModel(dockModelUrl)
+  return (
+    <primitive object={dockInstance} position={[0, DOCK_Y, DOCK_LENGTH_OFFSET]} rotation={[0, DOCK_ROTATION_Y, 0]} scale={DOCK_SCALE} />
+  )
+}
+
 function PortMarker({ port }: { port: Port }) {
   // port.angle is the edge's own true perpendicular (see the comment on
   // Port.angle in boardGraph.ts) — NOT the atan2(x, z)-from-board-center
@@ -71,9 +84,6 @@ function PortMarker({ port }: { port: Port }) {
   const dockX = port.x + Math.sin(outwardAngle) * DOCK_OFFSET
   const dockZ = port.z + Math.cos(outwardAngle) * DOCK_OFFSET
   const color = portColor(port.type)
-
-  const { scene } = useGLTF(dockModelUrl)
-  const dockInstance = useMemo(() => scene.clone(), [scene])
 
   const label = useMemo(
     () =>
@@ -89,12 +99,9 @@ function PortMarker({ port }: { port: Port }) {
 
   return (
     <group position={[dockX, TILE_HEIGHT / 2, dockZ]} rotation={[0, outwardAngle, 0]}>
-      <primitive
-        object={dockInstance}
-        position={[0, DOCK_Y, DOCK_LENGTH_OFFSET]}
-        rotation={[0, DOCK_ROTATION_Y, 0]}
-        scale={DOCK_SCALE}
-      />
+      <ModelErrorBoundary label="dock model">
+        <DockModelMesh />
+      </ModelErrorBoundary>
 
       {/* floating rate badge — always faces the camera, floats above the dock */}
       <Billboard position={[0, BADGE_Y, DOCK_LENGTH_OFFSET]}>

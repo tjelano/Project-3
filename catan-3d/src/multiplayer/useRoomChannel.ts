@@ -169,6 +169,11 @@ export interface HoverChangedPayload {
   edgeId: string | null
 }
 
+export interface TrophyUpdatedPayload {
+  longestRoadHolderId: number | null
+  largestArmyHolderId: number | null
+}
+
 export interface DiscardConfirmedPayload {
   playerId: number
   // Resource -> quantity tally, not a full resources object — the receiver
@@ -196,10 +201,6 @@ interface GameStartedPayload {
   // look a custom shape up from their own localStorage.
   customBoardCells?: BoardCell[]
   customBoardName?: string
-  // The host's house-rules pick. Player colors are NOT carried here —
-  // they're already visible to every client via each player's own
-  // presence entry (RoomPlayer.colorToken), so re-broadcasting them would
-  // just be a second copy that could drift.
   gameRules: GameRules
   // Parallel to `names` — each entry is that seat's stable presence
   // clientId. A receiver resolves ITS OWN seat by finding its own clientId
@@ -211,6 +212,17 @@ interface GameStartedPayload {
   // mismatched build still degrades to the previous name-matching path
   // instead of failing to parse the payload at all.
   clientIds?: string[]
+  // Also parallel to `names` — the host's OWN view of every seat's color at
+  // the instant Start Game is clicked, resolved once and broadcast as a
+  // single authoritative array. Previously left uncarried on the theory
+  // that re-broadcasting would just be "a second copy that could drift" —
+  // backwards in practice: each receiver instead independently re-resolved
+  // colors against its OWN local presence snapshot (RoomPlayer.colorToken),
+  // and track() being debounced 400ms means that snapshot can be stale at
+  // the exact moment a game-started broadcast lands, so two clients could
+  // start the match with two different colors assigned to the same seat.
+  // Optional for the same backward-compatibility reason as clientIds above.
+  colorTokens?: PlayerColorToken[]
 }
 
 export interface RoomChannelHandlers {
@@ -222,6 +234,7 @@ export interface RoomChannelHandlers {
     customBoardCells?: BoardCell[],
     customBoardName?: string,
     clientIds?: string[],
+    colorTokens?: PlayerColorToken[],
   ) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
@@ -248,6 +261,14 @@ export interface RoomChannelHandlers {
   // over-limit player discards independently on their own screen — this
   // fires once per player, not once for the whole table.
   onDiscardConfirmed?: (payload: DiscardConfirmedPayload) => void
+  // Longest Road / Largest Army are sticky on ties (see pickTrophyHolder in
+  // game/trophies.ts) — inherently path-dependent, not just a function of
+  // the CURRENT board, so every client computing this independently risks
+  // permanent divergence if two clients ever observed an intermediate
+  // roads/knights state in a different order (ordinary broadcast-arrival
+  // jitter). Host-authoritative instead: only the effective host computes
+  // it and broadcasts the result; everyone else just applies it.
+  onTrophyUpdated?: (payload: TrophyUpdatedPayload) => void
   // Host-only action: everyone resets to a fresh board and starting state,
   // same players and room.
   onNewGame?: (payload: NewGamePayload) => void
@@ -381,6 +402,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         payload.customBoardCells,
         payload.customBoardName,
         payload.clientIds,
+        payload.colorTokens,
       )
     })
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
@@ -427,6 +449,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
     channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
       handlersRef.current.onDiscardConfirmed?.(payload)
+    })
+    channel.on<TrophyUpdatedPayload>('broadcast', { event: 'TROPHY_UPDATED' }, ({ payload }) => {
+      handlersRef.current.onTrophyUpdated?.(payload)
     })
     channel.on<NewGamePayload>('broadcast', { event: 'NEW_GAME' }, ({ payload }) => {
       handlersRef.current.onNewGame?.(payload)
@@ -536,11 +561,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     customBoardCells?: BoardCell[],
     customBoardName?: string,
     clientIds?: string[],
+    colorTokens?: PlayerColorToken[],
   ) => {
     void channelRef.current?.send({
       type: 'broadcast',
       event: 'game-started',
-      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName, clientIds },
+      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName, clientIds, colorTokens },
     })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {
@@ -588,6 +614,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
   }
+  const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TROPHY_UPDATED', payload })
+  }
   const broadcastNewGame = (payload: NewGamePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'NEW_GAME', payload })
   }
@@ -628,6 +657,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastBankTrade,

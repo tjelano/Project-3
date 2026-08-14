@@ -10,12 +10,24 @@ export interface CustomBoardShape {
 // matches LocalSetup.tsx's own localStorage key convention.
 const STORAGE_KEY = 'catan3d.customBoardShapes'
 
+// Only checks the fields actually read downstream without a fallback —
+// buildHexBoardFromCells (hexBoard.ts) does cells.length immediately once a
+// shape is picked, so a malformed/legacy entry with a missing or
+// non-array `cells` would otherwise throw the instant that shape was
+// selected, not when it was loaded.
+function isPlausibleCustomBoardShape(value: unknown): value is CustomBoardShape {
+  if (typeof value !== 'object' || value === null) return false
+  const s = value as Record<string, unknown>
+  return typeof s.id === 'string' && typeof s.name === 'string' && Array.isArray(s.cells)
+}
+
 export function loadCustomBoardShapes(): CustomBoardShape[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as CustomBoardShape[]) : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isPlausibleCustomBoardShape)
   } catch {
     // Storage can throw in private-browsing modes or when disabled, or hold
     // corrupted JSON from a previous version — either way, treat it as "no

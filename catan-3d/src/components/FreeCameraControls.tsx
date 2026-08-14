@@ -114,16 +114,32 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
       const direction = camera.getWorldDirection(new THREE.Vector3())
       camera.position.addScaledVector(direction, -event.deltaY * ZOOM_SPEED)
     }
+    // Shared unwind for "free-cam thinks it's active but the browser's
+    // pointer lock isn't actually backing it" — used both when lock is
+    // lost after being held (Escape, alt-tab) and when a lock request
+    // never succeeds in the first place (see handlePointerLockError).
+    const forceDeactivate = () => {
+      activeRef.current = false
+      keysRef.current.clear()
+      onActiveChange?.(false)
+    }
     // The browser releases pointer lock on its own on Escape (and on
     // alt-tab, etc.) without going through setActive — without this,
     // free-cam mode would stay "on" internally (WASD/R still doing
     // things) with no visible cursor feedback that it's even active.
     const handlePointerLockChange = () => {
-      if (activeRef.current && document.pointerLockElement !== canvasEl) {
-        activeRef.current = false
-        keysRef.current.clear()
-        onActiveChange?.(false)
-      }
+      if (activeRef.current && document.pointerLockElement !== canvasEl) forceDeactivate()
+    }
+    // requestPointerLock() (called from setActive above) can be rejected
+    // by the browser — rapid re-requests, missing user-activation,
+    // permissions-policy, etc. setActive already flipped activeRef and
+    // fired onActiveChange(true) optimistically before the request
+    // resolves, so a rejection has to unwind that here: otherwise
+    // OrbitControls stays disabled (see this component's own docstring)
+    // with no pointer lock ever actually granted to replace it, leaving
+    // the camera un-controllable until the player happens to press F.
+    const handlePointerLockError = () => {
+      if (activeRef.current) forceDeactivate()
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -133,12 +149,14 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
     // page itself from scrolling while free-cam is active.
     window.addEventListener('wheel', handleWheel, { passive: false })
     document.addEventListener('pointerlockchange', handlePointerLockChange)
+    document.addEventListener('pointerlockerror', handlePointerLockError)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('wheel', handleWheel)
       document.removeEventListener('pointerlockchange', handlePointerLockChange)
+      document.removeEventListener('pointerlockerror', handlePointerLockError)
     }
   }, [camera, gl, onActiveChange])
 

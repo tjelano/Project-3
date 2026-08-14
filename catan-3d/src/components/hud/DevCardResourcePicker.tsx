@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { RESOURCE_LABELS, RESOURCE_ORDER, type ResourceType } from '../../game/types'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 import { ResourceIcon } from './ResourceIcon'
 
 interface DevCardResourcePickerProps {
@@ -14,6 +15,9 @@ interface DevCardResourcePickerProps {
 // no separate confirm step needed.
 export function DevCardResourcePicker({ title, subtitle, pickCount, onComplete }: DevCardResourcePickerProps) {
   const [picks, setPicks] = useState<ResourceType[]>([])
+  // No onEscape: this is a forced pick (Year of Plenty / Monopoly) with no
+  // cancel path, so Escape is intentionally left as a no-op here.
+  const dialogRef = useModalFocusTrap<HTMLDivElement>()
 
   const pick = (resource: ResourceType) => {
     const next = [...picks, resource]
@@ -26,8 +30,17 @@ export function DevCardResourcePicker({ title, subtitle, pickCount, onComplete }
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md">
-      <div className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-        <p className="font-body text-xs tracking-[0.25em] text-gold/80 uppercase">{title}</p>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dev-card-picker-title"
+        tabIndex={-1}
+        className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      >
+        <p id="dev-card-picker-title" className="font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
+          {title}
+        </p>
         <p className="mt-2 font-body text-sm text-white/70">{subtitle}</p>
 
         <div className="mt-5 grid grid-cols-5 gap-2">

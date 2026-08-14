@@ -1,3 +1,5 @@
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
+
 // Shared by LocalSetup.tsx and OnlineSetup.tsx for the "delete this map?"
 // prompt — same glass-card-over-dimmed-backdrop language StartScreen.tsx
 // itself uses, rather than the browser's native window.confirm().
@@ -12,10 +14,21 @@ export function ConfirmDialog({
   onConfirm: () => void
   onCancel: () => void
 }) {
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(onCancel)
+
   return (
     <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-board-navy/80 backdrop-blur-sm">
-      <div className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-        <p className="font-body text-sm text-white">{message}</p>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-message"
+        tabIndex={-1}
+        className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      >
+        <p id="confirm-dialog-message" className="font-body text-sm text-white">
+          {message}
+        </p>
         <div className="mt-5 flex gap-2">
           <button
             type="button"

@@ -347,6 +347,21 @@ function HandCard({
     glowMaterialRef.current = materials[4] as THREE.MeshStandardMaterial
   }, [materials])
 
+  // `materials` is a fresh array of real THREE.Material instances (edge,
+  // face, back) built here via `new`, then handed to <mesh material={...}>
+  // imperatively rather than as JSX children — R3F only auto-disposes
+  // objects it creates and attaches itself, so nothing frees these on
+  // unmount without this. The cleanup fires both on unmount and right
+  // before `materials` is replaced by a new array (a card's cardKey/
+  // backTexture/isOpponent changing), disposing exactly the set that's
+  // about to stop being used. Textures aren't touched here — they're
+  // shared via `textureCache` and outlive any single card.
+  useEffect(() => {
+    return () => {
+      for (const material of materials) material.dispose()
+    }
+  }, [materials])
+
   useFrame((state, delta) => {
     const group = ref.current
     if (!group) return

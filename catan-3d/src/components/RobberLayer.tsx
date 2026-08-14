@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
+import { useClonedModel } from '../hooks/useClonedModel'
+import { ModelErrorBoundary } from './ModelErrorBoundary'
 import robberModelUrl from '../assets/models/robber-figurine-v2.glb'
 
 const ROBBER_HIGHLIGHT_COLOR = '#d64545'
@@ -36,8 +38,7 @@ const ROBBER_X_OFFSET = 0.55
 useGLTF.preload(robberModelUrl)
 
 function RobberToken({ tile }: { tile: HexTileData }) {
-  const { scene } = useGLTF(robberModelUrl)
-  const instance = useMemo(() => scene.clone(), [scene])
+  const instance = useClonedModel(robberModelUrl)
   return (
     <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y, tile.z]}>
       <primitive object={instance} scale={ROBBER_SCALE} />
@@ -131,7 +132,11 @@ export function RobberLayer({ tiles, robberTileId, isMovingRobber, onMoveRobber 
   return (
     <group>
       {robberTile && <RobberTileGlow tile={robberTile} />}
-      {robberTile && <RobberToken tile={robberTile} />}
+      {robberTile && (
+        <ModelErrorBoundary label="robber figurine">
+          <RobberToken tile={robberTile} />
+        </ModelErrorBoundary>
+      )}
       {isMovingRobber &&
         tiles.map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMoveRobber(tile.id)} />)}
     </group>

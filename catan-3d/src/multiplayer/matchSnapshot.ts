@@ -61,12 +61,23 @@ export interface MatchSnapshot {
   hasRolledThisTurn: boolean
 }
 
-/**
- * Fire-and-forget by design: a failed save (table not created yet, a
- * network hiccup) must never interrupt the game the host is actively
- * playing. Errors are logged, not thrown or surfaced to the player.
- */
-export function saveMatchSnapshot(roomCode: string, snapshot: MatchSnapshot): void {
+// Serializes the actual network writes so a reordered/slow response can
+// never let an OLDER snapshot's upsert land after a NEWER one's — App.tsx's
+// autosave effect can fire saveMatchSnapshot several times in quick
+// succession (a build, then a trade, then a turn pass, each a separate
+// state change), and with plain fire-and-forget upserts, nothing guaranteed
+// those requests would even ARRIVE at Supabase in the order they were sent,
+// let alone complete in that order. Module-level state is fine here since
+// only one match autosaves from a given tab at a time (this file's own
+// single-module-instance textureCache-style pattern, used elsewhere in this
+// codebase for the same "one shared thing per tab" reason). `pending` holds
+// only the LATEST snapshot — any saves superseded before their turn comes
+// up are silently coalesced away rather than sent at all, which is correct:
+// only the newest state is ever worth persisting.
+let activeSave: Promise<void> = Promise.resolve()
+let pending: { roomCode: string; snapshot: MatchSnapshot } | null = null
+
+async function runSave(roomCode: string, snapshot: MatchSnapshot): Promise<void> {
   let client
   try {
     client = getSupabaseClient()
@@ -74,12 +85,31 @@ export function saveMatchSnapshot(roomCode: string, snapshot: MatchSnapshot): vo
     console.error('[Catan] Supabase not configured, skipping snapshot save:', err)
     return
   }
-  void client
+  // Supabase's query builder is PromiseLike, not a real Promise (no
+  // .catch/.finally) — awaiting it here, inside a real async function,
+  // is what gives runSave itself a genuine Promise<void> to hand back to
+  // the activeSave chain above.
+  const { error } = await client
     .from(TABLE)
     .upsert({ room_code: roomCode, snapshot, updated_at: new Date().toISOString() })
-    .then(({ error }) => {
-      if (error) console.error('[Catan] Failed to save match snapshot:', error)
-    })
+  if (error) console.error('[Catan] Failed to save match snapshot:', error)
+}
+
+/**
+ * Fire-and-forget by design: a failed save (table not created yet, a
+ * network hiccup) must never interrupt the game the host is actively
+ * playing. Errors are logged, not thrown or surfaced to the player. The
+ * actual network request is queued behind whichever save (if any) is
+ * already in flight — see activeSave/pending above.
+ */
+export function saveMatchSnapshot(roomCode: string, snapshot: MatchSnapshot): void {
+  pending = { roomCode, snapshot }
+  activeSave = activeSave.then(() => {
+    if (!pending) return
+    const next = pending
+    pending = null
+    return runSave(next.roomCode, next.snapshot)
+  })
 }
 
 // Checks only the fields restoreFromSnapshot (App.tsx) reads WITHOUT a `??`

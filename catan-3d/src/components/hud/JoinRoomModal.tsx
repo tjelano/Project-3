@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import joinRoomMenuUrl from '../../assets/menu/join-room-menu.png'
 import selectorBorderUrl from '../../assets/menu/selector-border.png'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 import { useHoverActive } from './useHoverActive'
 import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import { normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
@@ -76,6 +77,9 @@ export function JoinRoomModal({
   // own join flow handles, kept here as a small unstyled bridge rather than
   // a new mock nobody's asked for yet.
   const [reconnectPicker, setReconnectPicker] = useState<{ roomCode: string; snapshot: MatchSnapshot } | null>(null)
+  // Escape steps back one level in the reconnect picker (matching its own
+  // "Back" button) before closing the whole modal, same as the main form.
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(reconnectPicker ? () => setReconnectPicker(null) : onClose)
 
   const canSubmit = name.trim().length > 0 && roomCodeInput.length === 4 && !checking
 
@@ -120,8 +124,15 @@ export function JoinRoomModal({
       }}
     >
       {reconnectPicker ? (
-        <div className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl animate-victory-in">
-          <p className="font-body text-xs text-white/70">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="join-room-reconnect-heading"
+          tabIndex={-1}
+          className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl animate-victory-in"
+        >
+          <p id="join-room-reconnect-heading" className="font-body text-xs text-white/70">
             No one named &ldquo;{name}&rdquo; is in this room. Which player are you?
           </p>
           <div className="mt-4 flex flex-col gap-2">
@@ -157,7 +168,14 @@ export function JoinRoomModal({
           </button>
         </div>
       ) : (
-        <div className="relative w-full max-w-md animate-victory-in">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Join room"
+          tabIndex={-1}
+          className="relative w-full max-w-md animate-victory-in"
+        >
           <div className="relative aspect-[1536/1024] w-full">
             <img src={joinRoomMenuUrl} alt="" className="absolute inset-0 h-full w-full select-none" draggable={false} />
 

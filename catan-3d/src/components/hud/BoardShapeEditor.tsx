@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { cellNeighbors, cellPosition, type BoardCell } from '../../data/hexBoard'
 import type { CustomBoardShape } from '../../data/customBoardShapes'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 // Generous enough for anything from a tight single island to a sprawling
 // peanut/archipelago-style shape, without the grid itself becoming
@@ -57,6 +58,7 @@ export function BoardShapeEditor({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [name, setName] = useState('')
+  const dialogRef = useModalFocusTrap<HTMLDivElement>(onClose)
 
   const toggleCell = (cell: BoardCell) => {
     const key = cellKey(cell)
@@ -82,8 +84,17 @@ export function BoardShapeEditor({
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-board-navy/90 backdrop-blur-md">
-      <div className="flex max-h-[90vh] w-[760px] flex-col rounded-2xl border border-glass-border bg-glass p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-        <h2 className="font-display text-xl text-white">Draw a Board Shape</h2>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="board-shape-editor-heading"
+        tabIndex={-1}
+        className="flex max-h-[90vh] w-[760px] flex-col rounded-2xl border border-glass-border bg-glass p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      >
+        <h2 id="board-shape-editor-heading" className="font-display text-xl text-white">
+          Draw a Board Shape
+        </h2>
         <p className="mt-1 font-body text-xs text-white/60">
           Click hexes to mark land. Biomes and numbers still shuffle fresh every game — only the coastline is fixed.
         </p>

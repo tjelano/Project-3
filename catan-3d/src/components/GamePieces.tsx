@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'
-import * as THREE from 'three'
+import { useClonedModel } from '../hooks/useClonedModel'
+import { ModelErrorBoundary } from './ModelErrorBoundary'
 import type { PlayerColorToken } from '../game/types'
 import settlementPlayer1Url from '../assets/models/pieces/settlement-player-1.glb'
 import settlementPlayer2Url from '../assets/models/pieces/settlement-player-2.glb'
@@ -59,24 +59,6 @@ for (const url of Object.values(SETTLEMENT_URLS)) useGLTF.preload(url)
 for (const url of Object.values(CITY_URLS)) useGLTF.preload(url)
 for (const url of Object.values(ROAD_URLS)) useGLTF.preload(url)
 
-// useGLTF caches by URL and returns the SAME scene graph on every call;
-// cloning is what lets multiple pieces of the same colour each have their
-// own instance instead of fighting over one shared object's transform
-// (same pattern as CatanBoard's BiomeTileModel).
-function useClonedModel(url: string) {
-  const { scene } = useGLTF(url)
-  return useMemo(() => {
-    const clone = scene.clone()
-    clone.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.castShadow = true
-        child.receiveShadow = true
-      }
-    })
-    return clone
-  }, [scene])
-}
-
 // ---------------------------------------------------------------------------
 // SETTLEMENT
 //
@@ -90,9 +72,21 @@ function useClonedModel(url: string) {
 const SETTLEMENT_SCALE = 0.166
 const SETTLEMENT_HALF_HEIGHT = 1 * SETTLEMENT_SCALE
 
-export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }) {
+// Split out as its own leaf so ModelErrorBoundary (in the exported wrapper
+// below) can actually catch a failed useClonedModel call — a boundary can
+// only catch throws from its DESCENDANTS' render, not from the parent
+// component that renders the boundary itself.
+function SettlementMesh({ colorToken }: { colorToken: PlayerColorToken }) {
   const instance = useClonedModel(SETTLEMENT_URLS[colorToken])
   return <primitive object={instance} position={[0, SETTLEMENT_HALF_HEIGHT, 0]} scale={SETTLEMENT_SCALE} />
+}
+
+export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }) {
+  return (
+    <ModelErrorBoundary label="settlement model">
+      <SettlementMesh colorToken={colorToken} />
+    </ModelErrorBoundary>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -107,9 +101,17 @@ export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }
 const CITY_SCALE = 0.284
 const CITY_HALF_HEIGHT = 1 * CITY_SCALE
 
-export function CityModel({ colorToken }: { colorToken: PlayerColorToken }) {
+function CityMesh({ colorToken }: { colorToken: PlayerColorToken }) {
   const instance = useClonedModel(CITY_URLS[colorToken])
   return <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={CITY_SCALE} />
+}
+
+export function CityModel({ colorToken }: { colorToken: PlayerColorToken }) {
+  return (
+    <ModelErrorBoundary label="city model">
+      <CityMesh colorToken={colorToken} />
+    </ModelErrorBoundary>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +132,7 @@ export function CityModel({ colorToken }: { colorToken: PlayerColorToken }) {
 const ROAD_NATIVE_LENGTH = 2
 const ROAD_HALF_HEIGHT_UNSCALED = 0.39223
 
-export function RoadModel({ colorToken, span }: { colorToken: PlayerColorToken; span: number }) {
+function RoadMesh({ colorToken, span }: { colorToken: PlayerColorToken; span: number }) {
   const instance = useClonedModel(ROAD_URLS[colorToken])
   const scale = span / ROAD_NATIVE_LENGTH
   return (
@@ -140,5 +142,13 @@ export function RoadModel({ colorToken, span }: { colorToken: PlayerColorToken; 
       rotation={[0, Math.PI / 2, 0]}
       scale={scale}
     />
+  )
+}
+
+export function RoadModel({ colorToken, span }: { colorToken: PlayerColorToken; span: number }) {
+  return (
+    <ModelErrorBoundary label="road model">
+      <RoadMesh colorToken={colorToken} span={span} />
+    </ModelErrorBoundary>
   )
 }

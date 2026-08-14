@@ -1,4 +1,5 @@
 import { getScoreBreakdown, type Building, type Player, type PlayerColorToken } from '../../game/types'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 const WINNER_TEXT_CLASS: Record<PlayerColorToken, string> = {
   'player-1': 'text-player-1',
@@ -42,12 +43,23 @@ export function VictoryBanner({
     }))
     .sort((a, b) => b.score.total - a.score.total)
   const winnerScore = ranked.find((row) => row.player.id === winner.id)?.score.total ?? 0
+  // No onEscape: the only action here (return to menu) is significant
+  // enough that it shouldn't fire from an accidental Escape press.
+  const dialogRef = useModalFocusTrap<HTMLDivElement>()
 
   return (
     <div className="animate-veil-in pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-board-navy/80 backdrop-blur-md">
-      <div className="animate-victory-in mx-4 w-full max-w-lg rounded-3xl border border-glass-border bg-glass px-8 py-10 text-center shadow-[0_30px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:px-10">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="victory-banner-heading"
+        tabIndex={-1}
+        className="animate-victory-in mx-4 w-full max-w-lg rounded-3xl border border-glass-border bg-glass px-8 py-10 text-center shadow-[0_30px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:px-10"
+      >
         <p className="font-body text-xs tracking-[0.35em] text-gold/80 uppercase">Victory</p>
         <h1
+          id="victory-banner-heading"
           className={`mt-3 font-display text-3xl leading-tight font-semibold sm:text-4xl ${WINNER_TEXT_CLASS[winner.colorToken]}`}
         >
           Victory! {winner.name} Has Conquered the Island!

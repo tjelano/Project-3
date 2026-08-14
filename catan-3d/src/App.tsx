@@ -735,6 +735,7 @@ function App() {
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastBankTrade,
@@ -788,6 +789,14 @@ function App() {
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
+    // Trusted-apply from the effective host's own broadcast — see the
+    // render-time trophy computation below, which only runs locally for
+    // !onlineInfo || isEffectiveHost. Every other client just takes
+    // whatever the host says here.
+    onTrophyUpdated: (payload) => {
+      setLongestRoadHolderId(payload.longestRoadHolderId)
+      setLargestArmyHolderId(payload.largestArmyHolderId)
+    },
     // Host-only action (see restartGame), but every client applies it the
     // same way it applies any other trusted broadcast — no re-validation.
     onNewGame: (payload) => {
@@ -984,21 +993,44 @@ function App() {
 
   // Longest Road and Largest Army transfer the instant another player
   // strictly exceeds the current holder — a tie leaves the incumbent in
-  // place. See pickTrophyHolder for the exact rule. Applied directly during
-  // render rather than in a useEffect: pickTrophyHolder is pure and cheap,
-  // and the !== guard is what makes this self-terminating (the condition
-  // goes false the instant state catches up) rather than an infinite render
-  // loop — the same "adjust state during render" pattern React's own docs
-  // recommend for state fully derived from other state.
-  const nextLongestRoadHolderId = pickTrophyHolder(longestRoadHolderId, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH)
-  if (nextLongestRoadHolderId !== longestRoadHolderId) {
-    setLongestRoadHolderId(nextLongestRoadHolderId)
+  // place. See pickTrophyHolder for the exact rule. That stickiness makes
+  // the result PATH-DEPENDENT, not just a function of the current board —
+  // if two clients ever observed an intermediate roads/knights state in a
+  // different order (ordinary broadcast-arrival jitter, not a bug on its
+  // own), their independently-computed holders could permanently diverge
+  // with nothing to ever resync them. So this only runs locally for local
+  // (offline) play or for the effective host; every other online client
+  // instead just applies whatever the host broadcasts (see onTrophyUpdated
+  // above and the broadcast effect below). Applied directly during render
+  // (not an effect) for the authoritative side: pickTrophyHolder is pure
+  // and cheap, and the !== guard is what makes this self-terminating (the
+  // condition goes false the instant state catches up) rather than an
+  // infinite render loop — the same "adjust state during render" pattern
+  // React's own docs recommend for state fully derived from other state.
+  if (!onlineInfo || isEffectiveHost) {
+    const nextLongestRoadHolderId = pickTrophyHolder(longestRoadHolderId, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH)
+    if (nextLongestRoadHolderId !== longestRoadHolderId) {
+      setLongestRoadHolderId(nextLongestRoadHolderId)
+    }
+
+    const nextLargestArmyHolderId = pickTrophyHolder(largestArmyHolderId, knightCounts, LARGEST_ARMY_MIN_KNIGHTS)
+    if (nextLargestArmyHolderId !== largestArmyHolderId) {
+      setLargestArmyHolderId(nextLargestArmyHolderId)
+    }
   }
 
-  const nextLargestArmyHolderId = pickTrophyHolder(largestArmyHolderId, knightCounts, LARGEST_ARMY_MIN_KNIGHTS)
-  if (nextLargestArmyHolderId !== largestArmyHolderId) {
-    setLargestArmyHolderId(nextLargestArmyHolderId)
-  }
+  // Broadcasts the effective host's own (authoritative) trophy state
+  // whenever it changes, so every other client's onTrophyUpdated handler
+  // (above) can just apply it instead of computing its own — see the
+  // render-time block above for why independent computation risks
+  // permanent divergence. A real effect (not inline in the render-time
+  // block above) since sending a network broadcast is a side effect, not
+  // derived state.
+  useEffect(() => {
+    if (!onlineInfo || !isEffectiveHost) return
+    broadcastTrophyUpdated({ longestRoadHolderId, largestArmyHolderId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onlineInfo/broadcastTrophyUpdated are read fresh via closure; only the holder ids and isEffectiveHost changing should re-fire this.
+  }, [longestRoadHolderId, largestArmyHolderId, isEffectiveHost])
 
   // The moment any player's score reaches the win threshold, halt the game.
   // Same render-time pattern — !winner is the self-terminating guard.
@@ -1089,6 +1121,16 @@ function App() {
     const isSetup = gamePhase === 'setup'
     const existing = settlements[vertexId]
 
+    // Setup placements never roll at all, so this only applies to a normal
+    // turn — without it, a settlement/city could be built before rolling
+    // even though handleEndTurn already refuses to end a turn that hasn't
+    // rolled, a real Catan rules violation (and, online, a way to spend
+    // that turn's resources before the roll that's supposed to gate them).
+    if (!isSetup && !hasRolledThisTurn) {
+      warn('Roll the dice before building.')
+      return
+    }
+
     if (isSetup && setupStage !== 'settlement') {
       warn('Place your road first.')
       return
@@ -1158,6 +1200,15 @@ function App() {
     const isSetup = gamePhase === 'setup'
     const isFreeRoad = !isSetup && freeRoadsRemaining > 0
 
+    // Same reasoning as buildSettlementRaw's own guard above — except a
+    // free road (from a Road Building card, which itself is legal to play
+    // before rolling) is exempt: the roll requirement is about ordinary
+    // paid building, not about placements a dev card already granted.
+    if (!isSetup && !isFreeRoad && !hasRolledThisTurn) {
+      warn('Roll the dice before building.')
+      return
+    }
+
     if (isSetup && setupStage !== 'road') {
       warn('Place your settlement first.')
       return
@@ -1215,6 +1266,24 @@ function App() {
   })
   const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
   const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
+
+  // Same stable-ref pattern as buildSettlement/buildRoad above, for the
+  // same reason: this is handed to BoardInteractions (memoized) as
+  // onHoverChange, so an inline arrow recreated every render would defeat
+  // that memoization on every keystroke/state change elsewhere in the tree.
+  const onHoverChangeRef = useRef((target: Pick<HoverChangedPayload, 'vertexId' | 'edgeId'>) => {
+    void target
+  })
+  useLayoutEffect(() => {
+    onHoverChangeRef.current = (target) => {
+      if (!onlineInfo) return
+      broadcastHoverChanged({ playerId: players[currentPlayerIndex].id, ...target })
+    }
+  })
+  const onHoverChange = useCallback(
+    (target: Pick<HoverChangedPayload, 'vertexId' | 'edgeId'>) => onHoverChangeRef.current(target),
+    [],
+  )
 
   // Triggered by the Roll Dice button: this is always the LOCAL player's own
   // roll (their own turn, local Pass & Play or online), so it runs a real
@@ -1441,6 +1510,14 @@ function App() {
     const counts: Partial<Record<ResourceType, number>> = {}
     for (const id of discardSelection) {
       const type = id.slice(0, id.lastIndexOf('-')) as ResourceType
+      // Safe today only via a cross-file invariant (PlayerHand3D never lets
+      // a dev-card id into discardSelection, and no ResourceType contains a
+      // hyphen) — validated here too so a future change to either side
+      // can't silently slip a bogus key into a real resource mutation.
+      if (!RESOURCE_ORDER.includes(type)) {
+        console.error('[Catan] Ignoring an unrecognized card id in discard selection:', id)
+        continue
+      }
       counts[type] = (counts[type] ?? 0) + 1
     }
 
@@ -1558,6 +1635,10 @@ function App() {
       warn("You can't trade right now.")
       return
     }
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before trading.')
+      return
+    }
     // Now that the trade window can stay open across a turn change (see
     // GameHud.tsx), this can no longer rely on the UI simply hiding the
     // button while it's not your turn — bankTrade always acts on
@@ -1601,6 +1682,10 @@ function App() {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't trade right now.")
+      return
+    }
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before trading.')
       return
     }
     // Same reasoning as bankTrade's guard just above — this always reads
@@ -1763,6 +1848,10 @@ function App() {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't buy a development card right now.")
+      return
+    }
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before buying a development card.')
       return
     }
     if (devDeck.length === 0) {
@@ -2303,10 +2392,7 @@ function App() {
             // their own screen would ever see, not real network sync.
             locked={!!winner || !isMyTurn}
             remoteHover={remoteHover}
-            onHoverChange={(target) => {
-              if (!onlineInfo) return
-              broadcastHoverChanged({ playerId: players[currentPlayerIndex].id, ...target })
-            }}
+            onHoverChange={onHoverChange}
           />
           <RobberLayer
             tiles={tiles}

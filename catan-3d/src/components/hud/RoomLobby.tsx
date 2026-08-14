@@ -254,18 +254,33 @@ export function RoomLobby(props: RoomLobbyProps) {
   const { players, clientId, broadcastGameStarted } = useRoomChannel(roomCode, self, {
     // Only meaningful for a joiner — the host is the one calling
     // broadcastGameStarted below, never the receiver of its own broadcast.
-    onGameStarted: (names, hostName, receivedBoardShapeId, receivedGameRules, receivedCustomCells, receivedCustomName, receivedClientIds) => {
+    onGameStarted: (
+      names,
+      hostName,
+      receivedBoardShapeId,
+      receivedGameRules,
+      receivedCustomCells,
+      receivedCustomName,
+      receivedClientIds,
+      receivedColorTokens,
+    ) => {
       onStart({
         playerCount: names.length,
         names,
-        // Resolved by clientId when the broadcast carries one — matching by
-        // name alone can land on a stale/renamed entry the same way self-
-        // identification below can (see the online.localClientId comment).
-        colorTokens: names.map((name, index) => {
-          const matchId = receivedClientIds?.[index]
-          const match = matchId ? players.find((p) => p.id === matchId) : players.find((p) => p.name === name)
-          return match?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
-        }),
+        // Prefer the host's own authoritative array when the broadcast
+        // carries one — every receiver resolving colors independently off
+        // its own local presence snapshot (the old behavior, kept below as
+        // a fallback for an older/mismatched build) is exactly what let two
+        // clients start the same match with two different colors on the
+        // same seat: track() is debounced 400ms, so that local snapshot can
+        // be stale at the instant this broadcast lands.
+        colorTokens:
+          receivedColorTokens ??
+          names.map((name, index) => {
+            const matchId = receivedClientIds?.[index]
+            const match = matchId ? players.find((p) => p.id === matchId) : players.find((p) => p.name === name)
+            return match?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
+          }),
         gameRules: receivedGameRules,
         boardShapeId: receivedBoardShapeId,
         customBoardCells: receivedCustomCells,
@@ -415,6 +430,14 @@ export function RoomLobby(props: RoomLobbyProps) {
     // for why every receiver resolves itself (and everyone else's color)
     // by this instead of by name-matching.
     const clientIds = [clientId, ...otherPlayers.map((p) => p.id)]
+    // Resolved ONCE, here, off the host's own local view — then broadcast
+    // as-is (see the colorTokens comment on GameStartedPayload) so every
+    // client starts the match with the exact same array instead of each
+    // re-deriving it from its own, possibly-stale, presence snapshot.
+    const colorTokens = clientIds.map((matchId, index) => {
+      if (matchId === clientId) return myColor
+      return otherPlayers.find((p) => p.id === matchId)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
+    })
     broadcastGameStarted(
       names,
       selfName,
@@ -423,14 +446,12 @@ export function RoomLobby(props: RoomLobbyProps) {
       currentCustomBoardShape?.cells,
       currentCustomBoardShape?.name,
       clientIds,
+      colorTokens,
     )
     onStart({
       playerCount: names.length,
       names,
-      colorTokens: clientIds.map((matchId, index) => {
-        if (matchId === clientId) return myColor
-        return otherPlayers.find((p) => p.id === matchId)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
-      }),
+      colorTokens,
       gameRules: props.gameRules,
       boardShapeId: currentBoardShapeId,
       customBoardCells: currentCustomBoardShape?.cells,

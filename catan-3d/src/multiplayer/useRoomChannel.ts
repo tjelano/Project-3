@@ -296,6 +296,20 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   // value below.
   const [clientId] = useState(generateClientId)
 
+  // Bumped to force the subscribe effect below to tear down and retry after
+  // a connection error — without this, a channel that ever hits
+  // CHANNEL_ERROR/TIMED_OUT (a dropped connection, a momentary Realtime
+  // hiccup) leaves status stuck at 'error' forever, since nothing else in
+  // this hook re-triggers a subscribe attempt; every other client would see
+  // that player silently, permanently vanish with no way back short of a
+  // full page reload.
+  const [retryToken, setRetryToken] = useState(0)
+  useEffect(() => {
+    if (status !== 'error') return
+    const timer = setTimeout(() => setRetryToken((t) => t + 1), 2000)
+    return () => clearTimeout(timer)
+  }, [status])
+
   useEffect(() => {
     if (!roomCode) return
 
@@ -438,9 +452,10 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     // among `players`; with the channel torn down self never appears in
     // that ordering while nameless, leaving no slot for the input to render
     // in at all. Subscribing once per room and never depending on self here
-    // avoids both.
+    // avoids both. retryToken is the one deliberate exception — see its own
+    // comment above — bumping it forces exactly this teardown+resubscribe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode])
+  }, [roomCode, retryToken])
 
   // Keeps this tab's own presence entry in sync with `self` on the already-
   // joined channel from the effect above — track() to publish/update it in

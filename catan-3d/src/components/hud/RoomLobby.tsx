@@ -257,18 +257,32 @@ export function RoomLobby(props: RoomLobbyProps) {
     },
   })
 
-  // Reassigns myColor the instant it collides with a color someone else in
-  // the room already has — applied directly during render (not a
-  // useEffect): the takenByOthers.has(myColor) check below is its own
-  // self-terminating guard.
   const takenByOthers = new Set(
     players
       .filter((p) => p.id !== clientId)
       .map((p) => p.colorToken)
       .filter((c): c is PlayerColorToken => c != null),
   )
-  if (takenByOthers.has(myColor)) {
-    const free = ALL_COLOR_TOKENS.find((token) => !takenByOthers.has(token))
+
+  // Auto-reassigns myColor the instant it collides with someone who OUTRANKS
+  // me in the same canonical order comparePlayers uses for slot ordering
+  // (host, then lower clientId) — applied directly during render (not a
+  // useEffect): the has() check below is its own self-terminating guard.
+  // Deliberately narrower than takenByOthers above: if it deferred to
+  // EVERY other color, two clients whose defaults happened to collide could
+  // both detect it off the same sync and both reassign at once — sometimes
+  // landing on each other's new pick and cycling instead of settling. With
+  // a fixed priority order, only the lower-priority side ever has to move.
+  const priorityTaken = new Set(
+    players
+      .filter(
+        (p) => p.id !== clientId && comparePlayers({ isHost: p.isHost, id: p.id }, { isHost: isHostRole, id: clientId }) < 0,
+      )
+      .map((p) => p.colorToken)
+      .filter((c): c is PlayerColorToken => c != null),
+  )
+  if (priorityTaken.has(myColor)) {
+    const free = ALL_COLOR_TOKENS.find((token) => !priorityTaken.has(token))
     if (free) setMyColor(free)
   }
 

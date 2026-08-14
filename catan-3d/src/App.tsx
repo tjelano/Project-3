@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { CatanBoard } from './components/CatanBoard'
+import { FreeCameraControls } from './components/FreeCameraControls'
 import { SceneRig } from './components/SceneRig'
 import { BoardFrame } from './components/BoardFrame'
 import { CanvasErrorBoundary } from './components/CanvasErrorBoundary'
@@ -235,6 +236,11 @@ function App() {
    * happens to cross them again. Changing this key forces a clean remount.
    */
   const [boardInstance, setBoardInstance] = useState(0)
+
+  // True while FreeCameraControls (toggled with F) has taken over the
+  // camera — OrbitControls is disabled for the duration so the two never
+  // fight over the same mouse/pointer-lock input.
+  const [isFreeCamActive, setIsFreeCamActive] = useState(false)
 
   // A lost WebGL context (GPU driver reset, VRAM pressure, tab backgrounded
   // too long) does not throw — CanvasErrorBoundary can't catch it, and
@@ -2059,11 +2065,13 @@ function App() {
           {/* Constrained so the camera can never drop below the horizon (which
             exposed the underside of the board and the backfaces of every
             token), fly past the island, or dolly through geometry. Damping
-            is what makes the orbit feel weighted rather than twitchy. Fully
-            manual — nothing in the app ever drives this camera; it is
-            exclusively under the player's own mouse/OrbitControls input,
-            on every screen, on every turn, with no exceptions. */}
+            is what makes the orbit feel weighted rather than twitchy.
+            Exclusively under the player's own mouse input on every screen,
+            every turn — except while FreeCameraControls (F) has taken
+            over, when it's disabled outright so the two never fight over
+            the same pointer. */}
           <OrbitControls
+            enabled={!isFreeCamActive}
             target={[0, 0, 0]}
             minPolarAngle={Math.PI / 6}
             maxPolarAngle={Math.PI / 2.35}
@@ -2077,8 +2085,19 @@ function App() {
             enableDamping
             dampingFactor={0.08}
           />
+          {/* Opt-in fly-camera — F toggles it, WASD/mouse/space/shift move
+              once active, R resets. See FreeCameraControls' own header for
+              the full control scheme. */}
+          <FreeCameraControls onActiveChange={setIsFreeCamActive} />
         </Canvas>
       </CanvasErrorBoundary>
+
+      {/* Free-cam hides the mouse cursor (pointer lock) the instant it's
+          active, so without this hint there'd be no on-screen indication
+          of how the controls changed, or how to get the cursor back. */}
+      <div className="pointer-events-none absolute bottom-2 left-2 z-10 font-body text-[10px] tracking-[0.08em] text-white/40 uppercase">
+        {isFreeCamActive ? 'WASD move · Mouse look · Space/Shift up/down · R reset · F exit' : 'F — Free camera'}
+      </div>
 
       <GameHud
         players={players}

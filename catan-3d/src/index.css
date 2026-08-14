@@ -30,7 +30,6 @@
 
   --animate-veil-in: veil-in 0.5s ease-out both;
   --animate-victory-in: victory-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
-  --animate-house-rules-in: house-rules-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-gold-pulse: gold-pulse 2.2s ease-in-out infinite;
 }
 
@@ -63,17 +62,6 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes house-rules-in {
-  from {
-    opacity: 0;
-    clip-path: inset(0 0 100% 0);
-  }
-  to {
-    opacity: 1;
-    clip-path: inset(0 0 0 0);
   }
 }
 

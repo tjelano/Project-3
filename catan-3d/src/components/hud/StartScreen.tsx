@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { GameSetupMenu } from './GameSetupMenu'
-import { RegionSelectMenu } from './RegionSelectMenu'
-import { RoomLobby } from './RoomLobby'
+import { LocalSetup } from './LocalSetup'
+import { OnlineSetup } from './OnlineSetup'
 import type { MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import type { BoardCell, BoardShapeId } from '../../data/hexBoard'
-import type { CustomBoardShape } from '../../data/customBoardShapes'
 import type { GameRules, PlayerColorToken } from '../../game/types'
+
+type SetupMode = 'local' | 'online'
 
 export interface GameStartInfo {
   playerCount: number
@@ -44,45 +44,13 @@ export interface GameStartInfo {
   snapshot?: MatchSnapshot
 }
 
-// Region selection is shared by two different destinations: local play goes
-// straight to onStart once a shape is picked, while hosting needs to carry
-// the pick one screen further into RoomLobby (which still needs a room and a
-// name) instead — this tags which one a given RegionSelectMenu visit is for.
-type PendingRegionSelect =
-  | { kind: 'local'; info: GameStartInfo }
-  | { kind: 'host'; playerCount: number; gameRules: GameRules }
-
-// Set once RegionSelectMenu confirms a shape for the 'host' path above —
-// RoomLobby (role: 'host') is rendered from this.
-interface HostRegionConfig {
-  playerCount: number
-  gameRules: GameRules
-  boardShapeId?: BoardShapeId
-  customBoardShape?: CustomBoardShape
-}
-
-// Set once JoinRoomModal's own snapshot-check confirms there's no
-// in-progress match at that code yet (a live one skips straight to onStart
-// instead) — RoomLobby (role: 'joiner') is rendered from this.
-interface JoinSeed {
-  roomCode: string
-  selfName: string
-}
+const TAB_CLASS = (active: boolean) =>
+  `flex-1 rounded-md py-2 font-body text-[11px] tracking-[0.1em] uppercase transition-colors ${
+    active ? 'bg-gold text-board-navy' : 'text-white/60 hover:text-white'
+  }`
 
 export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => void }) {
-  const [pendingRegionSelect, setPendingRegionSelect] = useState<PendingRegionSelect | null>(null)
-  const [hostRegionConfig, setHostRegionConfig] = useState<HostRegionConfig | null>(null)
-  const [joinSeed, setJoinSeed] = useState<JoinSeed | null>(null)
-
-  const handleSetupStart = (info: GameStartInfo) => {
-    // Online joins and snapshot restores already carry their destination;
-    // only local setup needs the region selection step.
-    if (info.online || info.snapshot) {
-      onStart(info)
-    } else {
-      setPendingRegionSelect({ kind: 'local', info })
-    }
-  }
+  const [mode, setMode] = useState<SetupMode>('local')
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center overflow-hidden">
@@ -95,63 +63,20 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
         className="absolute inset-0 h-full w-full object-cover"
       />
       <div className="absolute inset-0 bg-board-navy/50" />
-      <div className="relative z-10 w-full px-4">
-        {pendingRegionSelect ? (
-          <RegionSelectMenu
-            initialShape={pendingRegionSelect.kind === 'local' ? (pendingRegionSelect.info.boardShapeId ?? 'standard') : 'standard'}
-            onConfirm={(boardShapeId) => {
-              if (pendingRegionSelect.kind === 'local') {
-                onStart({ ...pendingRegionSelect.info, boardShapeId })
-              } else {
-                setHostRegionConfig({ playerCount: pendingRegionSelect.playerCount, gameRules: pendingRegionSelect.gameRules, boardShapeId })
-              }
-              setPendingRegionSelect(null)
-            }}
-            onConfirmCustom={(shape) => {
-              if (pendingRegionSelect.kind === 'local') {
-                onStart({
-                  ...pendingRegionSelect.info,
-                  boardShapeId: undefined,
-                  customBoardCells: shape.cells,
-                  customBoardName: shape.name,
-                })
-              } else {
-                setHostRegionConfig({
-                  playerCount: pendingRegionSelect.playerCount,
-                  gameRules: pendingRegionSelect.gameRules,
-                  boardShapeId: undefined,
-                  customBoardShape: shape,
-                })
-              }
-              setPendingRegionSelect(null)
-            }}
-            onBack={() => setPendingRegionSelect(null)}
-          />
-        ) : hostRegionConfig ? (
-          <RoomLobby
-            role="host"
-            targetCount={hostRegionConfig.playerCount}
-            gameRules={hostRegionConfig.gameRules}
-            boardShapeId={hostRegionConfig.boardShapeId}
-            customBoardShape={hostRegionConfig.customBoardShape}
-            onStart={onStart}
-            onBack={() => setHostRegionConfig(null)}
-          />
-        ) : joinSeed ? (
-          <RoomLobby
-            role="joiner"
-            roomCode={joinSeed.roomCode}
-            selfName={joinSeed.selfName}
-            onStart={onStart}
-            onBack={() => setJoinSeed(null)}
-          />
-        ) : (
-          <GameSetupMenu
-            onStart={handleSetupStart}
-            onHost={(config) => setPendingRegionSelect({ kind: 'host', playerCount: config.playerCount, gameRules: config.gameRules })}
-            onJoinLobby={(seed) => setJoinSeed({ roomCode: seed.roomCode, selfName: seed.selfName })}
-          />
-        )}
+      <div className="relative w-96 rounded-2xl border border-glass-border bg-glass p-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+        <h1 className="font-display text-3xl text-white">Conquer</h1>
+        <p className="mt-1 font-body text-xs tracking-[0.25em] text-white/50 uppercase">Only the bravest shall remain.</p>
+
+        <div className="mt-8 flex gap-1 rounded-lg border border-glass-border bg-white/5 p-1">
+          <button type="button" onClick={() => setMode('local')} className={TAB_CLASS(mode === 'local')}>
+            Pass &amp; Play (Local)
+          </button>
+          <button type="button" onClick={() => setMode('online')} className={TAB_CLASS(mode === 'online')}>
+            Online Multiplayer
+          </button>
+        </div>
+
+        {mode === 'local' ? <LocalSetup onStart={onStart} /> : <OnlineSetup onStart={onStart} />}
       </div>
     </div>
   )

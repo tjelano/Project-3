@@ -297,7 +297,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const [clientId] = useState(generateClientId)
 
   useEffect(() => {
-    if (!roomCode || !self) return
+    if (!roomCode) return
 
     // Reset synchronously so a new room's UI never shows a stale roster from
     // a previous subscription while this one is still connecting. This is
@@ -425,31 +425,41 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       void client.removeChannel(channel)
       channelRef.current = null
     }
-    // Deliberately keyed on room + whether self exists YET, not on self
-    // itself (or any of its fields) — this should run exactly once, the
-    // moment self first goes from null to non-null (typing a first
-    // character), and never again as long as the room stays the same. The
-    // effect below re-tracks every live field (name included, now that the
-    // key above no longer depends on it) on this SAME channel instead:
-    // track() updates an already-joined presence entry in place, while a
-    // leave+rejoin pair (which is what depending on self.name — or any
-    // other live-editable field — used to trigger on every change) can land
-    // the server-side leave and the new join out of order, briefly leaving
-    // TWO presence metas under different keys for the same person — the
-    // ghost duplicate-player/wrong-color bug this was causing when
-    // HostMenu's name field, unlike every earlier caller, updates self on
-    // every keystroke instead of once up front.
+    // Deliberately keyed on roomCode alone, not on self (or whether it
+    // exists yet) — subscribing to the channel and being visibly PRESENT
+    // in it are two different things (see the track/untrack effect below).
+    // Tearing the whole channel down and rebuilding it just because self
+    // went null (e.g. the host selecting-all and clearing their name field
+    // mid-edit, not actually leaving) used to mean: no presence sync events
+    // arrive at all while momentarily nameless, so a joiner connecting
+    // during that window is invisible until the name is retyped — AND,
+    // separately, this component's own render derives which numbered slot
+    // to draw the (always-editable) name input in from where "self" ranks
+    // among `players`; with the channel torn down self never appears in
+    // that ordering while nameless, leaving no slot for the input to render
+    // in at all. Subscribing once per room and never depending on self here
+    // avoids both.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, self != null])
+  }, [roomCode])
 
-  // Pushes every live field of `self` — name included — onto the
-  // already-joined channel from the effect above, without ever
-  // leaving/rejoining Realtime — see the comment there for why that
-  // distinction matters. Waits for 'connected' so the very first track
-  // doesn't fire before the channel has actually joined.
+  // Keeps this tab's own presence entry in sync with `self` on the already-
+  // joined channel from the effect above — track() to publish/update it in
+  // place (name included, live on every keystroke), untrack() to remove it
+  // without leaving the channel when self goes null (nameless — not "gone",
+  // just not visibly present yet). Never a leave+rejoin: that pairing can
+  // land the server-side leave and a later join out of order, briefly
+  // leaving TWO presence metas under different keys for the same person —
+  // the ghost duplicate-player/wrong-color bug this caused when a name
+  // field updates self on every keystroke instead of once up front. Waits
+  // for 'connected' so the very first call doesn't fire before the channel
+  // has actually joined.
   useEffect(() => {
-    if (status !== 'connected' || !self) return
-    void channelRef.current?.track(self)
+    if (status !== 'connected') return
+    if (self) {
+      void channelRef.current?.track(self)
+    } else {
+      void channelRef.current?.untrack()
+    }
   }, [self, status])
 
   const broadcastGameStarted = (

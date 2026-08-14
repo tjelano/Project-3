@@ -299,20 +299,18 @@ export function RoomLobby(props: RoomLobbyProps) {
 
   // Real players (self + everyone else actually in the room) in the one
   // canonical order every client agrees on — see comparePlayers above.
-  // Self is built from local selfName/myColor (not `self` or its echo back
-  // through `players`) so typing your own name updates your row immediately
-  // instead of waiting on a server round trip. `self` is only null for a
-  // brief instant before the host types their first character — by the
-  // time otherPlayers is non-empty for a given client, they've necessarily
-  // already tracked something, so this list always includes them.
+  // Self is placed here by isHostRole/clientId alone, NOT gated on `self`
+  // being non-null (built from local selfName/myColor instead of `self` or
+  // its echo back through `players` so typing your own name updates your
+  // row immediately, without waiting on a server round trip) — clearing
+  // the name field makes `self` briefly null, and excluding it from this
+  // list then meant no slot index ever matched clientId, hiding the
+  // editable row entirely, AND meant ordering started from whoever else
+  // was actually present instead of always ranking the host first.
   const hasRealOthers = otherPlayers.length > 0
-  const selfEntry: PresencePlayer | null = self
-    ? { id: clientId, name: selfName, isHost: isHostRole, colorToken: myColor }
-    : null
-  const orderedRealPlayers: PresencePlayer[] = (selfEntry ? [selfEntry, ...otherPlayers] : [...otherPlayers]).sort(
-    comparePlayers,
-  )
-  const selfSlotIndex = hasRealOthers ? orderedRealPlayers.findIndex((p) => p.id === clientId) : 0
+  const selfPlaceholder: PresencePlayer = { id: clientId, name: selfName, isHost: isHostRole, colorToken: myColor }
+  const orderedRealPlayers: PresencePlayer[] = [selfPlaceholder, ...otherPlayers].sort(comparePlayers)
+  const selfSlotIndex = orderedRealPlayers.findIndex((p) => p.id === clientId)
 
   // Falls back to TEMP_TEST_PLAYERS purely for what gets drawn in the row
   // slots below when nobody real else has joined yet. isFull/joinedCount/

@@ -92,7 +92,10 @@ const LAYOUT = {
 // edges, in % of the button's own size — same "primary action" glow
 // highlight used on RegionSelectMenu's confirm button / JoinRoomModal's
 // Join button, shown on hover/focus only.
-const START_GAME_SELECTOR_INSET = { x: 3, y: 30 }
+const START_GAME_SELECTOR_INSET = { x: 0, y: 30 }
+// Nudges the glow frame itself (px, on top of the inset above) without
+// resizing it — positive x moves right, positive y moves down.
+const START_GAME_SELECTOR_OFFSET = { x: -2, y: -10 }
 // Opacity at rest vs. while hovered/focused — 0/1 is invisible-until-hover;
 // raise GLOW_IDLE_OPACITY for an always-partly-visible glow instead.
 const START_GAME_GLOW_IDLE_OPACITY = 0
@@ -586,17 +589,26 @@ export function RoomLobby(props: RoomLobbyProps) {
             disabled={!isFull}
             onClick={handleStart}
             aria-label="Start game"
-            className="absolute outline-none transition-transform hover:scale-[1.02] active:scale-95 focus-visible:outline-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+            className="absolute outline-none focus-visible:outline-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50"
             style={rectStyle(LAYOUT.startGameButton)}
             {...startGameGlow.handlers}
           >
+            {/* Scaled on the IMAGE itself, not the button — a button-level
+                scale grows the glow around the BUTTON's center, but
+                START_GAME_SELECTOR_OFFSET moves the glow off that center,
+                so it would grow the far edge more than the near edge on
+                hover (same bug already fixed on RegionSelectMenu's confirm
+                button). Scaling here instead grows it symmetrically around
+                its own (offset) center. */}
             <img
               src={selectorBorderUrl}
               alt=""
-              className="pointer-events-none absolute transition-opacity"
+              className="pointer-events-none absolute transition-[opacity,scale]"
               style={{
                 ...selectorOverlayStyle(START_GAME_SELECTOR_INSET.x, START_GAME_SELECTOR_INSET.y),
                 opacity: startGameGlow.isActive ? START_GAME_GLOW_ACTIVE_OPACITY : START_GAME_GLOW_IDLE_OPACITY,
+                translate: `${START_GAME_SELECTOR_OFFSET.x}px ${START_GAME_SELECTOR_OFFSET.y}px`,
+                scale: startGameGlow.isActive ? '1.02' : '1',
               }}
               draggable={false}
             />

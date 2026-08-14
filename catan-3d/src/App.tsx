@@ -87,6 +87,11 @@ function findPlayerIndexByName(names: string[], name: string): number {
   return names.findIndex((candidate) => normalizePlayerName(candidate) === normalized)
 }
 
+// Position (px from the bottom-left corner) of the "F — Free camera" hint —
+// nudge if it ever collides with GameHud's own bottom-left panels (event
+// log, etc.).
+const FREE_CAM_HINT_POSITION = { bottom: 210, left: 28 }
+
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
   const [playerCount, setPlayerCount] = useState(3)
@@ -2095,7 +2100,10 @@ function App() {
       {/* Free-cam hides the mouse cursor (pointer lock) the instant it's
           active, so without this hint there'd be no on-screen indication
           of how the controls changed, or how to get the cursor back. */}
-      <div className="pointer-events-none absolute bottom-2 left-2 z-10 font-body text-[10px] tracking-[0.08em] text-white/40 uppercase">
+      <div
+        className="pointer-events-none absolute z-10 font-body text-[10px] tracking-[0.08em] text-white/40 uppercase"
+        style={{ bottom: `${FREE_CAM_HINT_POSITION.bottom}px`, left: `${FREE_CAM_HINT_POSITION.left}px` }}
+      >
         {isFreeCamActive
           ? 'WASD move · Mouse look · Scroll zoom · Space/Shift up/down · R reset · F exit'
           : 'F — Free camera'}

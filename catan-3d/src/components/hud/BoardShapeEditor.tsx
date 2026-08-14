@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { cellNeighbors, cellPosition, type BoardCell } from '../../data/hexBoard'
+import { cellNeighbors, cellPosition, type BoardCell, type Biome, BIOME_COLORS } from '../../data/hexBoard'
 import type { CustomBoardShape } from '../../data/customBoardShapes'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
@@ -11,6 +11,8 @@ const ROW_RANGE = [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]
 
 const HEX_PIXEL_RADIUS = 22
 const CORNER_ANGLES_DEG = [30, 90, 150, 210, 270, 330]
+
+const BIOME_PALETTE: Biome[] = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert']
 
 function cellKey(cell: BoardCell): string {
   return `${cell.col}:${cell.row}`
@@ -57,7 +59,9 @@ export function BoardShapeEditor({
   onClose: () => void
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [paintedBiomes, setPaintedBiomes] = useState<Map<string, Biome>>(new Map())
   const [name, setName] = useState('')
+  const [activeBrush, setActiveBrush] = useState<Biome | 'erase' | null>(null)
   const dialogRef = useModalFocusTrap<HTMLDivElement>(onClose)
 
   const toggleCell = (cell: BoardCell) => {
@@ -70,6 +74,41 @@ export function BoardShapeEditor({
     })
   }
 
+  // Water tile: adds it to the shape, no biome painted. Land tile with a
+  // biome brush active: paints that biome (stays in the shape either way).
+  // Land tile with the eraser active: clears any painted biome, stays in
+  // the shape. Land tile with no brush selected: the original toggle-off —
+  // removes it from the shape, and clears any paint on it too, so a tile
+  // that's re-added later doesn't resurrect stale paint from a previous edit.
+  const handleTileClick = (cell: BoardCell) => {
+    const key = cellKey(cell)
+    const isLand = selected.has(key)
+    if (!isLand) {
+      toggleCell(cell)
+      return
+    }
+    if (activeBrush === null) {
+      toggleCell(cell)
+      setPaintedBiomes((prev) => {
+        if (!prev.has(key)) return prev
+        const next = new Map(prev)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    if (activeBrush === 'erase') {
+      setPaintedBiomes((prev) => {
+        if (!prev.has(key)) return prev
+        const next = new Map(prev)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    setPaintedBiomes((prev) => new Map(prev).set(key, activeBrush))
+  }
+
   const connected = useMemo(() => isSingleConnectedGroup(selected), [selected])
   const canSave = selected.size >= 3 && connected && name.trim().length > 0
 
@@ -79,7 +118,26 @@ export function BoardShapeEditor({
       const [col, row] = key.split(':').map(Number)
       return { col, row }
     })
-    onSave({ id: `custom-${Date.now()}`, name: name.trim(), cells })
+    // Re-keyed from BoardShapeEditor's own colon-separated cellKey format
+    // (safely parseable back into numbers, including negatives, via split(':'))
+    // to the hyphen format HexTileData.id/buildHexBoardFromCells use
+    // (`${col}-${row}`) — that format is write/lookup-only everywhere it's
+    // consumed, never split apart, which is exactly why it's safe there but
+    // NOT safe for this component's own selected-cells bookkeeping (a
+    // negative coordinate like col=-1 makes "-1--2" ambiguous to split on
+    // '-', which is why cellKey uses ':' instead).
+    const biomeOverrides: Record<string, Biome> = {}
+    for (const [key, biome] of paintedBiomes) {
+      if (!selected.has(key)) continue
+      const [col, row] = key.split(':').map(Number)
+      biomeOverrides[`${col}-${row}`] = biome
+    }
+    onSave({
+      id: `custom-${Date.now()}`,
+      name: name.trim(),
+      cells,
+      ...(Object.keys(biomeOverrides).length > 0 ? { biomeOverrides } : {}),
+    })
   }
 
   return (
@@ -96,7 +154,7 @@ export function BoardShapeEditor({
           Draw a Board Shape
         </h2>
         <p className="mt-1 font-body text-xs text-white/60">
-          Click hexes to mark land. Biomes and numbers still shuffle fresh every game — only the coastline is fixed.
+          Click hexes to mark land. Paint a biome onto a tile to fix it — leave tiles unpainted to keep them random. Numbers always shuffle fresh every game.
         </p>
 
         <div className="mt-4 flex-1 overflow-auto rounded-xl border border-glass-border bg-board-navy/60 p-3">
@@ -112,14 +170,16 @@ export function BoardShapeEditor({
                 const cx = x * HEX_PIXEL_RADIUS
                 const cy = z * HEX_PIXEL_RADIUS
                 const isSelected = selected.has(key)
+                const paintedBiome = paintedBiomes.get(key)
                 return (
                   <polygon
                     key={key}
                     points={hexPolygonPoints(cx, cy, HEX_PIXEL_RADIUS - 1.5)}
-                    onClick={() => toggleCell(cell)}
+                    onClick={() => handleTileClick(cell)}
                     className={`cursor-pointer stroke-white/15 transition-colors ${
-                      isSelected ? 'fill-gold/80 hover:fill-gold' : 'fill-white/5 hover:fill-white/15'
+                      !isSelected ? 'fill-white/5 hover:fill-white/15' : paintedBiome ? '' : 'fill-gold/80 hover:fill-gold'
                     }`}
+                    style={paintedBiome ? { fill: BIOME_COLORS[paintedBiome] } : undefined}
                     strokeWidth={1}
                   />
                 )
@@ -135,6 +195,35 @@ export function BoardShapeEditor({
           )}
         </div>
 
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="font-body text-[11px] tracking-[0.1em] text-white/50 uppercase">Paint biome</span>
+          {BIOME_PALETTE.map((biome) => (
+            <button
+              key={biome}
+              type="button"
+              onClick={() => setActiveBrush((prev) => (prev === biome ? null : biome))}
+              aria-label={`Paint ${biome}`}
+              aria-pressed={activeBrush === biome}
+              title={biome}
+              className={`h-6 w-6 rounded-full border-2 transition-transform ${
+                activeBrush === biome ? 'scale-110 border-white' : 'border-white/30 hover:border-white/60'
+              }`}
+              style={{ backgroundColor: BIOME_COLORS[biome] }}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => setActiveBrush((prev) => (prev === 'erase' ? null : 'erase'))}
+            aria-label="Clear painted biome"
+            aria-pressed={activeBrush === 'erase'}
+            className={`rounded-lg border px-2 py-1 font-body text-[10px] tracking-[0.05em] uppercase transition-colors ${
+              activeBrush === 'erase' ? 'border-gold text-gold' : 'border-glass-border text-white/50 hover:text-white'
+            }`}
+          >
+            Erase
+          </button>
+        </div>
+
         <div className="mt-3 flex items-center gap-2">
           <input
             type="text"
@@ -146,7 +235,10 @@ export function BoardShapeEditor({
           />
           <button
             type="button"
-            onClick={() => setSelected(new Set())}
+            onClick={() => {
+              setSelected(new Set())
+              setPaintedBiomes(new Map())
+            }}
             className="rounded-lg border border-glass-border bg-white/5 px-3 py-2 font-body text-[11px] tracking-[0.1em] text-white/60 uppercase transition-colors hover:border-player-1/50 hover:text-player-1"
           >
             Clear

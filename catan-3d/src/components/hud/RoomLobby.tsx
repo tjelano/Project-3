@@ -267,6 +267,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       receivedCustomName,
       receivedClientIds,
       receivedColorTokens,
+      receivedCustomBiomeOverrides,
     ) => {
       onStart({
         playerCount: names.length,
@@ -289,6 +290,7 @@ export function RoomLobby(props: RoomLobbyProps) {
         boardShapeId: receivedBoardShapeId,
         customBoardCells: receivedCustomCells,
         customBoardName: receivedCustomName,
+        customBoardBiomeOverrides: receivedCustomBiomeOverrides,
         online: {
           roomCode,
           localPlayerName: selfName,
@@ -451,6 +453,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       currentCustomBoardShape?.name,
       clientIds,
       colorTokens,
+      currentCustomBoardShape?.biomeOverrides,
     )
     onStart({
       playerCount: names.length,
@@ -460,6 +463,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       boardShapeId: currentBoardShapeId,
       customBoardCells: currentCustomBoardShape?.cells,
       customBoardName: currentCustomBoardShape?.name,
+      customBoardBiomeOverrides: currentCustomBoardShape?.biomeOverrides,
       online: { roomCode, localPlayerName: selfName, isHost: true, localClientId: clientId, clientIds, hostName: selfName },
     })
   }

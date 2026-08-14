@@ -3,7 +3,7 @@ import { GameSetupMenu } from './GameSetupMenu'
 import { RegionSelectMenu } from './RegionSelectMenu'
 import { RoomLobby } from './RoomLobby'
 import type { MatchSnapshot } from '../../multiplayer/matchSnapshot'
-import type { BoardCell, BoardShapeId } from '../../data/hexBoard'
+import type { BoardCell, BoardShapeId, Biome } from '../../data/hexBoard'
 import type { CustomBoardShape } from '../../data/customBoardShapes'
 import type { GameRules, PlayerColorToken } from '../../game/types'
 
@@ -32,6 +32,7 @@ export interface GameStartInfo {
   // shape up locally the way they can for the 3 built-ins.
   customBoardCells?: BoardCell[]
   customBoardName?: string
+  customBoardBiomeOverrides?: Record<string, Biome>
   // Present only for Online Multiplayer matches. localPlayerName identifies
   // which of `names` this specific browser controls — App.tsx resolves it
   // to a Player.id once the (identical, seeded-by-roomCode) player list is
@@ -129,6 +130,7 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
                   boardShapeId: undefined,
                   customBoardCells: shape.cells,
                   customBoardName: shape.name,
+                  customBoardBiomeOverrides: shape.biomeOverrides,
                 })
               } else {
                 setHostRegionConfig({

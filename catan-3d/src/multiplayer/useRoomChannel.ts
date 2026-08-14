@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import type { DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
-import type { BoardCell, BoardShapeId } from '../data/hexBoard'
+import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 
 export interface RoomPlayer {
   // Only ever present on entries the HOOK hands back via `players` (set
@@ -223,6 +223,11 @@ interface GameStartedPayload {
   // start the match with two different colors assigned to the same seat.
   // Optional for the same backward-compatibility reason as clientIds above.
   colorTokens?: PlayerColorToken[]
+  // Also parallel to `names`/`cells` — the specific biome painted onto each
+  // tile of a custom shape, if any. Sparse (only painted tiles are keys) and
+  // keyed the same way HexTileData.id already is. Absent whenever the match
+  // isn't on a custom shape, or the custom shape has no painted tiles.
+  customBoardBiomeOverrides?: Record<string, Biome>
 }
 
 export interface RoomChannelHandlers {
@@ -235,6 +240,7 @@ export interface RoomChannelHandlers {
     customBoardName?: string,
     clientIds?: string[],
     colorTokens?: PlayerColorToken[],
+    customBoardBiomeOverrides?: Record<string, Biome>,
   ) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
@@ -403,6 +409,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         payload.customBoardName,
         payload.clientIds,
         payload.colorTokens,
+        payload.customBoardBiomeOverrides,
       )
     })
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
@@ -562,11 +569,22 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     customBoardName?: string,
     clientIds?: string[],
     colorTokens?: PlayerColorToken[],
+    customBoardBiomeOverrides?: Record<string, Biome>,
   ) => {
     void channelRef.current?.send({
       type: 'broadcast',
       event: 'game-started',
-      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName, clientIds, colorTokens },
+      payload: {
+        names,
+        hostName,
+        boardShapeId,
+        gameRules,
+        customBoardCells,
+        customBoardName,
+        clientIds,
+        colorTokens,
+        customBoardBiomeOverrides,
+      },
     })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {

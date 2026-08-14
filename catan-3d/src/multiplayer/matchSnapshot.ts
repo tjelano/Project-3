@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../lib/supabaseClient'
 import type { Building, DevCardType, GameRules, Player } from '../game/types'
-import type { BoardCell, BoardShapeId } from '../data/hexBoard'
+import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { GamePhase, SetupStage } from '../App'
 
 const TABLE = 'match_snapshots'
@@ -21,6 +21,7 @@ export interface MatchSnapshot {
   boardShapeId?: BoardShapeId
   // Set together, only when the match was started on a player-drawn shape.
   customBoardCells?: BoardCell[]
+  customBoardBiomeOverrides?: Record<string, Biome>
   // Optional for the same reason boardShapeId is — snapshots saved before
   // house rules existed default to DEFAULT_GAME_RULES on restore. Player
   // colors need no separate field: they're already on each Player below.

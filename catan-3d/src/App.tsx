@@ -26,7 +26,7 @@ import {
 } from './multiplayer/useRoomChannel'
 import { saveMatchSnapshot, loadMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
-import { buildHexBoard, type BoardCell, type BoardShapeId } from './data/hexBoard'
+import { buildHexBoard, type BoardCell, type BoardShapeId, type Biome } from './data/hexBoard'
 import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
@@ -179,6 +179,7 @@ function App() {
   // active — takes priority over boardShapeId in buildHexBoard whenever
   // non-empty (see resetGame/restoreFromSnapshot below).
   const [customBoardCells, setCustomBoardCells] = useState<BoardCell[] | undefined>(undefined)
+  const [customBoardBiomeOverrides, setCustomBoardBiomeOverrides] = useState<Record<string, Biome> | undefined>(undefined)
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
   const graph = useMemo(() => buildBoardGraph(tiles), [tiles])
   // Newfoundland/Peanut/any custom BoardShapeEditor.tsx shape can be wider
@@ -2047,20 +2048,27 @@ function App() {
     // flag rather than its own presence check.
     rules?: GameRules,
     colorTokens?: PlayerColorToken[],
+    // Same "present only on a fresh submission" treatment as customCells —
+    // gated on the SAME isFreshSubmission flag, so "New Game" (no shapeId
+    // passed) keeps whatever custom biome painting was already active
+    // instead of losing it.
+    customBiomeOverrides?: Record<string, Biome>,
   ) => {
     const isFreshSubmission = shapeId !== undefined
     const effectiveShapeId = shapeId ?? boardShapeId
     const effectiveCustomCells = isFreshSubmission ? customCells : customBoardCells
+    const effectiveCustomBiomeOverrides = isFreshSubmission ? customBiomeOverrides : customBoardBiomeOverrides
     const effectiveRules = isFreshSubmission ? (rules ?? gameRules) : gameRules
     setBoardShapeId(effectiveShapeId)
     setCustomBoardCells(effectiveCustomCells)
+    setCustomBoardBiomeOverrides(effectiveCustomBiomeOverrides)
     setGameRules(effectiveRules)
     setTotalRollsThisGame(0)
     setConsecutiveDoublesThisTurn(0)
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
-    const freshTiles = buildHexBoard(effectiveBoardSeed, effectiveShapeId, effectiveCustomCells)
+    const freshTiles = buildHexBoard(effectiveBoardSeed, effectiveShapeId, effectiveCustomCells, effectiveCustomBiomeOverrides)
     setTiles(freshTiles)
     setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
     setPlayerCount(count)
@@ -2154,13 +2162,14 @@ function App() {
     const shapeId = snapshot.boardShapeId ?? 'standard'
     setBoardShapeId(shapeId)
     setCustomBoardCells(snapshot.customBoardCells)
+    setCustomBoardBiomeOverrides(snapshot.customBoardBiomeOverrides)
     // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
     setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
-    const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells)
+    const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells, snapshot.customBoardBiomeOverrides)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
     setPlayerNames(snapshot.playerNames)
@@ -2247,6 +2256,7 @@ function App() {
         info.customBoardCells,
         info.gameRules ?? DEFAULT_GAME_RULES,
         info.colorTokens,
+        info.customBoardBiomeOverrides,
       )
     }
     setGameStarted(true)
@@ -2299,6 +2309,7 @@ function App() {
       hostName: onlineInfo.hostName,
       boardShapeId,
       customBoardCells,
+      customBoardBiomeOverrides,
       gameRules,
       totalRollsThisGame,
       consecutiveDoublesThisTurn,
@@ -2329,6 +2340,7 @@ function App() {
     gameStarted,
     boardShapeId,
     customBoardCells,
+    customBoardBiomeOverrides,
     gameRules,
     totalRollsThisGame,
     consecutiveDoublesThisTurn,

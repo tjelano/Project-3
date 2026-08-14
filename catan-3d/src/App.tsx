@@ -2070,7 +2070,16 @@ function App() {
     const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
     const freshTiles = buildHexBoard(effectiveBoardSeed, effectiveShapeId, effectiveCustomCells, effectiveCustomBiomeOverrides)
     setTiles(freshTiles)
-    setRobberTileId(freshTiles.find((tile) => tile.biome === 'desert')!.id)
+    // freshTiles is only ever empty if cells was empty, which the
+    // board-shape editor already prevents (minimum 3 tiles) — but nothing
+    // guarantees one of those tiles is specifically 'desert' (an
+    // aggressively-painted custom board can end up with none), so fall back
+    // to the first tile instead of crashing on a missing robber start.
+    const desertTile = freshTiles.find((tile) => tile.biome === 'desert')
+    if (!desertTile) {
+      console.error('[Catan] Generated board has no desert tile — placing the robber on the first tile instead:', freshTiles[0]?.id)
+    }
+    setRobberTileId((desertTile ?? freshTiles[0]).id)
     setPlayerCount(count)
     // Who goes first, randomized instead of always seat 0 (the host).
     // Online reuses the SAME seed the board itself was just built from —

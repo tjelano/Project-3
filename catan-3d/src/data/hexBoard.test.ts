@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHexBoard, buildHexBoardFromCells } from './hexBoard'
+import { buildHexBoard, buildHexBoardFromCells, type Biome } from './hexBoard'
 
 describe('buildHexBoard', () => {
   it('generates exactly 19 tiles', () => {
@@ -175,6 +175,29 @@ describe('buildHexBoardFromCells biome overrides', () => {
         expect(tile.number).toBeLessThanOrEqual(12)
         expect(tile.number).not.toBe(7)
       }
+    }
+  })
+
+  it('always leaves at least one desert tile when only some tiles are painted (probabilistic truncation case)', () => {
+    // Regression test for the final-review-caught bug: the pool truncation
+    // in buildHexBoardFromCells wasn't biome-aware and could randomly
+    // discard the board's only remaining desert entry along with the
+    // excess. Painting exactly 2 of the 5 cells forest (leaving 3
+    // unpainted, with a 1-entry pool surplus to trim after the successful
+    // removal) reproduces the exact truncation shape that crashed App.tsx's
+    // robber placement ~7.5% of the time before the desert-preserving
+    // truncation fix. NOTE: this is deliberately NOT the same as painting
+    // every cell non-desert — that case has no desert to preserve in the
+    // first place (the player explicitly excluded it), so it isn't
+    // covered here; App.tsx's fallback (robber on the first tile) is what
+    // protects that scenario instead.
+    const partialOverrides: Record<string, Biome> = {
+      '0-0': 'forest',
+      '0-1': 'forest',
+    }
+    for (let s = 0; s < 200; s++) {
+      const board = buildHexBoardFromCells(cells, `desert-guard-partial-${s}`, undefined, partialOverrides)
+      expect(board.some((tile) => tile.biome === 'desert')).toBe(true)
     }
   })
 })

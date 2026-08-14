@@ -398,10 +398,22 @@ export function buildHexBoardFromCells(
     }
   }
   // The pool can still be longer than the number of actually-unpainted
-  // tiles whenever a removal above couldn't find a match — reshuffle and
-  // take exactly what's needed, so the final length is always correct and
-  // any discarded excess is random rather than a fixed tail.
-  pool = shuffle(pool, random).slice(0, tileCount - paintedCount)
+  // tiles whenever a removal above couldn't find a match. Truncating has to
+  // stay desert-aware: App.tsx assumes at least one desert tile always
+  // exists (that's where the robber starts), so a blind slice() that could
+  // randomly drop the board's only desert entry is a real, reproducible
+  // crash — not just a cosmetic ratio drift. Drop non-desert entries first;
+  // only eat into desert entries if there's nothing else left to trim.
+  const excess = pool.length - (tileCount - paintedCount)
+  if (excess > 0) {
+    const shuffledPool = shuffle(pool, random)
+    const deserts = shuffledPool.filter((biome) => biome === 'desert')
+    const nonDeserts = shuffledPool.filter((biome) => biome !== 'desert')
+    const keptNonDeserts = nonDeserts.slice(0, Math.max(0, nonDeserts.length - excess))
+    pool = shuffle([...deserts, ...keptNonDeserts], random)
+  } else {
+    pool = shuffle(pool, random)
+  }
 
   // Resolve every cell's biome first, then size the number pool off the
   // board's ACTUAL non-desert tile count — not a static target, which can

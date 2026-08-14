@@ -38,7 +38,12 @@ export interface GameStartInfo {
   // built, since createInitialPlayers assigns ids in `names` order. isHost
   // is re-derived from the snapshot on a reconnect, not assumed from which
   // UI flow (Host vs Join) the browser happened to use this time.
-  online?: { roomCode: string; localPlayerName: string; isHost: boolean }
+  // localClientId/clientIds (both present together, or both absent — a
+  // fresh Start Game submission always has them, a snapshot-restore
+  // reconnect never does) let App.tsx resolve "which seat is this browser"
+  // by stable id instead of by re-matching localPlayerName against `names`,
+  // which can be stale by the time Start Game is actually clicked.
+  online?: { roomCode: string; localPlayerName: string; isHost: boolean; localClientId?: string; clientIds?: string[] }
   // Present when rejoining a match already in progress — App.tsx restores
   // exactly this saved state instead of building a fresh game.
   snapshot?: MatchSnapshot

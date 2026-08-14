@@ -393,7 +393,16 @@ export function buildHexBoardFromCells(cells: BoardCell[], seed?: string, desert
  */
 export function buildHexBoard(seed?: string, shapeId: BoardShapeId = 'standard', customCells?: BoardCell[]): HexTileData[] {
   const isCustom = customCells != null && customCells.length > 0
-  const cells = isCustom ? customCells : BOARD_SHAPES[shapeId]
+  // shapeId can arrive from an online peer's game-started broadcast, which
+  // isn't runtime-validated against BoardShapeId — a stale build on one tab,
+  // or any future shape id rename, would otherwise index BOARD_SHAPES with
+  // an unrecognized key, get undefined back, and crash on cells.length two
+  // lines below before the match ever starts, permanently stranding that
+  // client on the lobby screen. Falling back to 'standard' keeps it playable.
+  if (!isCustom && !(shapeId in BOARD_SHAPES)) {
+    console.error('[Catan] Unknown board shape id, falling back to standard:', shapeId)
+  }
+  const cells = isCustom ? customCells : (BOARD_SHAPES[shapeId] ?? BOARD_SHAPES.standard)
   // Overrides only apply to the shapeId path — a player's own freshly-drawn
   // custom shape in the editor always gets the automatic ratio, regardless
   // of what a promoted built-in with the same tile count happens to use.

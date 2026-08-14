@@ -60,6 +60,7 @@ import {
   type Player,
   type PlayerColorToken,
   type ResourceType,
+  type Resources,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 
@@ -91,6 +92,38 @@ function findPlayerIndexByName(names: string[], name: string): number {
 // nudge if it ever collides with GameHud's own bottom-left panels (event
 // log, etc.).
 const FREE_CAM_HINT_POSITION = { bottom: 210, left: 28 }
+
+// How long a proposed trade waits for a response before auto-cancelling —
+// see the effect near resolvePlayerTrade. Bounds how long an unanswered
+// offer can block the whole table (see canPerformAction).
+const TRADE_OFFER_TIMEOUT_MS = 90_000
+
+// How long the discard phase waits on a still-over-limit player before
+// forcing their discard for them — see the effect near confirmDiscard.
+// Bounds how long a disconnected/unresponsive player can stall the whole
+// table (gamePhase can't leave 'discard' until every over-limit player has
+// gone).
+const DISCARD_TIMEOUT_MS = 90_000
+
+// Deterministic forced discard for a player who never confirmed one in
+// time — greedily takes from whichever resource they're holding the most
+// of first, so the loss is spread across their hand rather than wiping out
+// a single resource type. Only needs to be deterministic, not "smart": this
+// only ever runs as a fallback for someone who wasn't there to choose.
+function autoDiscardCounts(resources: Resources, required: number): Partial<Record<ResourceType, number>> {
+  const counts: Partial<Record<ResourceType, number>> = {}
+  let remaining = required
+  const byHeldCount = [...RESOURCE_ORDER].sort((a, b) => resources[b] - resources[a])
+  for (const type of byHeldCount) {
+    if (remaining <= 0) break
+    const take = Math.min(resources[type], remaining)
+    if (take > 0) {
+      counts[type] = take
+      remaining -= take
+    }
+  }
+  return counts
+}
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
@@ -307,6 +340,18 @@ function App() {
   // receiving side must never re-broadcast, or every client would echo
   // TURN_PASSED back out and the count would multiply per round-trip.
   const applyTurnAdvance = (nextIndex: number) => {
+    // nextIndex on the receiving side comes straight off another player's
+    // TURN_PASSED broadcast — trusted by every OTHER handler in this file,
+    // but this one feeds straight into players[nextIndex] all over the app
+    // (GameHud's currentPlayer, turn checks, etc.) with no guard anywhere
+    // downstream. A malformed/out-of-range broadcast used to make that
+    // undefined, throwing on the very next render with nothing above it to
+    // catch it — crashing every connected client at once, not just the
+    // sender's own tab.
+    if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= players.length) {
+      console.error('[Catan] Ignoring TURN_PASSED with an out-of-range player index:', nextIndex)
+      return
+    }
     setFreeRoadsRemaining(0)
     setDevCardPlayedThisTurn(false)
     setHasRolledThisTurn(false)
@@ -1330,6 +1375,34 @@ function App() {
     if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }
 
+  // A disconnected (or simply slow) over-limit player used to stall the
+  // whole table forever after any 7-roll — gamePhase can't leave 'discard'
+  // until every over-limit player has confirmed their OWN discard, and
+  // there was no host or timeout fallback. Host-authoritative (same
+  // pattern as resolveTradeAsHost): only the host's client applies the
+  // forced discard and broadcasts it, so every other client applies it
+  // exactly once via the same trusted onDiscardConfirmed path a normal
+  // discard already uses — letting every client independently run this
+  // would double-apply the same subtraction on every screen. Local Pass &
+  // Play has no separate host/broadcast concept, so it applies directly.
+  useEffect(() => {
+    if (gamePhase !== 'discard' || validDiscardPlayerIds.length === 0) return
+    if (onlineInfo && !onlineInfo.isHost) return
+    const timer = setTimeout(() => {
+      for (const playerId of validDiscardPlayerIds) {
+        const player = playerById.get(playerId)
+        if (!player) continue
+        const required = Math.floor(totalResourceCount(player.resources) / 2)
+        const counts = autoDiscardCounts(player.resources, required)
+        applyDiscard(playerId, counts)
+        inform(`${player.name}'s discard timed out — ${required} card${required === 1 ? '' : 's'} discarded automatically.`)
+        if (onlineInfo) broadcastDiscardConfirmed({ playerId, counts })
+      }
+    }, DISCARD_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playerById/onlineInfo/inform/applyDiscard/broadcastDiscardConfirmed are read fresh via closure; only gamePhase/validDiscardPlayerIds identity should restart the timer.
+  }, [gamePhase, validDiscardPlayerIds])
+
   const moveRobber = (tileId: string) => {
     if (winner) return
     if (gamePhase !== 'moveRobber') return
@@ -1549,6 +1622,30 @@ function App() {
     }
   }
 
+  // A pending trade used to have no way out short of the target explicitly
+  // accepting or declining — canPerformAction() blocks rolling, building,
+  // trading, and buying dev cards for the WHOLE TABLE while it's set, and
+  // the offerer has no cancel affordance at all (TradeOfferPrompt only
+  // renders for the target). If the target simply never responds — closes
+  // their tab, walks away — the game was stuck forever with only a host
+  // restart (losing all progress) as a way out. The effect's own cleanup
+  // clears the previous timer on every change to `pendingTrade`, so by the
+  // time this actually fires it's guaranteed to still be the same trade;
+  // every connected client runs it independently and idempotently clears
+  // the same trade, so it resolves even if the offerer's own client is the
+  // one that's gone.
+  useEffect(() => {
+    if (!pendingTrade) return
+    const timer = setTimeout(() => {
+      const reason = 'The trade offer expired with no response.'
+      setPendingTrade(null)
+      inform(reason)
+      if (onlineInfo) broadcastTradeCancelled({ reason })
+    }, TRADE_OFFER_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inform/broadcastTradeCancelled are stable-enough callers read fresh via closure each run; only pendingTrade/onlineInfo identity should restart the timer.
+  }, [pendingTrade, onlineInfo])
+
   const buyDevCard = () => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -1700,7 +1797,7 @@ function App() {
   const resetGame = (
     count: number,
     names?: string[],
-    online?: { roomCode: string; localPlayerName: string; isHost: boolean },
+    online?: { roomCode: string; localPlayerName: string; isHost: boolean; localClientId?: string; clientIds?: string[] },
     // A restart needs a NEW layout, not the same one every time — the room
     // code alone is a constant seed, so reusing it here would reshuffle to
     // the exact same board on every "New Game". restartGame generates a
@@ -1775,7 +1872,18 @@ function App() {
       online
         ? {
             roomCode: online.roomCode,
-            localPlayerId: findPlayerIndexByName(resolvedNames, online.localPlayerName) + 1,
+            // Prefer resolving by stable clientId (present on every fresh
+            // Start Game submission) over name-matching — the sender's own
+            // view of a fast-typing player's name can still be stale
+            // (track() is debounced) the instant Start Game is clicked, and
+            // a name mismatch after normalization used to permanently lock
+            // that player out of their own turn for the rest of the match.
+            // Falls back to name-matching for a snapshot-restore reconnect,
+            // which has no live clientIds to resolve against.
+            localPlayerId:
+              (online.clientIds && online.localClientId
+                ? online.clientIds.indexOf(online.localClientId)
+                : findPlayerIndexByName(resolvedNames, online.localPlayerName)) + 1,
             localPlayerName: online.localPlayerName,
             isHost: online.isHost,
           }

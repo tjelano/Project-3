@@ -254,18 +254,34 @@ export function RoomLobby(props: RoomLobbyProps) {
   const { players, clientId, broadcastGameStarted } = useRoomChannel(roomCode, self, {
     // Only meaningful for a joiner — the host is the one calling
     // broadcastGameStarted below, never the receiver of its own broadcast.
-    onGameStarted: (names, hostName, receivedBoardShapeId, receivedGameRules, receivedCustomCells, receivedCustomName) => {
+    onGameStarted: (names, hostName, receivedBoardShapeId, receivedGameRules, receivedCustomCells, receivedCustomName, receivedClientIds) => {
       onStart({
         playerCount: names.length,
         names,
-        colorTokens: names.map(
-          (name, index) => players.find((p) => p.name === name)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length],
-        ),
+        // Resolved by clientId when the broadcast carries one — matching by
+        // name alone can land on a stale/renamed entry the same way self-
+        // identification below can (see the online.localClientId comment).
+        colorTokens: names.map((name, index) => {
+          const matchId = receivedClientIds?.[index]
+          const match = matchId ? players.find((p) => p.id === matchId) : players.find((p) => p.name === name)
+          return match?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
+        }),
         gameRules: receivedGameRules,
         boardShapeId: receivedBoardShapeId,
         customBoardCells: receivedCustomCells,
         customBoardName: receivedCustomName,
-        online: { roomCode, localPlayerName: selfName, isHost: normalizePlayerName(selfName) === normalizePlayerName(hostName) },
+        online: {
+          roomCode,
+          localPlayerName: selfName,
+          isHost: normalizePlayerName(selfName) === normalizePlayerName(hostName),
+          // Lets App.tsx resolve "which seat am I" by stable clientId
+          // instead of re-matching selfName against `names` — the host's
+          // own view of this name can still be stale (track() is
+          // debounced) the instant they click Start Game, which used to
+          // permanently lock a fast-typing joiner out of their own turn.
+          localClientId: clientId,
+          clientIds: receivedClientIds,
+        },
       })
     },
   })
@@ -362,6 +378,10 @@ export function RoomLobby(props: RoomLobbyProps) {
   const handleStart = () => {
     if (!isHostRole) return
     const names = [selfName, ...otherPlayers.map((p) => p.name)]
+    // Parallel to `names` — see the clientIds comment on GameStartedPayload
+    // for why every receiver resolves itself (and everyone else's color)
+    // by this instead of by name-matching.
+    const clientIds = [clientId, ...otherPlayers.map((p) => p.id)]
     broadcastGameStarted(
       names,
       selfName,
@@ -369,19 +389,20 @@ export function RoomLobby(props: RoomLobbyProps) {
       props.gameRules,
       currentCustomBoardShape?.cells,
       currentCustomBoardShape?.name,
+      clientIds,
     )
     onStart({
       playerCount: names.length,
       names,
-      colorTokens: names.map((name, index) => {
-        if (normalizePlayerName(name) === normalizePlayerName(selfName)) return myColor
-        return otherPlayers.find((p) => p.name === name)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
+      colorTokens: clientIds.map((matchId, index) => {
+        if (matchId === clientId) return myColor
+        return otherPlayers.find((p) => p.id === matchId)?.colorToken ?? ALL_COLOR_TOKENS[index % ALL_COLOR_TOKENS.length]
       }),
       gameRules: props.gameRules,
       boardShapeId: currentBoardShapeId,
       customBoardCells: currentCustomBoardShape?.cells,
       customBoardName: currentCustomBoardShape?.name,
-      online: { roomCode, localPlayerName: selfName, isHost: true },
+      online: { roomCode, localPlayerName: selfName, isHost: true, localClientId: clientId, clientIds },
     })
   }
 

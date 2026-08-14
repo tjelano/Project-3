@@ -201,6 +201,16 @@ interface GameStartedPayload {
   // presence entry (RoomPlayer.colorToken), so re-broadcasting them would
   // just be a second copy that could drift.
   gameRules: GameRules
+  // Parallel to `names` — each entry is that seat's stable presence
+  // clientId. A receiver resolves ITS OWN seat by finding its own clientId
+  // in here, not by matching its freshly-typed name against `names`: the
+  // sender's own view of a fast-typing joiner's name can still be stale
+  // (track() is debounced) at the exact moment Start Game is clicked, and
+  // a name mismatch after normalization used to permanently lock that
+  // player out of ever taking their own turn. Optional so an older/
+  // mismatched build still degrades to the previous name-matching path
+  // instead of failing to parse the payload at all.
+  clientIds?: string[]
 }
 
 export interface RoomChannelHandlers {
@@ -211,6 +221,7 @@ export interface RoomChannelHandlers {
     gameRules: GameRules,
     customBoardCells?: BoardCell[],
     customBoardName?: string,
+    clientIds?: string[],
   ) => void
   onDiceRolled?: (payload: DiceRolledPayload) => void
   onTurnPassed?: (payload: TurnPassedPayload) => void
@@ -369,6 +380,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         payload.gameRules,
         payload.customBoardCells,
         payload.customBoardName,
+        payload.clientIds,
       )
     })
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
@@ -523,11 +535,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     gameRules: GameRules,
     customBoardCells?: BoardCell[],
     customBoardName?: string,
+    clientIds?: string[],
   ) => {
     void channelRef.current?.send({
       type: 'broadcast',
       event: 'game-started',
-      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName },
+      payload: { names, hostName, boardShapeId, gameRules, customBoardCells, customBoardName, clientIds },
     })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {

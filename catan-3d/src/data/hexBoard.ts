@@ -367,21 +367,52 @@ function shuffle<T>(items: T[], random: () => number): T[] {
  * different tiles under it). Local Pass & Play omits it and keeps its
  * original Math.random() board.
  */
-export function buildHexBoardFromCells(cells: BoardCell[], seed?: string, desertOverride?: number): HexTileData[] {
+export function buildHexBoardFromCells(
+  cells: BoardCell[],
+  seed?: string,
+  desertOverride?: number,
+  biomeOverrides?: Record<string, Biome>,
+): HexTileData[] {
   const random = seed ? createSeededRandom(seed) : Math.random
   const tileCount = cells.length
   const desertCount = desertOverride ?? desertCountFor(tileCount)
-  const biomeSequence = shuffle(buildBiomePool(tileCount, desertCount), random)
+
+  // Painting a tile's biome consumes one matching entry out of the SAME
+  // pool every board already generates from — not a separate "shrink the
+  // target ratio" calculation, which breaks the moment someone paints more
+  // of a biome than its natural share (target could go negative, or every
+  // biome could hit 0 remaining while tiles are still unpainted — a
+  // divide-by-zero waiting to happen). Best-effort: if a painted biome
+  // isn't left in the pool anymore, that tile just doesn't consume
+  // anything — painting beyond a biome's natural share simply means 0 more
+  // of it get added at random elsewhere.
+  let pool = shuffle(buildBiomePool(tileCount, desertCount), random)
+  let paintedCount = 0
+  if (biomeOverrides) {
+    for (const cell of cells) {
+      const override = biomeOverrides[`${cell.col}-${cell.row}`]
+      if (!override) continue
+      paintedCount++
+      const idx = pool.indexOf(override)
+      if (idx !== -1) pool.splice(idx, 1)
+    }
+  }
+  // The pool can still be longer than the number of actually-unpainted
+  // tiles whenever a removal above couldn't find a match — reshuffle and
+  // take exactly what's needed, so the final length is always correct and
+  // any discarded excess is random rather than a fixed tail.
+  pool = shuffle(pool, random).slice(0, tileCount - paintedCount)
+
   const numberSequence = shuffle(buildNumberPool(tileCount - desertCount), random)
-  let biomeIndex = 0
+  let poolIndex = 0
   let numberIndex = 0
 
   return cells.map((cell) => {
     const { x, z } = cellPosition(cell)
-    const biome = biomeSequence[biomeIndex]
+    const key = `${cell.col}-${cell.row}`
+    const biome = biomeOverrides?.[key] ?? pool[poolIndex++]
     const number = biome === 'desert' ? null : numberSequence[numberIndex++]
-    biomeIndex++
-    return { id: `${cell.col}-${cell.row}`, col: cell.col, row: cell.row, x, z, biome, number }
+    return { id: key, col: cell.col, row: cell.row, x, z, biome, number }
   })
 }
 
@@ -391,7 +422,12 @@ export function buildHexBoardFromCells(cells: BoardCell[], seed?: string, desert
  * `shapeId` entirely — this is how a saved BoardShapeEditor.tsx shape gets
  * played, while keeping the simple id-based path for the 3 built-ins.
  */
-export function buildHexBoard(seed?: string, shapeId: BoardShapeId = 'standard', customCells?: BoardCell[]): HexTileData[] {
+export function buildHexBoard(
+  seed?: string,
+  shapeId: BoardShapeId = 'standard',
+  customCells?: BoardCell[],
+  customBiomeOverrides?: Record<string, Biome>,
+): HexTileData[] {
   const isCustom = customCells != null && customCells.length > 0
   // shapeId can arrive from an online peer's game-started broadcast, which
   // isn't runtime-validated against BoardShapeId — a stale build on one tab,
@@ -407,5 +443,6 @@ export function buildHexBoard(seed?: string, shapeId: BoardShapeId = 'standard',
   // custom shape in the editor always gets the automatic ratio, regardless
   // of what a promoted built-in with the same tile count happens to use.
   const desertOverride = isCustom ? undefined : DESERT_COUNT_OVERRIDES[shapeId]
-  return buildHexBoardFromCells(cells, seed, desertOverride)
+  const biomeOverrides = isCustom ? customBiomeOverrides : undefined
+  return buildHexBoardFromCells(cells, seed, desertOverride, biomeOverrides)
 }

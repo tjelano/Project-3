@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHexBoard } from './hexBoard'
+import { buildHexBoard, buildHexBoardFromCells } from './hexBoard'
 
 describe('buildHexBoard', () => {
   it('generates exactly 19 tiles', () => {
@@ -94,5 +94,73 @@ describe('buildHexBoard', () => {
     const biomes2 = board2.map(t => t.biome)
 
     expect(biomes1).not.toEqual(biomes2)
+  })
+})
+
+describe('buildHexBoardFromCells biome overrides', () => {
+  const cells = [
+    { col: 0, row: 0 },
+    { col: 0, row: 1 },
+    { col: 0, row: 2 },
+    { col: 1, row: 0 },
+    { col: -1, row: -1 },
+  ]
+
+  it('assigns the exact painted biome to a painted tile', () => {
+    const board = buildHexBoardFromCells(cells, 'seed-1', undefined, { '0-0': 'desert' })
+    const tile = board.find((t) => t.col === 0 && t.row === 0)
+    expect(tile?.biome).toBe('desert')
+    expect(tile?.number).toBeNull()
+  })
+
+  it('still produces exactly one tile per input cell', () => {
+    const board = buildHexBoardFromCells(cells, 'seed-1', undefined, { '0-0': 'desert' })
+    expect(board.length).toBe(cells.length)
+  })
+
+  it('produces the same result for the same seed with the same overrides', () => {
+    const overrides = { '0-0': 'mountains' as const }
+    const board1 = buildHexBoardFromCells(cells, 'seed-2', undefined, overrides)
+    const board2 = buildHexBoardFromCells(cells, 'seed-2', undefined, overrides)
+    expect(board1).toEqual(board2)
+  })
+
+  it('is unaffected by biomeOverrides being entirely absent (backward compatible)', () => {
+    const withUndefined = buildHexBoardFromCells(cells, 'seed-3')
+    const withEmpty = buildHexBoardFromCells(cells, 'seed-3', undefined, {})
+    expect(withUndefined).toEqual(withEmpty)
+  })
+
+  it('handles painting more of a biome than its natural share without crashing or losing tiles', () => {
+    // desertCountFor(5) is 1 — painting 3 deserts already exceeds the
+    // natural share for two of them. This must not throw or shrink the board.
+    const overrides = { '0-0': 'desert' as const, '0-1': 'desert' as const, '0-2': 'desert' as const }
+    const board = buildHexBoardFromCells(cells, 'seed-4', undefined, overrides)
+    expect(board.length).toBe(cells.length)
+    const painted = board.filter((t) => ['0-0', '0-1', '0-2'].includes(`${t.col}-${t.row}`))
+    expect(painted.every((t) => t.biome === 'desert')).toBe(true)
+  })
+
+  it('still assigns a random number to a painted non-desert tile', () => {
+    const board = buildHexBoardFromCells(cells, 'seed-5', undefined, { '0-0': 'mountains' })
+    const tile = board.find((t) => t.col === 0 && t.row === 0)
+    expect(tile?.number).not.toBeNull()
+    expect(tile?.number).toBeGreaterThanOrEqual(2)
+    expect(tile?.number).toBeLessThanOrEqual(12)
+  })
+})
+
+describe('buildHexBoard with customBiomeOverrides', () => {
+  it('passes overrides through only when a custom shape is active', () => {
+    const customCells = [{ col: 0, row: 0 }, { col: 0, row: 1 }, { col: 1, row: 0 }]
+    const board = buildHexBoard('seed-6', 'standard', customCells, { '0-0': 'hills' })
+    const tile = board.find((t) => t.col === 0 && t.row === 0)
+    expect(tile?.biome).toBe('hills')
+  })
+
+  it('ignores customBiomeOverrides when no custom cells are given', () => {
+    const withOverrides = buildHexBoard('seed-7', 'standard', undefined, { '0-0': 'hills' })
+    const without = buildHexBoard('seed-7', 'standard')
+    expect(withOverrides).toEqual(without)
   })
 })

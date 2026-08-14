@@ -5,6 +5,10 @@ import type { DevCardType, GameRules, PlayerColorToken, ResourceType } from '../
 import type { BoardCell, BoardShapeId } from '../data/hexBoard'
 
 export interface RoomPlayer {
+  // Only ever present on entries the HOOK hands back via `players` (set
+  // from the presence key at sync time) — never set it on the `self` object
+  // passed in for tracking, the hook doesn't read it back off `self`.
+  id?: string
   name: string
   isHost: boolean
   // Only meaningful on the host's own presence entry — the lobby size every
@@ -13,6 +17,14 @@ export interface RoomPlayer {
   // Each player's own pick, live in the lobby — everyone else's presence
   // entries are what a joiner checks to avoid picking an already-taken color.
   colorToken?: PlayerColorToken
+  // Both only meaningful on the host's own presence entry — true while the
+  // host has re-opened the region picker to change the map (without leaving
+  // the room), with previewBoardShapeId tracking whichever built-in region
+  // is currently highlighted so every other client can mirror it live.
+  // Absent/false once the host confirms and returns to the lobby. Doesn't
+  // cover picking/drawing a custom shape — that stays host-only, unsynced.
+  isChoosingMap?: boolean
+  previewBoardShapeId?: BoardShapeId
 }
 
 export type RoomConnectionStatus = 'connecting' | 'connected' | 'error'
@@ -246,6 +258,18 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     handlersRef.current = handlers
   })
 
+  // A presence entry's KEY has to stay stable for the life of one connection
+  // — self.name can't be used for it (some callers, like HostMenu's own name
+  // field, update it live on every keystroke before Start Game, not just
+  // once up front). A random per-tab id, generated once (lazy useState
+  // initializer, same pattern HostMenu's own roomCode uses) and never
+  // touched again, decouples "which browser tab is this" (the key) from
+  // "what did they type" (name — just a normal field on the track()'d
+  // payload now, same as colorToken already was). useState rather than a
+  // ref specifically so it's safe to read during render for the return
+  // value below.
+  const [clientId] = useState(() => crypto.randomUUID())
+
   useEffect(() => {
     if (!roomCode || !self) return
 
@@ -269,18 +293,24 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     }
 
     const channel = client.channel(`room:${roomCode}`, {
-      config: { presence: { key: self.name, enabled: true } },
+      config: { presence: { key: clientId, enabled: true } },
     })
     channelRef.current = channel
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<RoomPlayer>()
-      // Presence is keyed by player name, but can briefly hold more than one
-      // meta under the same key during a reconnect race (a leave the server
-      // hasn't acked yet, overlapping a fresh join) — each key's LAST meta is
-      // the current one; keeping only that instead of flatMap-ing every meta
-      // stops a mid-race sync from rendering the same player twice.
-      setPlayers(Object.values(state).map((entries) => entries[entries.length - 1]))
+      // Presence is keyed by the stable per-tab clientId now (not name — see
+      // clientId above), but can briefly hold more than one meta under the
+      // same key during a reconnect race (a leave the server hasn't acked
+      // yet, overlapping a fresh join) — each key's LAST meta is the current
+      // one; keeping only that instead of flatMap-ing every meta stops a
+      // mid-race sync from rendering the same player twice. `id` is attached
+      // here (not part of what a caller tracks) so callers can identify
+      // "which entry is me" by key instead of comparing names — matching by
+      // name is racy the instant a name can change while connected (a local
+      // edit and the server echo of the previous value can briefly disagree,
+      // making a caller's own entry look like a second, different player).
+      setPlayers(Object.entries(state).map(([id, entries]) => ({ ...entries[entries.length - 1], id })))
     })
 
     channel.on<GameStartedPayload>('broadcast', { event: 'game-started' }, ({ payload }) => {
@@ -369,25 +399,27 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       void client.removeChannel(channel)
       channelRef.current = null
     }
-    // Deliberately keyed on identity (room + name) only, NOT on the whole
-    // `self` object — self.name is what the presence KEY is created from
-    // above, so only a genuine identity change (a different room, or the
-    // rare case of the name itself changing) justifies leaving and
-    // rejoining the topic. The effect below re-tracks live fields (color,
-    // host/targetCount) on this SAME channel instead: track() updates an
-    // already-joined presence entry in place, while a leave+rejoin pair
-    // (which is what changing this dependency array would trigger every
-    // time e.g. a lobby color pick changes self's reference) can land the
-    // server-side leave and the new join out of order, briefly leaving TWO
-    // presence metas under the identical key — exactly the kind of ghost
-    // duplicate-player/wrong-color bug this was causing.
+    // Deliberately keyed on room + whether self exists YET, not on self
+    // itself (or any of its fields) — this should run exactly once, the
+    // moment self first goes from null to non-null (typing a first
+    // character), and never again as long as the room stays the same. The
+    // effect below re-tracks every live field (name included, now that the
+    // key above no longer depends on it) on this SAME channel instead:
+    // track() updates an already-joined presence entry in place, while a
+    // leave+rejoin pair (which is what depending on self.name — or any
+    // other live-editable field — used to trigger on every change) can land
+    // the server-side leave and the new join out of order, briefly leaving
+    // TWO presence metas under different keys for the same person — the
+    // ghost duplicate-player/wrong-color bug this was causing when
+    // HostMenu's name field, unlike every earlier caller, updates self on
+    // every keystroke instead of once up front.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, self?.name])
+  }, [roomCode, self != null])
 
-  // Pushes every OTHER live field of `self` (colorToken, isHost,
-  // targetCount) onto the already-joined channel from the effect above,
-  // without ever leaving/rejoining Realtime — see the comment there for why
-  // that distinction matters. Waits for 'connected' so the very first track
+  // Pushes every live field of `self` — name included — onto the
+  // already-joined channel from the effect above, without ever
+  // leaving/rejoining Realtime — see the comment there for why that
+  // distinction matters. Waits for 'connected' so the very first track
   // doesn't fire before the channel has actually joined.
   useEffect(() => {
     if (status !== 'connected' || !self) return
@@ -472,6 +504,11 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   return {
     players,
     status,
+    // This tab's own stable presence key — matches the `id` the hook
+    // attaches to each entry in `players` above, so a caller can find/filter
+    // "which entry is me" via `p.id === clientId` instead of comparing
+    // names (racy the instant a name can change while connected).
+    clientId,
     broadcastGameStarted,
     broadcastDiceRolled,
     broadcastTurnPassed,

@@ -11,6 +11,7 @@ import {
   type CustomBoardShape,
 } from '../../data/customBoardShapes'
 import { BoardShapeEditor } from './BoardShapeEditor'
+import { RegionSelectMenu } from './RegionSelectMenu'
 import { TrashIcon } from './TrashIcon'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EyeIcon } from './EyeIcon'
@@ -35,6 +36,19 @@ const ALL_COLOR_TOKENS: PlayerColorToken[] = [
 
 type OnlineMode = 'choose' | 'host' | 'join' | 'lobby'
 
+// Lets a caller skip straight past the 'choose' screen (now handled by
+// GameSetupMenu.tsx instead) — 'host' seeds the config form with the
+// player count/rules already picked there; 'lobby' drops straight into a
+// room a JoinRoomModal lookup already confirmed exists, no extra click.
+export interface OnlineSetupInitialState {
+  mode: 'host' | 'lobby'
+  targetCount?: number
+  gameRules?: GameRules
+  roomCode?: string
+  selfName?: string
+  isHost?: boolean
+}
+
 const FIELD_CLASS =
   'w-full rounded-lg border border-glass-border bg-white/5 px-3 py-2 text-center font-body text-sm text-white placeholder:text-white/30 focus:border-gold/60 focus:outline-none'
 const PRIMARY_BUTTON_CLASS =
@@ -42,10 +56,24 @@ const PRIMARY_BUTTON_CLASS =
 const SECONDARY_BUTTON_CLASS =
   'mt-1 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70'
 
-export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => void }) {
-  const [mode, setMode] = useState<OnlineMode>('choose')
-  const [selfName, setSelfName] = useState('')
-  const [targetCount, setTargetCount] = useState(2)
+export function OnlineSetup({
+  onStart,
+  initialState,
+  onBack,
+}: {
+  onStart: (info: GameStartInfo) => void
+  // Present only when entered from GameSetupMenu.tsx's new Host/Join
+  // actions — absent, this behaves exactly as it always has (starting on
+  // the 'choose' screen), so nothing else that might render this component
+  // needs to change.
+  initialState?: OnlineSetupInitialState
+  // Returns to whatever screen skipped 'choose' — falls back to setMode('choose')
+  // when absent so this component still works standalone.
+  onBack?: () => void
+}) {
+  const [mode, setMode] = useState<OnlineMode>(initialState?.mode ?? 'choose')
+  const [selfName, setSelfName] = useState(initialState?.selfName ?? '')
+  const [targetCount, setTargetCount] = useState(initialState?.targetCount ?? 2)
   // Either a built-in BoardShapeId, or a saved custom shape's own id —
   // resolved against customShapes when the host actually starts the game.
   const [selectedShapeValue, setSelectedShapeValue] = useState<string>('standard')
@@ -79,14 +107,14 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
       setSelectedShapeValue('standard')
     }
   }
-  const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
+  const [gameRules, setGameRules] = useState<GameRules>(initialState?.gameRules ?? DEFAULT_GAME_RULES)
   // The LOCAL player's own pick — every other seat's color comes back
   // through their own presence entry (RoomPlayer.colorToken), same as
   // their name does. Defaults to the first color; changed live from the
   // lobby screen once a room exists.
   const [myColor, setMyColor] = useState<PlayerColorToken>('player-1')
   const [roomCodeInput, setRoomCodeInput] = useState('')
-  const [roomCode, setRoomCode] = useState<string | null>(null)
+  const [roomCode, setRoomCode] = useState<string | null>(initialState?.roomCode ?? null)
   // Defaults hidden — protects anyone streaming/screen-sharing from having
   // their code sniped the instant this lobby renders. Same toggle idea as
   // RoomCodeTag.tsx's in-game version, kept as its own separate piece of
@@ -105,7 +133,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
     setTimeout(() => setJustCopiedRoomCode(false), COPIED_FEEDBACK_MS)
   }
 
-  const [isHost, setIsHost] = useState(false)
+  const [isHost, setIsHost] = useState(initialState?.isHost ?? false)
   // True while checking whether roomCodeInput already has a match in
   // progress — a real network round-trip, so Join Room needs its own
   // pending state rather than assuming the check is instant.
@@ -132,7 +160,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
     [mode, roomCode, selfName, isHost, targetCount, myColor],
   )
 
-  const { players, status, broadcastGameStarted } = useRoomChannel(roomCode, self, {
+  const { players, status, clientId, broadcastGameStarted } = useRoomChannel(roomCode, self, {
     onGameStarted: (names, hostName, receivedBoardShapeId, receivedGameRules, receivedCustomCells, receivedCustomName) => {
       if (!roomCode) return
       onStart({
@@ -164,7 +192,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   if (mode === 'lobby') {
     const takenByOthers = new Set(
       players
-        .filter((p) => normalizePlayerName(p.name) !== normalizePlayerName(selfName))
+        .filter((p) => p.id !== clientId)
         .map((p) => p.colorToken)
         .filter((c): c is PlayerColorToken => c != null),
     )
@@ -361,7 +389,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
             Delete Map
           </button>
         )}
-        <button type="button" onClick={() => setMode('choose')} className={SECONDARY_BUTTON_CLASS}>
+        <button type="button" onClick={() => (onBack ? onBack() : setMode('choose'))} className={SECONDARY_BUTTON_CLASS}>
           Back
         </button>
         {pendingDeleteShapeId && (
@@ -449,8 +477,26 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
   // mode === 'lobby'
   // Only the host knows the target count directly (it set it) — everyone
   // else reads it back out of the host's own presence entry.
-  const knownTargetCount = isHost ? targetCount : players.find((p) => p.isHost)?.targetCount
+  const host = players.find((p) => p.isHost)
+  const knownTargetCount = isHost ? targetCount : host?.targetCount
   const isFull = knownTargetCount != null && players.length === knownTargetCount
+
+  // The host re-opened the map picker (HostMenu's own Back button) without
+  // leaving the room — mirror it here read-only instead of the normal
+  // waiting-room view, live-updating as they browse (see
+  // RoomPlayer.isChoosingMap/previewBoardShapeId). Host-side this branch
+  // never triggers: HostMenu owns its own picker directly.
+  if (!isHost && host?.isChoosingMap) {
+    return (
+      <RegionSelectMenu
+        initialShape={host.previewBoardShapeId ?? 'standard'}
+        readOnly
+        onConfirm={() => {}}
+        onConfirmCustom={() => {}}
+        onBack={() => {}}
+      />
+    )
+  }
 
   return (
     <div className="mt-8 flex flex-col gap-3 text-left">
@@ -484,7 +530,7 @@ export function OnlineSetup({ onStart }: { onStart: (info: GameStartInfo) => voi
       </p>
       <div className="flex flex-col gap-1.5">
         {players.map((player) => {
-          const isSelf = normalizePlayerName(player.name) === normalizePlayerName(selfName)
+          const isSelf = player.id === clientId
           const takenByOther = new Set(
             players.filter((p) => p !== player).map((p) => p.colorToken).filter((c): c is PlayerColorToken => c != null),
           )

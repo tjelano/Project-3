@@ -26,6 +26,16 @@ const ALL_COLOR_TOKENS: PlayerColorToken[] = [
 // How long the copy button shows its checkmark before reverting.
 const COPIED_FEEDBACK_MS = 1500
 
+// A host's name field used to start genuinely empty, which meant self
+// stayed null (untracked) until they typed something — so a joiner
+// connecting in that window saw no host at all, not even a placeholder
+// row. Seeding it with a real, already-editable name instead means the
+// host is visible and trackable from the moment they land here, same as a
+// joiner (who always arrives with a name already chosen in JoinRoomModal).
+// Matches the "Player N" convention LocalSetup/GameSetupMenu already use
+// for their own default names.
+const DEFAULT_HOST_NAME = 'Player 1'
+
 // Caps how wide the whole panel renders (px) — raise this to make the panel
 // (and everything painted on it) bigger on screen. 768 matches Tailwind's
 // own max-w-3xl, which this replaces so the size is a plain editable number
@@ -194,7 +204,7 @@ export function RoomLobby(props: RoomLobbyProps) {
   const startGameGlow = useHoverActive()
 
   const [roomCode] = useState(() => (isHostRole ? generateRoomCode() : props.roomCode))
-  const [selfName, setSelfName] = useState(isHostRole ? '' : props.selfName)
+  const [selfName, setSelfName] = useState(isHostRole ? DEFAULT_HOST_NAME : props.selfName)
   const [myColor, setMyColor] = useState<PlayerColorToken>('player-1')
   // Defaults hidden — protects against a code getting sniped off a
   // stream/screen-share.
@@ -518,6 +528,10 @@ export function RoomLobby(props: RoomLobbyProps) {
                     type="text"
                     value={selfName}
                     onChange={(event) => setSelfName(event.target.value)}
+                    // Selects the seeded DEFAULT_HOST_NAME on first focus so
+                    // typing replaces it outright, rather than the host
+                    // having to manually clear "Player 1" first.
+                    onFocus={(event) => event.target.select()}
                     placeholder="Your name"
                     maxLength={20}
                     className="min-w-0 flex-1 bg-transparent font-body text-white placeholder:text-white/30 focus:outline-none"

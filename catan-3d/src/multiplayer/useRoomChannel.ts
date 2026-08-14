@@ -337,6 +337,14 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
     channelRef.current = channel
 
+    // Ignores any status callback that arrives after THIS channel has
+    // already been torn down (see the cleanup below) — removeChannel's own
+    // server round trip can still deliver a late CLOSED for the OLD channel
+    // after a retry has already moved on to a new one; without this guard
+    // that stale callback would call setStatus('error') and clobber the new
+    // channel's already-'connected' status.
+    let isCurrent = true
+
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<RoomPlayer>()
       // Presence is keyed by the stable per-tab clientId now (not name — see
@@ -424,18 +432,28 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       handlersRef.current.onChatMessage?.(payload)
     })
 
-    channel.subscribe((subStatus) => {
+    channel.subscribe((subStatus, err) => {
+      if (!isCurrent) return
       if (subStatus === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
         setStatus('connected')
       } else if (
         subStatus === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
-        subStatus === REALTIME_SUBSCRIBE_STATES.TIMED_OUT
+        subStatus === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
+        subStatus === REALTIME_SUBSCRIBE_STATES.CLOSED
       ) {
+        // CLOSED fires for a server-initiated close too (e.g. Realtime
+        // rate-limiting a channel that got hammered with too many presence
+        // updates in a burst — see the debounce on track() below, which
+        // exists specifically to stay under that) — not just our own
+        // deliberate teardown, which sets isCurrent = false first and so
+        // never reaches this branch.
+        if (err) console.error('[Catan] Realtime subscribe error:', subStatus, err)
         setStatus('error')
       }
     })
 
     return () => {
+      isCurrent = false
       void client.removeChannel(channel)
       channelRef.current = null
     }
@@ -468,12 +486,33 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   // field updates self on every keystroke instead of once up front. Waits
   // for 'connected' so the very first call doesn't fire before the channel
   // has actually joined.
+  //
+  // track() itself is debounced: publishing on every single keystroke of a
+  // live-editable name field sent a burst of several track() calls within
+  // milliseconds while typing a whole name, and Realtime responded to that
+  // burst by closing the channel outright (confirmed via the subscribe
+  // callback's status — a genuine server-side rate limit, not something a
+  // reconnect could just retry past, since retrying would immediately
+  // trigger the same burst again). Waiting for a short pause in changes
+  // before publishing keeps the update rate sane while still reading as
+  // live once someone stops typing.
+  const TRACK_DEBOUNCE_MS = 400
+  const trackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (status !== 'connected') return
+    if (trackTimerRef.current != null) {
+      clearTimeout(trackTimerRef.current)
+      trackTimerRef.current = null
+    }
     if (self) {
-      void channelRef.current?.track(self)
+      trackTimerRef.current = setTimeout(() => {
+        void channelRef.current?.track(self)
+      }, TRACK_DEBOUNCE_MS)
     } else {
       void channelRef.current?.untrack()
+    }
+    return () => {
+      if (trackTimerRef.current != null) clearTimeout(trackTimerRef.current)
     }
   }, [self, status])
 

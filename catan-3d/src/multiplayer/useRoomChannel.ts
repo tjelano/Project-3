@@ -27,6 +27,11 @@ export interface RoomPlayer {
   previewBoardShapeId?: BoardShapeId
 }
 
+// What `players` below actually holds — the hook always attaches `id` (see
+// the presence sync handler), so callers reading FROM `players` get it
+// guaranteed, even though a caller WRITING `self` never sets it themselves.
+export type PresencePlayer = RoomPlayer & { id: string }
+
 export type RoomConnectionStatus = 'connecting' | 'connected' | 'error'
 
 export interface DiceRolledPayload {
@@ -244,7 +249,7 @@ export interface RoomChannelHandlers {
  * resubscribing to the same topic, which Realtime supports natively.
  */
 export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null, handlers: RoomChannelHandlers) {
-  const [players, setPlayers] = useState<RoomPlayer[]>([])
+  const [players, setPlayers] = useState<PresencePlayer[]>([])
   const [status, setStatus] = useState<RoomConnectionStatus>('connecting')
   const channelRef = useRef<RealtimeChannel | null>(null)
 

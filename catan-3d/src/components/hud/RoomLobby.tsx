@@ -4,7 +4,7 @@ import hostroomPlayerIconsUrl from '../../assets/menu/hostroom-player-icons.png'
 import selectorBorderUrl from '../../assets/menu/selector-border.png'
 import { isSupabaseConfigured } from '../../lib/supabaseClient'
 import { generateRoomCode, normalizePlayerName } from '../../multiplayer/roomCode'
-import { useRoomChannel, type RoomPlayer } from '../../multiplayer/useRoomChannel'
+import { useRoomChannel, type PresencePlayer, type RoomPlayer } from '../../multiplayer/useRoomChannel'
 import { EyeIcon } from './EyeIcon'
 import { CopyIcon } from './CopyIcon'
 import { RegionSelectMenu } from './RegionSelectMenu'
@@ -303,11 +303,12 @@ export function RoomLobby(props: RoomLobbyProps) {
   // time otherPlayers is non-empty for a given client, they've necessarily
   // already tracked something, so this list always includes them.
   const hasRealOthers = otherPlayers.length > 0
-  const orderedRealPlayers = self
-    ? [{ id: clientId, name: selfName, isHost: isHostRole, colorToken: myColor } as RoomPlayer & { id: string }, ...otherPlayers].sort(
-        comparePlayers,
-      )
-    : [...otherPlayers].sort(comparePlayers)
+  const selfEntry: PresencePlayer | null = self
+    ? { id: clientId, name: selfName, isHost: isHostRole, colorToken: myColor }
+    : null
+  const orderedRealPlayers: PresencePlayer[] = (selfEntry ? [selfEntry, ...otherPlayers] : [...otherPlayers]).sort(
+    comparePlayers,
+  )
   const selfSlotIndex = hasRealOthers ? orderedRealPlayers.findIndex((p) => p.id === clientId) : 0
 
   // Falls back to TEMP_TEST_PLAYERS purely for what gets drawn in the row
@@ -518,8 +519,9 @@ export function RoomLobby(props: RoomLobbyProps) {
           // -1 offset is needed); the fallback preview fakes are indexed
           // relative to slot 0, same as before.
           const player = hasRealOthers ? orderedRealPlayers[index] : TEMP_TEST_PLAYERS[index - 1]
+          const key = !player ? `empty-${index}` : 'id' in player ? player.id : player.name
           return (
-            <div key={player?.id ?? player?.name ?? `empty-${index}`}>
+            <div key={key}>
               {player?.colorToken && (
                 <div
                   aria-label={`${player.name}'s color: ${player.colorToken}`}

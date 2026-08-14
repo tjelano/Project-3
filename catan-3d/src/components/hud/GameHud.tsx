@@ -179,7 +179,15 @@ export function GameHud({
         currentPlayerIndex={currentPlayerIndex}
         statusLabel={statusLabel}
         onRestart={onRestart}
-        canRestart={canRestart}
+        // tradeBlocked/pickerBlocked only stop mouse hit-testing on their
+        // own full-screen overlays, not Tab order or Enter/Space — without
+        // this, a keyboard user could tab past a decision another player
+        // needs to make (accept/decline a trade, choose dev-card
+        // resources) straight to New Game and wipe the match out from
+        // under them. winner deliberately does NOT block this: restarting
+        // from the victory screen is the normal next action there, not a
+        // bypass of anything still in progress.
+        canRestart={canRestart && !tradeBlocked && !pickerBlocked}
       />
       <EventBanner banner={banner} />
       {/* Its own independent slot, ABOVE the stack below — kept out of that

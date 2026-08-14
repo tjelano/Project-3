@@ -24,7 +24,7 @@ import {
   type HoverChangedPayload,
   type ChatMessagePayload,
 } from './multiplayer/useRoomChannel'
-import { saveMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
+import { saveMatchSnapshot, loadMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
 import { buildHexBoard, type BoardCell, type BoardShapeId } from './data/hexBoard'
 import { createSeededRandom } from './utils/seededRandom'
@@ -147,6 +147,12 @@ function App() {
     // Join like anyone else, and still needs to be recognized as host so
     // autosaving doesn't silently stop the moment they refresh the page.
     isHost: boolean
+    // Kept even for a non-host client — lets isEffectiveHost (below) tell
+    // whether the ORIGINAL host's presence is still in the room, so host
+    // authority (autosave, restart, resolving trades/discards) can fail
+    // over to someone else instead of freezing the match if the host's own
+    // browser is the one that's gone.
+    hostName: string
   } | null>(null)
 
   const [tiles, setTiles] = useState(() => buildHexBoard())
@@ -233,6 +239,13 @@ function App() {
   const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
+  // Guards resolvePlayerTrade against a rapid double-click on Accept — a
+  // ref rather than state specifically because it has to block a SECOND
+  // click that lands before React has re-rendered from the first one (a
+  // state update wouldn't be visible yet to that second synchronous call).
+  // Reset by the effect near resolvePlayerTrade whenever pendingTrade
+  // itself changes, so it never blocks a genuinely NEW trade.
+  const isResolvingTradeRef = useRef(false)
   const [freeRoadsRemaining, setFreeRoadsRemaining] = useState(0)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
@@ -483,18 +496,29 @@ function App() {
     victimId: number | null,
     stolenResource: ResourceType | null,
   ) => {
+    // Broadcast-sourced — validated before ever being used as a resources[]
+    // key/arithmetic operand. An untrusted or version-mismatched payload
+    // with a bogus resource string would otherwise write NaN into a real
+    // player's resource count permanently (every future +/- on it stays
+    // NaN), which then poisons the 7-card discard threshold for the rest
+    // of the match. Falls back to "nothing stolen" rather than dropping the
+    // whole robber move, same as a genuinely empty-handed victim.
+    const safeStolenResource = stolenResource != null && RESOURCE_ORDER.includes(stolenResource) ? stolenResource : null
+    if (stolenResource != null && safeStolenResource == null) {
+      console.error('[Catan] Ignoring robber-move payload with an invalid stolen resource:', stolenResource)
+    }
     setRobberTileId(tileId)
     playSfx('robber')
 
     let stealNote = ''
-    if (victimId != null && stolenResource != null) {
+    if (victimId != null && safeStolenResource != null) {
       setPlayers((prev) =>
         prev.map((p) => {
           if (p.id === victimId) {
-            return { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] - 1 } }
+            return { ...p, resources: { ...p.resources, [safeStolenResource]: p.resources[safeStolenResource] - 1 } }
           }
           if (p.id === thiefId) {
-            return { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] + 1 } }
+            return { ...p, resources: { ...p.resources, [safeStolenResource]: p.resources[safeStolenResource] + 1 } }
           }
           return p
         }),
@@ -502,7 +526,7 @@ function App() {
       const thief = playerById.get(thiefId)
       const victim = playerById.get(victimId)
       if (thief && victim) {
-        stealNote = ` ${thief.name} stole 1 ${RESOURCE_LABELS[stolenResource]} from ${victim.name}!`
+        stealNote = ` ${thief.name} stole 1 ${RESOURCE_LABELS[safeStolenResource]} from ${victim.name}!`
       }
     } else if (victimId != null) {
       const victim = playerById.get(victimId)
@@ -644,6 +668,16 @@ function App() {
         if (p.id !== playerId) return p
         const resources = { ...p.resources }
         for (const [type, count] of Object.entries(counts)) {
+          // Broadcast-sourced on the receiving end (the local path only
+          // ever produces valid ResourceType keys and finite counts from
+          // the player's own confirmed card selection) — validated here
+          // too since this function is the one trusted-apply path both
+          // sides funnel through. A bogus key/count would otherwise write
+          // NaN into a real resource count permanently.
+          if (!RESOURCE_ORDER.includes(type as ResourceType) || !Number.isFinite(count)) {
+            console.error('[Catan] Ignoring invalid discard entry:', type, count)
+            continue
+          }
           resources[type as ResourceType] -= count as number
         }
         return { ...p, resources }
@@ -678,6 +712,14 @@ function App() {
   // the identical `room:<code>` topic, so this one picks up the match right
   // where the lobby left off.
   const {
+    // Renamed on destructure — `players` is already this file's own game
+    // roster; this is the Realtime PRESENCE roster (who's actually
+    // connected right now), a completely different thing. Previously never
+    // read here at all: a mid-match disconnect/reconnect had no resync (see
+    // the effect below) and the host had no fallback if THEIR OWN browser
+    // was the one that dropped for good (see isEffectiveHost below).
+    players: roomPresence,
+    status: connectionStatus,
     broadcastDiceRolled,
     broadcastTurnPassed,
     broadcastSettlementBuilt,
@@ -731,11 +773,11 @@ function App() {
       setPendingTrade(payload)
       playSfx('tradeRequest')
     },
-    // Every client hears this, but only the host acts on it — see
-    // resolveTradeAsHost, below, which validates against the host's own
-    // (authoritative) copy of both players' resources before applying.
+    // Every client hears this, but only the (effective) host acts on it —
+    // see resolveTradeAsHost, below, which validates against the host's
+    // own (authoritative) copy of both players' resources before applying.
     onTradeAcceptRequest: (payload) => {
-      if (onlineInfo?.isHost) resolveTradeAsHost(payload)
+      if (isEffectiveHost) resolveTradeAsHost(payload)
     },
     onTradeResolved: (payload) => {
       applyTradeResolution(payload)
@@ -774,6 +816,14 @@ function App() {
       setDevDeck((prev) => prev.slice(1))
     },
     onBankTrade: (payload) => {
+      // Broadcast-sourced — validated before ever being used as resources[]
+      // keys/arithmetic operands. Same reasoning as applyRobberMove: a
+      // bogus resource string or non-finite rate would otherwise write NaN
+      // into a real player's resource count permanently.
+      if (!RESOURCE_ORDER.includes(payload.give) || !RESOURCE_ORDER.includes(payload.receive) || !Number.isFinite(payload.rate)) {
+        console.error('[Catan] Ignoring malformed bank-trade payload:', payload)
+        return
+      }
       setPlayers((prev) =>
         prev.map((p) =>
           p.id === payload.playerId
@@ -818,6 +868,31 @@ function App() {
     broadcastChatMessage(payload)
     setChatMessages((prev) => [...prev.slice(-49), payload])
   }
+
+  // True for the ORIGINAL host, or — if their presence is no longer in the
+  // room — for whichever CURRENTLY CONNECTED player has the lowest player
+  // id. Every client independently computes the identical answer from the
+  // identical `players` array, no coordination needed, same "everyone
+  // derives the same result" pattern the board shuffle and starting-player
+  // pick already rely on. Used everywhere host AUTHORITY is checked
+  // (autosave, restart, resolving trades/discards) instead of the fixed
+  // onlineInfo.isHost, so the match doesn't freeze for good just because
+  // the actual host's own browser is the one that's disconnected — before
+  // this, autosave silently stopped and restart/resolve-trade/discard-
+  // timeout all stayed permanently host-gated with no fallback. Matching
+  // presence to a Player by NAME is safe here (unlike the live-editable
+  // lobby the earlier clientId fix was for) because match names are
+  // locked in at Start Game, and RoomLobby now refuses to start a match
+  // with two players sharing one.
+  const isEffectiveHost = (() => {
+    if (!onlineInfo) return false
+    if (onlineInfo.isHost) return true
+    const connectedNames = new Set(roomPresence.map((p) => normalizePlayerName(p.name)))
+    if (connectedNames.has(normalizePlayerName(onlineInfo.hostName))) return false
+    const connectedIds = players.filter((p) => connectedNames.has(normalizePlayerName(p.name))).map((p) => p.id)
+    const lowestConnectedId = connectedIds.length > 0 ? Math.min(...connectedIds) : null
+    return lowestConnectedId === onlineInfo.localPlayerId
+  })()
 
   // Local (non-online) games are always "your turn" — whoever is at the
   // keyboard controls whichever player is active, same as it always has.
@@ -1387,7 +1462,7 @@ function App() {
   // Play has no separate host/broadcast concept, so it applies directly.
   useEffect(() => {
     if (gamePhase !== 'discard' || validDiscardPlayerIds.length === 0) return
-    if (onlineInfo && !onlineInfo.isHost) return
+    if (onlineInfo && !isEffectiveHost) return
     const timer = setTimeout(() => {
       for (const playerId of validDiscardPlayerIds) {
         const player = playerById.get(playerId)
@@ -1400,8 +1475,8 @@ function App() {
       }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- playerById/onlineInfo/inform/applyDiscard/broadcastDiscardConfirmed are read fresh via closure; only gamePhase/validDiscardPlayerIds identity should restart the timer.
-  }, [gamePhase, validDiscardPlayerIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playerById/onlineInfo/inform/applyDiscard/broadcastDiscardConfirmed are read fresh via closure; only gamePhase/validDiscardPlayerIds/isEffectiveHost identity should restart the timer.
+  }, [gamePhase, validDiscardPlayerIds, isEffectiveHost])
 
   const moveRobber = (tileId: string) => {
     if (winner) return
@@ -1591,6 +1666,13 @@ function App() {
   const resolvePlayerTrade = (accept: boolean) => {
     if (winner) return
     if (!pendingTrade) return
+    // A double-click (or a stray double key-activation) on Accept/Decline
+    // used to be able to fire this twice before the first call's
+    // setPendingTrade(null) had actually re-rendered — the host-as-target
+    // path in particular ran resolveTradeAsHost, and therefore the resource
+    // swap, off the same closure-captured state for both clicks.
+    if (isResolvingTradeRef.current) return
+    isResolvingTradeRef.current = true
 
     if (!accept) {
       const toPlayer = playerById.get(pendingTrade.toPlayerId)
@@ -1603,21 +1685,44 @@ function App() {
 
     if (!onlineInfo) {
       // Local Pass & Play: everyone shares one screen and one authoritative
-      // state, so there's nothing to arbitrate — resolve immediately.
+      // state, so there's nothing to arbitrate between DIFFERENT clients —
+      // but the accepting player's own resources still need checking here.
+      // Only the OFFERER's side was validated back when the trade was
+      // proposed; applyTradeResolution itself deliberately trusts its
+      // caller rather than re-validating (see its own comment), so nothing
+      // upstream confirms the ACCEPTER actually still has what's being
+      // asked for — accepting a trade for a resource you don't have used
+      // to send that count to -1 while the proposer received a resource
+      // they never paid for.
+      const fromPlayer = playerById.get(pendingTrade.fromPlayerId)
+      const toPlayer = playerById.get(pendingTrade.toPlayerId)
+      if (
+        !fromPlayer ||
+        !toPlayer ||
+        toPlayer.resources[pendingTrade.wantResource] < 1 ||
+        fromPlayer.resources[pendingTrade.offerResource] < 1
+      ) {
+        const reason = `The trade between ${fromPlayer?.name ?? 'a player'} and ${toPlayer?.name ?? 'a player'} fell through — resources changed.`
+        setPendingTrade(null)
+        inform(reason)
+        return
+      }
       applyTradeResolution(pendingTrade)
       setPendingTrade(null)
       return
     }
 
-    if (onlineInfo.isHost) {
-      // The host accepting their own incoming offer: resolve directly
-      // rather than broadcasting a request to itself — Realtime broadcasts
-      // don't echo back to the sender, so nothing would ever receive it.
+    if (isEffectiveHost) {
+      // The (effective) host accepting their own incoming offer: resolve
+      // directly rather than broadcasting a request to itself — Realtime
+      // broadcasts don't echo back to the sender, so nothing would ever
+      // receive it.
       resolveTradeAsHost(pendingTrade)
     } else {
-      // Non-host accepting: don't apply locally. Ask the host to validate
-      // against its own authoritative resource counts first (pendingTrade
-      // stays set — still awaiting TRADE_RESOLVED/TRADE_CANCELLED).
+      // Not the (effective) host: don't apply locally. Ask whoever has
+      // host authority right now to validate against their own
+      // authoritative resource counts first (pendingTrade stays set —
+      // still awaiting TRADE_RESOLVED/TRADE_CANCELLED).
       broadcastTradeAcceptRequest(pendingTrade)
     }
   }
@@ -1645,6 +1750,14 @@ function App() {
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- inform/broadcastTradeCancelled are stable-enough callers read fresh via closure each run; only pendingTrade/onlineInfo identity should restart the timer.
   }, [pendingTrade, onlineInfo])
+
+  // Un-blocks resolvePlayerTrade's double-click guard whenever pendingTrade
+  // itself changes — including the moment a trade is newly proposed, so a
+  // stale `true` left over from a PREVIOUS trade's resolution never blocks
+  // this one.
+  useEffect(() => {
+    isResolvingTradeRef.current = false
+  }, [pendingTrade])
 
   const buyDevCard = () => {
     if (!canPerformAction()) return
@@ -1797,7 +1910,14 @@ function App() {
   const resetGame = (
     count: number,
     names?: string[],
-    online?: { roomCode: string; localPlayerName: string; isHost: boolean; localClientId?: string; clientIds?: string[] },
+    online?: {
+      roomCode: string
+      localPlayerName: string
+      isHost: boolean
+      localClientId?: string
+      clientIds?: string[]
+      hostName?: string
+    },
     // A restart needs a NEW layout, not the same one every time — the room
     // code alone is a constant seed, so reusing it here would reshuffle to
     // the exact same board on every "New Game". restartGame generates a
@@ -1886,6 +2006,7 @@ function App() {
                 : findPlayerIndexByName(resolvedNames, online.localPlayerName)) + 1,
             localPlayerName: online.localPlayerName,
             isHost: online.isHost,
+            hostName: online.hostName ?? online.localPlayerName,
           }
         : null,
     )
@@ -1945,6 +2066,7 @@ function App() {
       localPlayerId: findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1,
       localPlayerName: online.localPlayerName,
       isHost: online.isHost,
+      hostName: snapshot.hostName,
     })
     setSettlements(snapshot.settlements)
     setRoads(snapshot.roads)
@@ -1979,6 +2101,28 @@ function App() {
     setBoardInstance((n) => n + 1)
   }
 
+  // A dropped-then-restored Realtime connection (CHANNEL_ERROR/TIMED_OUT/
+  // CLOSED, then the hook's own retry) used to leave whatever was broadcast
+  // during the outage gone for good — this client's local state could
+  // silently keep diverging from everyone else's for the rest of the
+  // match, with nothing here even reading connectionStatus to notice.
+  // Re-fetching the last-saved snapshot and fully re-hydrating from it
+  // (the same path a fresh reconnect through the lobby already uses) is
+  // simpler and more robust than trying to replay whatever was missed.
+  // Declared here (not right beside isEffectiveHost, which it'd otherwise
+  // sit next to) because it calls restoreFromSnapshot, declared just above.
+  const prevConnectionStatusRef = useRef(connectionStatus)
+  useEffect(() => {
+    const prevStatus = prevConnectionStatusRef.current
+    prevConnectionStatusRef.current = connectionStatus
+    if (!onlineInfo || !gameStarted) return
+    if (connectionStatus !== 'connected' || prevStatus === 'connected') return
+    void loadMatchSnapshot(onlineInfo.roomCode).then((snapshot) => {
+      if (snapshot) restoreFromSnapshot(snapshot, onlineInfo)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onlineInfo/restoreFromSnapshot read fresh via closure; only the connectionStatus transition itself should trigger this.
+  }, [connectionStatus, gameStarted])
+
   const startGame = (info: GameStartInfo) => {
     if (info.snapshot && info.online) {
       restoreFromSnapshot(info.snapshot, info.online)
@@ -2004,11 +2148,14 @@ function App() {
 
   const restartGame = () => {
     if (onlineInfo) {
-      // Host-only: mirrors the TopBar button being disabled for everyone
-      // else, but re-checked here too since this fires other players'
-      // whole board straight from local state — never trust the click
-      // alone for an action with this much blast radius.
-      if (!onlineInfo.isHost) return
+      // Effective-host-only: mirrors the TopBar button being disabled for
+      // everyone else, but re-checked here too since this fires other
+      // players' whole board straight from local state — never trust the
+      // click alone for an action with this much blast radius. Uses
+      // isEffectiveHost (not the fixed onlineInfo.isHost) so the room
+      // isn't permanently stuck on Restart if the original host's own
+      // browser is the one that's gone for good.
+      if (!isEffectiveHost) return
       const boardSeed = Math.random().toString(36).slice(2)
       broadcastNewGame({ boardSeed })
       resetGame(playerCount, undefined, onlineInfo, boardSeed)
@@ -2024,17 +2171,26 @@ function App() {
     setGameStarted(false)
   }
 
-  // Host-only, online-only: after any state-settling change, persist a full
-  // snapshot so a reload — this browser's own, or the match resuming after
-  // everyone had disconnected — has something to restore from. Broad
+  // Effective-host-only, online-only: after any state-settling change,
+  // persist a full snapshot so a reload — this browser's own, or the match
+  // resuming after everyone had disconnected — has something to restore
+  // from. Uses isEffectiveHost (not the fixed onlineInfo.isHost) so
+  // autosaving doesn't just silently stop the moment the original host's
+  // own browser is the one that's gone — before this, that meant no
+  // further progress was ever saved, and the room could only ever resume
+  // from whatever was last written before the host disappeared. Broad
   // dependency list is deliberate: this is meant to fire on essentially
   // every meaningful game event (dice, builds, robber, dev cards, turns),
   // and React's own change-detection is a more reliable way to guarantee
   // that than manually instrumenting every mutation site individually.
   useEffect(() => {
-    if (!onlineInfo?.isHost || !gameStarted) return
+    if (!onlineInfo || !isEffectiveHost || !gameStarted) return
     const snapshot: MatchSnapshot = {
-      hostName: onlineInfo.localPlayerName,
+      // The ORIGINAL host's name, always — never the current saver's own
+      // (onlineInfo.localPlayerName), which would be wrong the moment a
+      // fallback effective host is the one actually saving, silently
+      // corrupting which player every future reconnect recognizes as host.
+      hostName: onlineInfo.hostName,
       boardShapeId,
       customBoardCells,
       gameRules,
@@ -2063,6 +2219,7 @@ function App() {
     saveMatchSnapshot(onlineInfo.roomCode, snapshot)
   }, [
     onlineInfo,
+    isEffectiveHost,
     gameStarted,
     boardShapeId,
     customBoardCells,
@@ -2229,7 +2386,7 @@ function App() {
         setupStage={setupStage}
         banner={banner}
         onRestart={restartGame}
-        canRestart={onlineInfo == null || onlineInfo.isHost}
+        canRestart={onlineInfo == null || isEffectiveHost}
         portRates={currentPlayerPortRates}
         onTrade={bankTrade}
         isRolling={isRolling}

@@ -43,7 +43,17 @@ export interface GameStartInfo {
   // reconnect never does) let App.tsx resolve "which seat is this browser"
   // by stable id instead of by re-matching localPlayerName against `names`,
   // which can be stale by the time Start Game is actually clicked.
-  online?: { roomCode: string; localPlayerName: string; isHost: boolean; localClientId?: string; clientIds?: string[] }
+  // hostName lets App.tsx tell whether the ORIGINAL host is still present
+  // later in the match (isEffectiveHost), so host authority can fail over
+  // instead of freezing the game if that browser disconnects for good.
+  online?: {
+    roomCode: string
+    localPlayerName: string
+    isHost: boolean
+    localClientId?: string
+    clientIds?: string[]
+    hostName?: string
+  }
   // Present when rejoining a match already in progress — App.tsx restores
   // exactly this saved state instead of building a fresh game.
   snapshot?: MatchSnapshot

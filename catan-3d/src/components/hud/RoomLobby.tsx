@@ -281,6 +281,7 @@ export function RoomLobby(props: RoomLobbyProps) {
           // permanently lock a fast-typing joiner out of their own turn.
           localClientId: clientId,
           clientIds: receivedClientIds,
+          hostName,
         },
       })
     },
@@ -339,6 +340,35 @@ export function RoomLobby(props: RoomLobbyProps) {
   // the last open slot) would otherwise leave joinedCount permanently past
   // targetCount, making Start Game impossible to ever enable again.
   const isFull = targetCount != null && joinedCount >= targetCount
+  // Specifically "was the room already full from EVERYONE ELSE, before I
+  // even joined" — otherPlayers already excludes self, so this is true
+  // only for a genuinely extra joiner. JoinRoomModal has no way to check
+  // room size before joining (that data only exists once connected, here),
+  // so without this a joiner past capacity used to land in a slot index
+  // beyond rowSlotCount that simply never renders — no name field, no
+  // color, no sign they're connected — while the host's own isFull (based
+  // only on otherPlayers, unaffected by this extra join) still read as
+  // already full and let them start with one more player than configured.
+  const isOverCapacityJoiner = !isHostRole && targetCount != null && otherPlayers.length >= targetCount
+
+  // Nothing before this stopped two players from picking the same name —
+  // Start Game resolves everyone's numeric seat by matching typed names
+  // against the broadcast roster (see findPlayerIndexByName in App.tsx),
+  // so a collision silently merged two people into one seat (both
+  // controlling the same player), and if the collision matched the host's
+  // own name, both clients independently computed isHost: true too. Gating
+  // Start Game itself on this categorically prevents that no matter how
+  // the collision arose, rather than trying to police every place a name
+  // could be typed.
+  const hasDuplicateNames = (() => {
+    const seen = new Set<string>()
+    for (const name of [selfName, ...otherPlayers.map((p) => p.name)]) {
+      const normalized = normalizePlayerName(name)
+      if (!normalized || seen.has(normalized)) return true
+      seen.add(normalized)
+    }
+    return false
+  })()
 
   // Real players (self + everyone else actually in the room) in the one
   // canonical order every client agrees on — see comparePlayers above.
@@ -377,6 +407,9 @@ export function RoomLobby(props: RoomLobbyProps) {
   // onGameStarted handler above instead.
   const handleStart = () => {
     if (!isHostRole) return
+    // Defense-in-depth — the button is already disabled for this, but
+    // handleStart shouldn't trust that alone.
+    if (hasDuplicateNames) return
     const names = [selfName, ...otherPlayers.map((p) => p.name)]
     // Parallel to `names` — see the clientIds comment on GameStartedPayload
     // for why every receiver resolves itself (and everyone else's color)
@@ -402,7 +435,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       boardShapeId: currentBoardShapeId,
       customBoardCells: currentCustomBoardShape?.cells,
       customBoardName: currentCustomBoardShape?.name,
-      online: { roomCode, localPlayerName: selfName, isHost: true, localClientId: clientId, clientIds },
+      online: { roomCode, localPlayerName: selfName, isHost: true, localClientId: clientId, clientIds, hostName: selfName },
     })
   }
 
@@ -412,6 +445,20 @@ export function RoomLobby(props: RoomLobbyProps) {
         <p className="font-body text-xs text-player-1/90">
           Online Multiplayer isn't configured yet — set <span className="font-data">VITE_SUPABASE_URL</span> in{' '}
           <span className="font-data">.env.local</span> to enable it.
+        </p>
+        <button type="button" onClick={onBack} className="mt-3 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70">
+          Back
+        </button>
+      </div>
+    )
+  }
+
+  if (isOverCapacityJoiner) {
+    return (
+      <div className="mx-auto w-96 rounded-lg border border-player-1/40 bg-player-1/10 px-4 py-3 text-left">
+        <p className="font-body text-xs text-player-1/90">
+          This room is already full ({targetCount} / {targetCount} players) — the host needs to raise the player
+          count before you can join.
         </p>
         <button type="button" onClick={onBack} className="mt-3 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70">
           Back
@@ -600,6 +647,19 @@ export function RoomLobby(props: RoomLobbyProps) {
         })}
         </div>
 
+        {/* Only reason Start Game can stay disabled once the room is full —
+            everything else about isFull is self-explanatory from the N / M
+            count above, but a name collision needs its own callout or the
+            host has no way to tell why the button won't light up. */}
+        {isHostRole && isFull && hasDuplicateNames && (
+          <div
+            className="pointer-events-none absolute flex items-center justify-center text-center font-body text-[11px] text-player-1"
+            style={{ ...rectStyle(LAYOUT.startGameButton), top: `${LAYOUT.startGameButton.top - 5}%` }}
+          >
+            Two players have the same name — one needs to change it before you can start.
+          </div>
+        )}
+
         {/* Start Game — the glowing pill baked into the frame. Host-only;
             a joiner has no action here (they wait for onGameStarted), so
             no hit-target is rendered for them at all — the painted pill
@@ -607,9 +667,9 @@ export function RoomLobby(props: RoomLobbyProps) {
         {isHostRole && (
           <button
             type="button"
-            disabled={!isFull}
+            disabled={!isFull || hasDuplicateNames}
             onClick={handleStart}
-            aria-label="Start game"
+            aria-label={hasDuplicateNames ? 'Start game (two players have the same name)' : 'Start game'}
             className="absolute outline-none focus-visible:outline-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50"
             style={rectStyle(LAYOUT.startGameButton)}
             {...startGameGlow.handlers}

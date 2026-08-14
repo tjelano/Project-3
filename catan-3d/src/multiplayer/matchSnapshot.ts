@@ -82,9 +82,42 @@ export function saveMatchSnapshot(roomCode: string, snapshot: MatchSnapshot): vo
     })
 }
 
+// Checks only the fields restoreFromSnapshot (App.tsx) reads WITHOUT a `??`
+// fallback — i.e. the ones a missing/malformed value would actually crash
+// on, not a full schema validation. This interface has already grown
+// several optional fields over time as new features shipped (see their own
+// comments above) precisely because old rows don't have them; a row from
+// some future format change, or one that's been hand-edited, could just as
+// easily be missing a REQUIRED field. Deliberately loose on element shape
+// (e.g. doesn't verify every entry of `players` individually) — this is a
+// crash guard at the boundary, not a full runtime schema.
+function isPlausibleMatchSnapshot(value: unknown): value is MatchSnapshot {
+  if (typeof value !== 'object' || value === null) return false
+  const s = value as Record<string, unknown>
+  return (
+    typeof s.hostName === 'string' &&
+    Array.isArray(s.playerNames) &&
+    Array.isArray(s.players) &&
+    typeof s.settlements === 'object' &&
+    s.settlements !== null &&
+    typeof s.roads === 'object' &&
+    s.roads !== null &&
+    typeof s.currentPlayerIndex === 'number' &&
+    typeof s.robberTileId === 'string' &&
+    typeof s.gamePhase === 'string' &&
+    typeof s.setupStepIndex === 'number' &&
+    typeof s.setupStage === 'string' &&
+    Array.isArray(s.devDeck) &&
+    typeof s.devCardPlayedThisTurn === 'boolean' &&
+    typeof s.freeRoadsRemaining === 'number' &&
+    typeof s.hasRolledThisTurn === 'boolean'
+  )
+}
+
 /**
  * Returns null on ANY failure — missing table, RLS not configured, no row
- * for this code, network error — rather than throwing. The caller's
+ * for this code, a network error, or a row whose stored snapshot doesn't
+ * actually look like a MatchSnapshot — rather than throwing. The caller's
  * fallback in every case is the same: fall through to the normal lobby
  * flow, which already handles "this is a brand new room" correctly.
  */
@@ -101,5 +134,10 @@ export async function loadMatchSnapshot(roomCode: string): Promise<MatchSnapshot
     console.error('[Catan] Failed to look up an existing match snapshot:', error)
     return null
   }
-  return (data?.snapshot as MatchSnapshot | undefined) ?? null
+  if (data?.snapshot == null) return null
+  if (!isPlausibleMatchSnapshot(data.snapshot)) {
+    console.error('[Catan] Stored match snapshot is missing required fields, ignoring it:', data.snapshot)
+    return null
+  }
+  return data.snapshot
 }

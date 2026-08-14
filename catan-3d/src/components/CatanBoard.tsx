@@ -56,15 +56,15 @@ for (const url of Object.values(BIOME_MODEL_URLS)) useGLTF.preload(url)
 
 // All six tiles are authored models now, each already sculpting its own
 // terrain and decorations (sheep, trees, ore veins, ...) into the mesh —
-// replacing the procedural terrain geometry AND the old scattered
-// decoration components (MountainPeaks, HillBumps, etc. — still exported
-// from TileDecorations.tsx, just unused here now) in one piece. Hover/click
-// hit-testing (RobberLayer's own overlay geometry) and vertex/edge
-// placement targets never read from this mesh, so swapping it doesn't
-// touch board interaction. useGLTF caches by URL and returns the SAME
-// scene graph on every call; cloning is what lets multiple tiles of the
-// same biome each have their own instance instead of fighting over one
-// shared object's transform.
+// replacing the old procedural terrain geometry AND scattered decoration
+// components (MountainPeaks, HillBumps, etc. — since removed from
+// TileDecorations.tsx as dead code) in one piece. Hover/click hit-testing
+// (RobberLayer's own overlay geometry) and vertex/edge placement targets
+// never read from this mesh, so swapping it doesn't touch board
+// interaction. useGLTF caches by URL and returns the SAME scene graph on
+// every call; cloning is what lets multiple tiles of the same biome each
+// have their own instance instead of fighting over one shared object's
+// transform.
 function BiomeTileModel({ tile }: { tile: HexTileData }) {
   const instance = useClonedModel(BIOME_MODEL_URLS[tile.biome])
   // The biome fix (if any) corrects the model's own authoring quirks first;

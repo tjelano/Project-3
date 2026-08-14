@@ -21,7 +21,10 @@ function isPlausibleCustomBoardShape(value: unknown): value is CustomBoardShape 
   return typeof s.id === 'string' && typeof s.name === 'string' && Array.isArray(s.cells)
 }
 
-export function loadCustomBoardShapes(): CustomBoardShape[] {
+// Not exported — the only external callers this had (OnlineSetup.tsx/
+// LocalSetup.tsx) were removed as dead code; saveCustomBoardShape below is
+// now the sole caller, in this same file.
+function loadCustomBoardShapes(): CustomBoardShape[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
@@ -43,16 +46,6 @@ export function saveCustomBoardShape(shape: CustomBoardShape): CustomBoardShape[
   } catch {
     // Same non-fatal storage failure as above — the shape still works for
     // the rest of this session, it just won't persist to the next visit.
-  }
-  return next
-}
-
-export function deleteCustomBoardShape(id: string): CustomBoardShape[] {
-  const next = loadCustomBoardShapes().filter((existing) => existing.id !== id)
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-  } catch {
-    // Same non-fatal storage failure as above.
   }
   return next
 }

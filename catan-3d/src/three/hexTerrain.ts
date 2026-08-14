@@ -41,15 +41,6 @@ const RECESS_RADIUS = 0.34
 /** How far the chit recess is carved BELOW the nominal tile top. */
 export const RECESS_DEPTH = 0.045
 
-/**
- * Band where decorations may be scattered. The inner bound clears the recess
- * AND its ramp (RECESS_RADIUS + 0.14), so nothing is ever planted on the
- * slope leading down to the number chit — that slope is what used to let
- * peaks and trees creep over the numbers.
- */
-export const DECOR_MIN_R = 0.52
-export const DECOR_MAX_R = 0.84
-
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
   return t * t * (3 - 2 * t)
@@ -263,18 +254,21 @@ function buildGeometry(height: HeightField): THREE.BufferGeometry {
   return geometry
 }
 
-export interface TileTerrain {
+interface TileTerrain {
   geometry: THREE.BufferGeometry
   /** Surface height at a local (x, z), relative to the nominal tile top. */
   heightAt: HeightField
 }
 
-// Built once per tile and shared between the mesh and its decorations, so
-// both read the identical surface. Keyed by biome+seed because the board
-// reshuffles on every new game.
+// Built once per tile and shared between every overlay that samples it, so
+// they all read the identical surface. Keyed by biome+seed because the
+// board reshuffles on every new game. Not exported — the only external
+// consumer this had (TileDecorations.tsx's scatter components) was removed
+// as dead code; getTileOverlay/getTileEdgeOverlay below are now the sole
+// callers, both in this same file.
 const cache = new Map<string, TileTerrain>()
 
-export function getTileTerrain(biome: Biome, seed: string): TileTerrain {
+function getTileTerrain(biome: Biome, seed: string): TileTerrain {
   const key = `${biome}:${seed}`
   const cached = cache.get(key)
   if (cached) return cached
@@ -386,28 +380,3 @@ export function getTileEdgeOverlay(biome: Biome, seed: string, lift = 0.014): TH
   return geometry
 }
 
-/**
- * Scatter helper: a point inside the decoration band, with its ground height
- * already sampled. Keeps every decoration component from repeating the same
- * polar-placement maths.
- */
-/**
- * Places a point at an explicit angle and normalised radius, with its ground
- * height sampled. Used where the arrangement must be deliberate — a mountain
- * range around a ring, say — rather than randomly scattered.
- */
-export function terrainPoint(terrain: TileTerrain, theta: number, nr: number) {
-  const r = nr * hexRadiusAtAngle(theta)
-  const x = r * Math.sin(theta)
-  const z = r * Math.cos(theta)
-  return { x, z, y: terrain.heightAt(x, z), theta }
-}
-
-export function scatterPoint(terrain: TileTerrain, random: () => number, minR = DECOR_MIN_R, maxR = DECOR_MAX_R) {
-  const theta = random() * Math.PI * 2
-  const nr = minR + random() * (maxR - minR)
-  const r = nr * hexRadiusAtAngle(theta)
-  const x = r * Math.sin(theta)
-  const z = r * Math.cos(theta)
-  return { x, z, y: terrain.heightAt(x, z), theta }
-}

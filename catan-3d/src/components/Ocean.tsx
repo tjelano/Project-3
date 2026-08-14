@@ -94,6 +94,15 @@ export function Ocean({ innerSize = FRAME_INNER }: { innerSize?: number }) {
     return geo
   }, [waterSize])
 
+  // A board-shape change swaps innerSize (hence waterSize), which recreates
+  // this geometry via the useMemo above — the OLD one is otherwise never
+  // freed, since it's built with `new`, not JSX, so React Three Fiber's own
+  // auto-dispose (which only covers objects it creates and attaches itself)
+  // never sees it.
+  useEffect(() => {
+    return () => geometry.dispose()
+  }, [geometry])
+
   const material = useMemo(() => {
     // Surface properties live in three/materials.ts; this file only adds motion.
     const mat = createSeaMaterial()

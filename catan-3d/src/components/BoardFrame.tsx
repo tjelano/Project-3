@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import {
   BASIN_Y,
@@ -105,6 +105,20 @@ export function BoardFrame({ innerSize = FRAME_INNER }: { innerSize?: number }) 
     geo.rotateX(-Math.PI / 2)
     return geo
   }, [innerSize])
+
+  // A board-shape change recreates all three geometries above via their own
+  // useMemo — the OLD ones are otherwise never freed, since they're built
+  // with `new`, not JSX, so React Three Fiber's own auto-dispose (which
+  // only covers objects it creates and attaches itself) never sees them.
+  useEffect(() => {
+    return () => walnutGeometry.dispose()
+  }, [walnutGeometry])
+  useEffect(() => {
+    return () => inlayGeometry.dispose()
+  }, [inlayGeometry])
+  useEffect(() => {
+    return () => basinGeometry.dispose()
+  }, [basinGeometry])
 
   return (
     <group>

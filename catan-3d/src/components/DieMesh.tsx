@@ -34,7 +34,13 @@ export function DieMesh() {
         <boxGeometry args={[DIE_SIZE, DIE_SIZE, DIE_SIZE]} />
       </mesh>
       {FACE_PIP_UNITS.map((pos, i) => (
-        <mesh key={i} position={[pos[0] * DIE_SIZE, pos[1] * DIE_SIZE, pos[2] * DIE_SIZE]} material={PIP_MATERIAL}>
+        <mesh
+          key={i}
+          position={[pos[0] * DIE_SIZE, pos[1] * DIE_SIZE, pos[2] * DIE_SIZE]}
+          material={PIP_MATERIAL}
+          castShadow
+          receiveShadow
+        >
           <sphereGeometry args={[0.085 * DIE_SIZE, 8, 6]} />
         </mesh>
       ))}

@@ -47,5 +47,13 @@ export function ResourceIcon({ resource, className }: { resource: ResourceType; 
           <polygon points="12,2 20,10 12,22 4,10" />
         </svg>
       )
+    default: {
+      // Exhaustiveness check: a ResourceType added without a matching case
+      // above fails to compile here, instead of silently rendering nothing
+      // at runtime.
+      const unhandled: never = resource
+      console.error('[Catan] No icon for resource type:', unhandled)
+      return null
+    }
   }
 }

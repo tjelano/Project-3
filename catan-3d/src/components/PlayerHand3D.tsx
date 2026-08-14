@@ -72,7 +72,14 @@ const CARD_ART_OFFSET_Y = 45 / 578
 function loadCardTexture(url: string): THREE.Texture {
   const cached = textureCache.get(url)
   if (cached) return cached
-  const texture = loader.load(url)
+  // Statically imported (see the comment atop this file), so a missing/
+  // misnamed file already fails the build — this onError is only for a
+  // genuine runtime fetch failure (offline, a CDN hiccup after deploy),
+  // logged with the specific URL rather than relying on three.js's own
+  // generic internal console error to say which card failed.
+  const texture = loader.load(url, undefined, undefined, (error) => {
+    console.error('[Catan] Failed to load card art texture:', url, error)
+  })
   // Art is authored in sRGB; without this three treats it as linear and the
   // cards render washed out and pale.
   texture.colorSpace = THREE.SRGBColorSpace

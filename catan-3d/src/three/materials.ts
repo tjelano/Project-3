@@ -1,19 +1,14 @@
 import * as THREE from 'three'
-import { BIOME_COLORS, type Biome } from '../data/hexBoard'
 
 /**
  * ART DIRECTION — "Vitrine at dusk"
  *
  * The board is a collector's artifact sitting in a gallery case, not a
- * cartoon. Every material below is chosen against that thesis:
+ * cartoon. What's left in this file, now that terrain/tokens/dock/robber
+ * all render via GLB-baked materials instead:
  *
- *  - Terrain reads as hand-painted resin: very high roughness, zero metal,
- *    plus a SHEEN layer. Sheen is the fabric/velvet lobe — it adds a soft
- *    grazing-angle falloff at silhouette edges, which is precisely what
- *    separates "premium matte" from "flat untextured". This is the single
- *    most important material decision in the scene.
- *  - Chits are lacquered ivory: mid roughness with a thin CLEARCOAT, so
- *    they catch one crisp highlight the terrain never does.
+ *  - Dice are lacquered ceramic: mid roughness with a thin CLEARCOAT, so
+ *    they catch one crisp highlight against the felt.
  *  - Hardware (port poles, inlay) is real metal: metalness ~1 and low
  *    roughness, so it renders almost entirely from the environment map.
  *    Metal is what makes an IBL rig visibly worth having.
@@ -21,97 +16,21 @@ import { BIOME_COLORS, type Biome } from '../data/hexBoard'
  *    reflection and wave geometry, not from base colour.
  *
  * Materials are module-level singletons, shared across every mesh that
- * uses them. Beyond art direction this collapses the ~430 one-off material
- * instances the audit flagged (S2-1) down to roughly a dozen.
+ * uses them.
  */
 
 // --- Palette --------------------------------------------------------------
-export const PALETTE = {
+// Not exported — every material below that needs a palette colour lives in
+// this same file.
+const PALETTE = {
   walnut: '#3a2418',
   walnutDark: '#241309',
   brass: '#c8a93e',
-  ivory: '#f4ead2',
   ink: '#241c14',
   seaDeep: '#071c33',
 } as const
 
-// Warm sheen tint shared by the terrain — a cool sheen would fight the key
-// light and make the clay read plastic.
-const TERRAIN_SHEEN_COLOR = new THREE.Color('#ffd9b0')
-
-function terrainMaterial(color: string): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
-    color,
-    roughness: 0.92,
-    metalness: 0,
-    sheen: 0.55,
-    sheenRoughness: 0.75,
-    sheenColor: TERRAIN_SHEEN_COLOR,
-    flatShading: true,
-  })
-}
-
-// One material per biome rather than one per tile: 6 instead of 19. The hex
-// prisms stay smooth-shaded so they read as a clean machined cut, while the
-// scatter decorations on top keep flat shading for crisp facets.
-export const TILE_MATERIALS: Record<Biome, THREE.MeshPhysicalMaterial> = Object.fromEntries(
-  (Object.keys(BIOME_COLORS) as Biome[]).map((biome) => {
-    const material = terrainMaterial(BIOME_COLORS[biome])
-    material.flatShading = false
-    return [biome, material]
-  }),
-) as Record<Biome, THREE.MeshPhysicalMaterial>
-
-// --- Decoration materials -------------------------------------------------
-// Scatter decorations pick from small colour palettes, so cache by colour:
-// every tree across all four forest tiles shares one material instead of
-// allocating its own. Turns ~140 decoration materials into ~10.
-const decorCache = new Map<string, THREE.MeshPhysicalMaterial>()
-
-export function decorMaterial(color: string): THREE.MeshPhysicalMaterial {
-  const cached = decorCache.get(color)
-  if (cached) return cached
-  const created = terrainMaterial(color)
-  decorCache.set(color, created)
-  return created
-}
-
-export const SNOW_MATERIAL = new THREE.MeshPhysicalMaterial({
-  color: '#eef3f7',
-  roughness: 0.6,
-  metalness: 0,
-  sheen: 0.9,
-  sheenRoughness: 0.4,
-  sheenColor: new THREE.Color('#cfe4ff'),
-  flatShading: true,
-})
-
-export const TRUNK_MATERIAL = terrainMaterial('#4a2f21')
-
-export const SHEEP_WOOL_MATERIAL = new THREE.MeshPhysicalMaterial({
-  color: '#f8f5ee',
-  roughness: 0.95,
-  metalness: 0,
-  // Wool gets the strongest sheen in the scene — it's literally fabric.
-  sheen: 1,
-  sheenRoughness: 0.9,
-  sheenColor: new THREE.Color('#fff0dc'),
-  flatShading: true,
-})
-
-export const SHEEP_FACE_MATERIAL = terrainMaterial('#3a2c20')
-
-// --- Chits ----------------------------------------------------------------
-// Lacquered ivory: the clearcoat is what makes these read as printed discs
-// resting ON the landscape rather than modelled out of the same clay.
-export const TOKEN_MATERIAL = new THREE.MeshPhysicalMaterial({
-  color: PALETTE.ivory,
-  roughness: 0.45,
-  metalness: 0,
-  clearcoat: 0.6,
-  clearcoatRoughness: 0.35,
-})
-
+// --- Dice -------------------------------------------------------------
 export const DIE_MATERIAL = new THREE.MeshPhysicalMaterial({
   color: '#faf4e4',
   roughness: 0.28,
@@ -179,22 +98,4 @@ export const BASIN_MATERIAL = new THREE.MeshStandardMaterial({
   color: PALETTE.walnutDark,
   roughness: 0.9,
   metalness: 0,
-})
-
-export const DOCK_WOOD_MATERIAL = terrainMaterial('#6a4a30')
-
-// Robber: a weathered obsidian-slate figurine, carved from one dark stone
-// rather than painted — the token reads as a single material, and every
-// facet earns its shape purely from geometry + sheen. Lightened off pure
-// black (was #15151a) so the low-poly facets of the actual figurine catch
-// visible falloff under this scene's deliberately dim, moody rig — a truly
-// black material would read as a silhouette blob with no visible carving.
-export const ROBBER_MATERIAL = new THREE.MeshPhysicalMaterial({
-  color: '#28262e',
-  roughness: 0.92,
-  metalness: 0,
-  sheen: 0.5,
-  sheenRoughness: 0.75,
-  sheenColor: new THREE.Color('#4a5a7a'),
-  flatShading: true,
 })

@@ -184,6 +184,7 @@ export function JoinRoomModal({
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Your name"
+              aria-label="Your name"
               maxLength={20}
               className="absolute bg-transparent text-center font-body text-sm text-white placeholder:text-white/30 focus:outline-none"
               style={rectStyle(LAYOUT.nameField)}
@@ -193,6 +194,7 @@ export function JoinRoomModal({
               value={roomCodeInput}
               onChange={(event) => setRoomCodeInput(normalizeRoomCode(event.target.value))}
               placeholder="B7F3"
+              aria-label="Room code"
               maxLength={4}
               className="absolute bg-transparent text-center font-data text-lg tracking-[0.4em] text-white uppercase placeholder:text-white/30 focus:outline-none"
               style={rectStyle(LAYOUT.roomCodeField)}

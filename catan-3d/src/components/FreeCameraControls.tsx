@@ -24,6 +24,15 @@ const MAX_PITCH = Math.PI / 2 - 0.01
 const START_POSITION = new THREE.Vector3(0, 9, 7)
 const START_TARGET = new THREE.Vector3(0, 0, 0)
 
+// Scratch objects reused every frame in useFrame below, instead of
+// allocating a fresh Euler + 3 Vector3s per frame while free-cam is active
+// — safe as module-level state since this component is only ever mounted
+// once, alongside OrbitControls (see its own docstring below).
+const scratchEuler = new THREE.Euler()
+const scratchForward = new THREE.Vector3()
+const scratchRight = new THREE.Vector3()
+const scratchMove = new THREE.Vector3()
+
 function yawPitchFromDirection(direction: THREE.Vector3) {
   return {
     yaw: Math.atan2(-direction.x, -direction.z),
@@ -163,16 +172,16 @@ export function FreeCameraControls({ onActiveChange }: { onActiveChange?: (activ
   useFrame((_, delta) => {
     if (!activeRef.current) return
 
-    camera.quaternion.setFromEuler(new THREE.Euler(pitchRef.current, yawRef.current, 0, 'YXZ'))
+    camera.quaternion.setFromEuler(scratchEuler.set(pitchRef.current, yawRef.current, 0, 'YXZ'))
 
     const keys = keysRef.current
-    const forward = new THREE.Vector3(-Math.sin(yawRef.current), 0, -Math.cos(yawRef.current))
+    const forward = scratchForward.set(-Math.sin(yawRef.current), 0, -Math.cos(yawRef.current))
     // forward cross up (three.js: camera looks down -Z, up is +Y) — this
     // sign order specifically, (-forward.z, 0, forward.x), is what actually
     // points camera-right; the flipped (forward.z, 0, -forward.x) that was
     // here before is camera-LEFT, which is why A/D were swapped.
-    const right = new THREE.Vector3(-forward.z, 0, forward.x)
-    const move = new THREE.Vector3()
+    const right = scratchRight.set(-forward.z, 0, forward.x)
+    const move = scratchMove.set(0, 0, 0)
     if (keys.has('w')) move.add(forward)
     if (keys.has('s')) move.sub(forward)
     if (keys.has('d')) move.add(right)

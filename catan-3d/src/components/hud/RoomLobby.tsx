@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import hostMenuUrl from '../../assets/menu/host-menu.png'
 import hostroomPlayerIconsUrl from '../../assets/menu/hostroom-player-icons.png'
 import selectorBorderUrl from '../../assets/menu/selector-border.png'
@@ -213,6 +213,10 @@ export function RoomLobby(props: RoomLobbyProps) {
   // stream/screen-share.
   const [isRoomCodeVisible, setIsRoomCodeVisible] = useState(false)
   const [justCopiedRoomCode, setJustCopiedRoomCode] = useState(false)
+  // Guards the name field's select-all-on-focus (below) to only its very
+  // first focus — without this it fired on every refocus, so fixing a typo
+  // by clicking back into an already-typed name re-selected the whole thing.
+  const hasAutoSelectedNameRef = useRef(false)
 
   // The CURRENT board pick — host-only, seeded from the props RegionSelectMenu
   // handed over, but owned here (not just read from props) so Back can
@@ -620,11 +624,17 @@ export function RoomLobby(props: RoomLobbyProps) {
                     type="text"
                     value={selfName}
                     onChange={(event) => setSelfName(event.target.value)}
-                    // Selects the seeded DEFAULT_HOST_NAME on first focus so
-                    // typing replaces it outright, rather than the host
+                    // Selects the seeded DEFAULT_HOST_NAME on the field's
+                    // very first focus only (see hasAutoSelectedNameRef)
+                    // so typing replaces it outright, rather than the host
                     // having to manually clear "Player 1" first.
-                    onFocus={(event) => event.target.select()}
+                    onFocus={(event) => {
+                      if (hasAutoSelectedNameRef.current) return
+                      hasAutoSelectedNameRef.current = true
+                      event.target.select()
+                    }}
                     placeholder="Your name"
+                    aria-label="Your name"
                     maxLength={20}
                     className="min-w-0 flex-1 bg-transparent font-body text-white placeholder:text-white/30 focus:outline-none"
                     style={{ fontSize: `${PLAYER_NAME_FONT_SIZE_PX}px` }}

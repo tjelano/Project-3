@@ -1617,7 +1617,13 @@ function App() {
   // happened first, and (implicitly, via gamePhase !== 'playing' below) that
   // any pending robber move from a natural 7 has already been resolved.
   const handleEndTurn = () => {
-    if (winner) return
+    // Was its own `if (winner) return` — canPerformAction also blocks while
+    // a trade offer or dev-card picker overlay is open, the same
+    // defense-in-depth every other action handler in this file already
+    // has. Not reachable through the current UI (the End Turn button is
+    // hidden/disabled in those states too), but worth keeping in sync with
+    // its siblings rather than relying solely on the UI condition.
+    if (!canPerformAction()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -1848,6 +1854,17 @@ function App() {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't buy a development card right now.")
+      return
+    }
+    // Every sibling handler (bankTrade, proposePlayerTrade) has this same
+    // guard — buyDevCard always acts on players[currentPlayerIndex], so
+    // without it a non-active player could spend the active player's
+    // resources if the buy button were ever enabled for them by a future
+    // UI change. Not reachable through the current UI (GameHud's own
+    // canBuyDevCard already folds in isMyTurn) — pure defense-in-depth to
+    // match the rest of this file.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
       return
     }
     if (!hasRolledThisTurn) {

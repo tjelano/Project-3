@@ -20,9 +20,9 @@ const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allow
 
 // hiddenTiles is 4-way, not a plain boolean — its own segmented-control row
 // rather than a CHECKBOX_RULES entry. 'off' isn't a segmented button here;
-// it's the row's own ring icon (filled when off is the active mode),
-// matching every other row's icon-means-current-state language instead of
-// reading as a 4th equal option.
+// it's the row's own ring icon (filled when any mode is active, hollow
+// when off), matching every other row's icon-means-current-state language
+// instead of reading as a 4th equal option.
 const HIDDEN_TILES_MODE_OPTIONS: { value: Exclude<GameRules['hiddenTiles'], 'off'>; label: string }[] = [
   { value: 'numbers', label: 'Numbers' },
   { value: 'resources', label: 'Resources' },
@@ -153,7 +153,6 @@ export function HouseRulesDropdown({
             gap: ROW_RING_GAP_PX,
             paddingTop: ROW_VERTICAL_PADDING_PX,
             paddingBottom: ROW_VERTICAL_PADDING_PX,
-            marginTop: ROW_VERTICAL_PADDING_PX,
             borderTop: `1px solid ${GRID_DIVIDER_COLOR}`,
             animationDelay: `${CHECKBOX_RULES.length * STAGGER_STEP_MS}ms`,
           }}

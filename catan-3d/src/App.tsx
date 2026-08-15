@@ -31,6 +31,7 @@ import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
+import { debugLog } from './utils/debugLog'
 import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
@@ -694,6 +695,7 @@ function App() {
     )
     const remaining = discardPlayerIds.filter((id) => id !== playerId)
     setDiscardPlayerIds(remaining)
+    debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
     if (remaining.length === 0) setGamePhase('moveRobber')
   }
 
@@ -1055,6 +1057,7 @@ function App() {
   // empties out. Same render-time pattern as the winner check above —
   // gamePhase !== 'discard' is what makes it self-terminating.
   if (gamePhase === 'discard' && validDiscardPlayerIds.length === 0) {
+    debugLog('discard self-heal fired', { discardPlayerIds, wasStuckOn: discardPlayerIds })
     setGamePhase('moveRobber')
   }
 
@@ -1396,6 +1399,16 @@ function App() {
     setTotalRollsThisGame((n) => n + 1)
     const doublesCount = isDouble && isStillRollersTurn ? consecutiveDoublesThisTurn + 1 : 0
     if (isStillRollersTurn) setConsecutiveDoublesThisTurn(doublesCount)
+    debugLog('applyRollResult', {
+      rollerId,
+      total,
+      isDouble,
+      isStillRollersTurn,
+      consecutiveDoublesThisTurnBefore: consecutiveDoublesThisTurn,
+      doublesCount,
+      onlineLocalPlayerId: onlineInfo?.localPlayerId,
+      isMyRoll: onlineInfo ? rollerId === onlineInfo.localPlayerId : true,
+    })
     // Every roll gets its own log entry — the branches below (7, resource
     // yields) may call inform() again right after this, which overwrites
     // the single active EventBanner (last write wins, same synchronous
@@ -1412,6 +1425,12 @@ function App() {
       // phase for a turn that's no longer the roller's would be wrong.
       if (isStillRollersTurn) {
         const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+        debugLog('7 rolled — discard check', {
+          overLimitIds,
+          resourceCounts: players.map((p) => ({ id: p.id, name: p.name, total: totalResourceCount(p.resources) })),
+          consecutiveDoublesThisTurn,
+          onlineLocalPlayerId: onlineInfo?.localPlayerId,
+        })
         if (overLimitIds.length > 0) {
           setDiscardPlayerIds(overLimitIds)
           setDiscardSelection([])
@@ -1474,6 +1493,7 @@ function App() {
     // forced to 0 whenever !isStillRollersTurn (above), so reaching >= 3
     // here already guarantees roller is still the active player.
     if (gameRules.doublesRerollRule && doublesCount >= 3 && roller) {
+      debugLog('doubles-reroll hand wipe', { rollerId: roller.id, rollerName: roller.name, doublesCount, isStillRollersTurn })
       setPlayers((prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)))
       inform(`${roller.name} rolled doubles three times in a row — hand emptied!`)
     }

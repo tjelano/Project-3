@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
+import { debugLog } from '../utils/debugLog'
 import type { DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 
@@ -588,7 +589,13 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
   }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })
+    // Delivery result logged (not just discarded via `void` like every
+    // other broadcast here) — chasing a rare stuck-discard-screen bug that
+    // may trace back to a broadcast silently falling back to REST or timing
+    // out. See debugLog.ts.
+    void channelRef.current
+      ?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })
+      .then((result) => debugLog('broadcastDiceRolled result', { result, payload }))
   }
   const broadcastTurnPassed = (payload: TurnPassedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TURN_PASSED', payload })
@@ -630,7 +637,10 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_CANCELLED', payload })
   }
   const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
+    // See broadcastDiceRolled above — same reasoning, same bug hunt.
+    void channelRef.current
+      ?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
+      .then((result) => debugLog('broadcastDiscardConfirmed result', { result, payload }))
   }
   const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TROPHY_UPDATED', payload })

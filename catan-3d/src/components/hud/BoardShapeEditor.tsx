@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react'
 import { cellNeighbors, cellPosition, type BoardCell, type Biome, BIOME_COLORS } from '../../data/hexBoard'
-import { deleteCustomBoardShape, loadCustomBoardShapes, type CustomBoardShape } from '../../data/customBoardShapes'
+import {
+  deleteCustomBoardShape,
+  loadCustomBoardShapes,
+  saveCustomBoardShape,
+  type CustomBoardShape,
+} from '../../data/customBoardShapes'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 // Generous enough for anything from a tight single island to a sprawling
@@ -171,6 +176,20 @@ export function BoardShapeEditor({
       cells,
       ...(Object.keys(biomeOverrides).length > 0 ? { biomeOverrides } : {}),
     }
+  }
+
+  // Persists only — does NOT call onSave, which is what actually closes
+  // this dialog and starts a game. Save Shape used to call onSave directly,
+  // so saving a map also instantly started playing it; now it just writes
+  // to storage, refreshes the sidebar, and drops into preview mode so the
+  // player can see what they saved and separately choose Use This Map when
+  // they're actually ready to play.
+  const handleSaveShape = () => {
+    if (!canSave) return
+    const shape = buildCurrentShape()
+    setSavedShapes(saveCustomBoardShape(shape))
+    setEditingId(shape.id)
+    setMode('preview')
   }
 
   return (
@@ -365,7 +384,7 @@ export function BoardShapeEditor({
                 <button
                   type="button"
                   disabled={!canSave}
-                  onClick={() => onSave(buildCurrentShape())}
+                  onClick={handleSaveShape}
                   className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
                 >
                   Save Shape

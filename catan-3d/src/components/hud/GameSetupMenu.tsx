@@ -3,11 +3,13 @@ import mainMenuUrl from '../../assets/menu/main-menu.png'
 import selectorPlayerUrl from '../../assets/menu/selector-player.png'
 import selectorBorderUrl from '../../assets/menu/selector-border.png'
 import boxJoinHostUrl from '../../assets/menu/box-join-host.png'
-import houseRulesDropdownUrl from '../../assets/menu/house-rules-dropdown.png'
 import textGameLocalUrl from '../../assets/menu/text-game-local.png'
 import textGameOnlineUrl from '../../assets/menu/text-game-online.png'
-import textGameStandardRulesUrl from '../../assets/menu/text-game-standard-rules.png'
+import bookIconUrl from '../../assets/menu/house-rules/hr-book-icon.png'
+import headerBarUrl from '../../assets/menu/house-rules/hr-header-bar.png'
+import chevronButtonUrl from '../../assets/menu/house-rules/hr-chevron-button.png'
 import { DEFAULT_GAME_RULES } from './HouseRulesEditor'
+import { HouseRulesDropdown } from './HouseRulesDropdown'
 import { JoinRoomModal } from './JoinRoomModal'
 import { useHoverActive } from './useHoverActive'
 import type { GameStartInfo } from './StartScreen'
@@ -50,14 +52,18 @@ const LAYOUT = {
     { left: 21.5, top: 49.8, width: 19.5, height: 11 },
     { left: 59, top: 49.8, width: 19.5, height: 11 },
   ] satisfies Rect[],
-  houseRulesBar: { left: 14, top: 69.8, width: 72.3, height: 12.3 } satisfies Rect,
+  // The empty box hand-placed in main-menu.png for this — measured off the
+  // art's own pixel grid (left 276 / top 710 / right 1258 / bottom 818 of
+  // its 1536x1024 canvas). Always shows the book+bar+chevron header; click
+  // toggles the rows panel below it.
+  houseRulesBar: { left: 17.50, top: 70.34, width: 65.3, height: 10.80 } satisfies Rect,
   startGameButton: { left: 36.2, top: 84.5, width: 28.4, height: 9 } satisfies Rect,
-  // Anchors the house-rules-dropdown.png overlay: left/top line its top-left
-  // corner up with the collapsed bar above. width is bigger than the bar's
-  // own 72.3 because the dropdown art's painted frame only fills the left
-  // ~64% of its own canvas (the rest is transparent padding) — width here
-  // is sized against that painted portion, not the full image edge to edge.
-  houseRulesDropdown: { left: 16, top: 65, width: 68 } satisfies Omit<Rect, 'height'>,
+  // Anchors HouseRulesDropdown just under houseRulesBar, re-centered on the
+  // same midpoint now that it's wider than the header above it. This panel
+  // sizes itself from its own content (no fixed aspect ratio needed), so
+  // only left/top/width are used here — width is real layout, not a CSS
+  // scale(), so it stays sharp at any value (see HouseRulesDropdown.tsx).
+  houseRulesDropdown: { left: -4.9, top: 80.4, width: 110 } satisfies Omit<Rect, 'height'>,
   // How far selector-player.png / selector-border.png extend past their
   // box's own edges, in % of that box's own size (a negative inset) — these
   // are frame art meant to wrap AROUND the box, not fill it exactly. X
@@ -77,6 +83,20 @@ const LAYOUT = {
 const START_GAME_GLOW_IDLE_OPACITY = 0
 const START_GAME_GLOW_ACTIVE_OPACITY = 1
 
+// House Rules header row sizing. LAYOUT.houseRulesBar.height sets the
+// button's own hit-target height, which the chevron fills completely
+// (h-full, matches its box exactly) — the book icon and header bar each get
+// their own % of that same height instead, so resizing the icon or bar
+// doesn't require also resizing (and mis-sizing) the chevron.
+const HOUSE_RULES_ICON_HEIGHT_PCT = 100
+const HOUSE_RULES_HEADER_BAR_HEIGHT_PCT = 110
+// How far the "Standard Rules" label sits from the button's left edge —
+// needs to clear the book icon (pinned to that same edge, on top of the
+// bar now that the bar is a full-width background rather than a separate
+// middle segment).
+const HOUSE_RULES_LABEL_LEFT_PX = 64
+const HOUSE_RULES_LABEL_FONT_SIZE_PX = 18
+
 // Nudges the "Join Existing Game" label off its default centered position
 // (px, positive x = right, positive y = down).
 const JOIN_EXISTING_GAME_TEXT_OFFSET = { x: 0, y: -4 }
@@ -85,55 +105,13 @@ function rectStyle({ left, top, width, height }: Rect) {
   return { left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }
 }
 
-// house-rules-dropdown.png's own 1230x1278 canvas, painted content only
-// (see LAYOUT.houseRulesDropdown's comment on the transparent right padding).
-const HOUSE_RULES_DROPDOWN_ASPECT = '1230 / 1278'
-
-// Maps GameRules' 5 checkboxes + 1 number field onto the dropdown art's 6
-// icon rows (book, swords, coins, dice, crown, gear, top to bottom) — paired
-// by closest thematic fit to each icon. Not confirmed with the user yet:
-// reorder this array if a different pairing reads better — the row
-// positions in HOUSE_RULE_ROW_Y don't need to change to do that.
-const HOUSE_RULE_ORDER: (
-  | { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule'; label: string; type: 'checkbox' }
-  | { key: 'victoryPointTarget'; label: string; type: 'number' }
-)[] = [
-  { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed', type: 'checkbox' },
-  { key: 'friendlyRobber', label: 'Friendly robber', type: 'checkbox' },
-  { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only', type: 'checkbox' },
-  { key: 'noSevensFirstTwoRolls', label: 'No 7s on first 2 rolls', type: 'checkbox' },
-  { key: 'victoryPointTarget', label: 'Victory point target', type: 'number' },
-  { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)', type: 'checkbox' },
-]
-
-// One entry per HOUSE_RULE_ORDER row, top to bottom, in % of the dropdown
-// art's own canvas — read off the painted row bars via the grid overlay tool.
-const HOUSE_RULE_ROW_Y = [
-  { top: 22, height: 10 },
-  { top: 32.5, height: 10 },
-  { top: 42.5, height: 10 },
-  { top: 53.5, height: 10 },
-  { top: 64.5, height: 10 },
-  { top: 74.5, height: 10 },
-]
-// Every row's blank text bar sits at the same x range.
-const HOUSE_RULE_ROW_X = { left: 30, width: 50 }
-
-// The chevron box baked into the dropdown art's upper-right header — the
-// hitbox covers the full framed button so it is easy to click.
-const HOUSE_RULES_CLOSE_BUTTON = { left: 82, top: 1, width: 16, height: 18 } satisfies Rect
-
 const SETUP_TEXT_IMAGE_CLASS = 'pointer-events-none absolute max-w-none select-none'
 // Tune each baked label independently: width controls its size, while left
 // and top move the standalone artwork inside its button.
 const SETUP_TEXT_LAYOUT = {
   local: { width: '120%', left: '5%', top: '8%' },
   online: { width: '125%', left: '5%', top: '8%' },
-  standardRules: { width: '50%', left: '25%', top: '5%' },
 } as const
-
-const VP_TARGET_MIN = 3
-const VP_TARGET_MAX = 50
 
 // Every hit-target here is a transparent <button> with no visible chrome of
 // its own — the art underneath IS the button — so the browser's default
@@ -201,13 +179,6 @@ export function GameSetupMenu({
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   const [isHouseRulesOpen, setIsHouseRulesOpen] = useState(false)
   const [isJoinOpen, setIsJoinOpen] = useState(false)
-  // A separate live draft for the VP-target field — committing every
-  // keystroke straight to gameRules.victoryPointTarget let an in-progress
-  // edit (e.g. an empty field while retyping, or a leading digit under
-  // VP_TARGET_MIN) briefly become the REAL target, which ends the match
-  // immediately once anyone reaches that many points. Only clamped +
-  // committed on blur; free to type anything in between.
-  const [vpTargetDraft, setVpTargetDraft] = useState(String(DEFAULT_GAME_RULES.victoryPointTarget))
 
   const handleStart = () => {
     if (mode === 'host') {
@@ -289,23 +260,45 @@ export function GameSetupMenu({
           </button>
         ))}
 
-        {/* House Rules — the whole painted bar toggles the panel below. */}
+        {/* House Rules — always-visible header row. hr-header-bar.png is now
+            a full-width BACKGROUND for the whole row (not a middle segment
+            squeezed between the icon and chevron) — book icon and chevron
+            sit on top of it, pinned to the left/right edges. Clicking it
+            toggles the rows panel; the chevron rotates to match. */}
         <button
           type="button"
           onClick={() => setIsHouseRulesOpen((prev) => !prev)}
           aria-expanded={isHouseRulesOpen}
           aria-label="House rules"
-          className={HIT_TARGET_CLASS}
+          className={`${HIT_TARGET_CLASS} relative`}
           style={rectStyle(LAYOUT.houseRulesBar)}
         >
-          <span className="pointer-events-none absolute inset-0 overflow-visible">
-            <img
-              src={textGameStandardRulesUrl}
-              alt=""
-              className={SETUP_TEXT_IMAGE_CLASS}
-              style={SETUP_TEXT_LAYOUT.standardRules}
-            />
+          <img
+            src={headerBarUrl}
+            alt=""
+            className="absolute left-0 top-1/2 w-full -translate-y-1/2 select-none"
+            style={{ height: `${HOUSE_RULES_HEADER_BAR_HEIGHT_PCT}%` }}
+            draggable={false}
+          />
+          <img
+            src={bookIconUrl}
+            alt=""
+            className="absolute left-0 top-1/2 -translate-y-1/2 select-none"
+            style={{ height: `${HOUSE_RULES_ICON_HEIGHT_PCT}%` }}
+            draggable={false}
+          />
+          <span
+            className="absolute inset-0 flex items-center font-display tracking-[0.1em] text-gold uppercase"
+            style={{ fontSize: HOUSE_RULES_LABEL_FONT_SIZE_PX, paddingLeft: HOUSE_RULES_LABEL_LEFT_PX }}
+          >
+            Standard Rules
           </span>
+          <img
+            src={chevronButtonUrl}
+            alt=""
+            className={`absolute right-0 top-1/2 h-full -translate-y-1/2 select-none transition-transform duration-300 ease-out ${isHouseRulesOpen ? 'rotate-180' : ''}`}
+            draggable={false}
+          />
         </button>
 
         {/* Start Game — the glowing pill at the bottom of the frame. */}
@@ -330,78 +323,17 @@ export function GameSetupMenu({
         </button>
 
         {/* House Rules dropdown — pops out OVER the panel (not pushing
-            layout) on top of house-rules-dropdown.png, anchored to the
-            collapsed bar above it. */}
+            layout), anchored to the collapsed bar above it. */}
         {isHouseRulesOpen && (
           <div
-            className="absolute z-20 animate-house-rules-in"
+            className="absolute z-20"
             style={{
               left: `${LAYOUT.houseRulesDropdown.left}%`,
               top: `${LAYOUT.houseRulesDropdown.top}%`,
               width: `${LAYOUT.houseRulesDropdown.width}%`,
             }}
           >
-            <div className="relative w-full" style={{ aspectRatio: HOUSE_RULES_DROPDOWN_ASPECT }}>
-              <img
-                src={houseRulesDropdownUrl}
-                alt=""
-                className="absolute inset-0 h-full w-full select-none"
-                draggable={false}
-              />
-
-              {/* Chevron in the dropdown's own header — closes it back down. */}
-              <button
-                type="button"
-                onClick={() => setIsHouseRulesOpen(false)}
-                aria-label="Close house rules"
-                className={HIT_TARGET_CLASS}
-                style={rectStyle(HOUSE_RULES_CLOSE_BUTTON)}
-              />
-
-              {HOUSE_RULE_ORDER.map((rule, index) => {
-                const row = HOUSE_RULE_ROW_Y[index]
-                return (
-                  <label
-                    key={rule.key}
-                    className="absolute flex cursor-pointer items-center justify-between gap-2 px-2"
-                    style={{
-                      left: `${HOUSE_RULE_ROW_X.left}%`,
-                      top: `${row.top}%`,
-                      width: `${HOUSE_RULE_ROW_X.width}%`,
-                      height: `${row.height}%`,
-                    }}
-                  >
-                    <span className="truncate font-body text-[11px] text-white/80">{rule.label}</span>
-                    {rule.type === 'checkbox' ? (
-                      <input
-                        type="checkbox"
-                        checked={gameRules[rule.key]}
-                        onChange={(event) => setGameRules({ ...gameRules, [rule.key]: event.target.checked })}
-                        className="h-4 w-4 shrink-0 accent-gold"
-                      />
-                    ) : (
-                      <input
-                        type="number"
-                        min={VP_TARGET_MIN}
-                        max={VP_TARGET_MAX}
-                        value={vpTargetDraft}
-                        onChange={(event) => setVpTargetDraft(event.target.value)}
-                        onBlur={() => {
-                          const parsed = Number(vpTargetDraft)
-                          const clamped = Number.isNaN(parsed)
-                            ? gameRules.victoryPointTarget
-                            : Math.min(VP_TARGET_MAX, Math.max(VP_TARGET_MIN, parsed))
-                          setGameRules({ ...gameRules, victoryPointTarget: clamped })
-                          setVpTargetDraft(String(clamped))
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        className="w-12 shrink-0 rounded-md border border-glass-border bg-white/5 px-1 text-center font-body text-xs text-white focus:outline-none"
-                      />
-                    )}
-                  </label>
-                )
-              })}
-            </div>
+            <HouseRulesDropdown rules={gameRules} onChange={setGameRules} />
           </div>
         )}
       </div>

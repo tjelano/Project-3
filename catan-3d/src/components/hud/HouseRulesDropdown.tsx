@@ -1,0 +1,181 @@
+import { useState } from 'react'
+import toggleOffUrl from '../../assets/menu/house-rules/hr-toggle-off.png'
+import toggleOnUrl from '../../assets/menu/house-rules/hr-toggle-on.png'
+import panelBgUrl from '../../assets/menu/house-rules/hr-panel-bg.png'
+import type { GameRules } from '../../game/types'
+
+const VP_TARGET_MIN = 3
+const VP_TARGET_MAX = 50
+
+// The 5 checkbox rules fill 5 of a 2x3 grid's 6 cells, leaving one open —
+// add a 6th checkbox rule here and it drops straight into that last cell.
+// A 7th+ rule extends the grid to 2x4 (bump GRID_ROW_COUNT accordingly).
+const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule'; label: string }[] = [
+  { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
+  { key: 'friendlyRobber', label: 'Friendly robber' },
+  { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only' },
+  { key: 'noSevensFirstTwoRolls', label: 'No 7s on first 2 rolls' },
+  { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
+]
+
+// Plain rows now (no per-row bar image) — a ring + label, separated by a
+// thin hairline border instead of painted chrome. One size/spacing group
+// for the whole grid, not a control per row.
+const ROW_FONT_SIZE_PX = 20
+const ROW_VERTICAL_PADDING_PX = 8
+const ROW_RING_SIZE_PX = 32
+const ROW_RING_GAP_PX = 10
+const GRID_GAP_X_PX = 40
+const GRID_DIVIDER_COLOR = 'rgba(200, 169, 62, 0.25)'
+
+// Outer frame padding — hr-panel-bg.png's own border needs room between
+// itself and the content sitting on top of it.
+const PANEL_PADDING_PX = 28
+
+const STAGGER_STEP_MS = 60
+
+// The whole panel's position, as ONE group control (px nudge) — rather than
+// touching any individual row/icon/bar's own position. Mirrors the
+// group-offset pattern RoomLobby.tsx already uses for its own clusters
+// (ROOM_CODE_OFFSET, PLAYER_ROWS_OFFSET) instead of per-element controls.
+// Width is NOT controlled here with a CSS scale() — scale() stretches
+// already-rendered pixels rather than laying out at a bigger size, which is
+// why the row bars and toggle rings went blurry when scaled past 1. Real
+// width is GameSetupMenu.tsx's LAYOUT.houseRulesDropdown.width (a layout
+// %, not a post-render stretch) — resize the panel there instead.
+const PANEL_OFFSET = { x: 0, y: 0 }
+
+function RuleRow({
+  label,
+  checked,
+  onToggle,
+  showDivider,
+  animationDelay,
+}: {
+  label: string
+  checked: boolean
+  onToggle: (checked: boolean) => void
+  showDivider: boolean
+  animationDelay: string
+}) {
+  return (
+    <label
+      className="flex cursor-pointer items-center animate-house-rules-row-in"
+      style={{
+        gap: ROW_RING_GAP_PX,
+        paddingTop: ROW_VERTICAL_PADDING_PX,
+        paddingBottom: ROW_VERTICAL_PADDING_PX,
+        borderBottom: showDivider ? `1px solid ${GRID_DIVIDER_COLOR}` : undefined,
+        animationDelay,
+      }}
+    >
+      <input type="checkbox" checked={checked} onChange={(event) => onToggle(event.target.checked)} className="sr-only" />
+      <img
+        src={checked ? toggleOnUrl : toggleOffUrl}
+        alt=""
+        className="pointer-events-none shrink-0 select-none"
+        style={{ width: ROW_RING_SIZE_PX, height: ROW_RING_SIZE_PX }}
+        draggable={false}
+      />
+      <span
+        className="truncate font-display text-gold"
+        style={{ fontSize: ROW_FONT_SIZE_PX }}
+      >
+        {label}
+      </span>
+    </label>
+  )
+}
+
+/**
+ * Just the rules — the book/bar/chevron header now lives permanently in
+ * GameSetupMenu.tsx (it always shows; this panel is what appears/disappears
+ * underneath it). Plain rows (ring + label, hairline dividers) inside one
+ * bordered frame (hr-panel-bg.png) rather than painted per-row bars — a
+ * cleaner, more minimal look than the earlier painted-chrome version.
+ * Rules lay out in a 2-column grid with the victory-point target as its own
+ * full-width row below; each cascades in with a staggered delay instead of
+ * the whole panel popping in at once.
+ */
+export function HouseRulesDropdown({
+  rules,
+  onChange,
+}: {
+  rules: GameRules
+  onChange: (rules: GameRules) => void
+}) {
+  // Same decoupled-draft pattern as HouseRulesEditor.tsx: a controlled
+  // number input tied directly to a clamped value can't show an empty or
+  // in-progress string while typing, since Number('') is 0, not NaN.
+  const [vpText, setVpText] = useState(String(rules.victoryPointTarget))
+  const [prevTarget, setPrevTarget] = useState(rules.victoryPointTarget)
+  if (rules.victoryPointTarget !== prevTarget) {
+    setPrevTarget(rules.victoryPointTarget)
+    setVpText(String(rules.victoryPointTarget))
+  }
+
+  const setRule = <K extends keyof GameRules>(key: K, value: GameRules[K]) => {
+    onChange({ ...rules, [key]: value })
+  }
+
+  return (
+    <div
+      className="relative animate-house-rules-in shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+      style={{ transform: `translate(${PANEL_OFFSET.x}px, ${PANEL_OFFSET.y}px)` }}
+    >
+      <img
+        src={panelBgUrl}
+        alt=""
+        className="pointer-events-none absolute inset-0 h-full w-full select-none"
+        style={{ objectFit: 'fill' }}
+        draggable={false}
+      />
+
+      <div className="relative" style={{ padding: PANEL_PADDING_PX }}>
+        <div className="grid grid-cols-2" style={{ columnGap: GRID_GAP_X_PX }}>
+          {CHECKBOX_RULES.map((rule, index) => (
+            <RuleRow
+              key={rule.key}
+              label={rule.label}
+              checked={rules[rule.key]}
+              onToggle={(checked) => setRule(rule.key, checked)}
+              showDivider={index < CHECKBOX_RULES.length - 1}
+              animationDelay={`${index * STAGGER_STEP_MS}ms`}
+            />
+          ))}
+        </div>
+
+        <div
+          className="flex items-center justify-center animate-house-rules-row-in"
+          style={{
+            gap: ROW_RING_GAP_PX,
+            paddingTop: ROW_VERTICAL_PADDING_PX,
+            marginTop: ROW_VERTICAL_PADDING_PX,
+            borderTop: `1px solid ${GRID_DIVIDER_COLOR}`,
+            animationDelay: `${CHECKBOX_RULES.length * STAGGER_STEP_MS}ms`,
+          }}
+        >
+          <input
+            type="number"
+            min={VP_TARGET_MIN}
+            max={VP_TARGET_MAX}
+            value={vpText}
+            onChange={(event) => setVpText(event.target.value)}
+            onBlur={() => {
+              const parsed = Number(vpText)
+              const clamped = Number.isNaN(parsed)
+                ? rules.victoryPointTarget
+                : Math.min(VP_TARGET_MAX, Math.max(VP_TARGET_MIN, Math.round(parsed)))
+              setVpText(String(clamped))
+              if (clamped !== rules.victoryPointTarget) setRule('victoryPointTarget', clamped)
+            }}
+            className="w-14 shrink-0 rounded-md border border-glass-border bg-white/5 px-1 py-1 text-center font-body text-sm text-white focus:outline-none"
+          />
+          <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>
+            Victory point target
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}

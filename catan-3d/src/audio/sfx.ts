@@ -22,14 +22,28 @@ const SFX_URLS: Record<SfxKey, string> = {
 // clone per play — cloning (rather than replaying the same element) is
 // what lets two triggers in quick succession (e.g. two setup roads placed
 // back to back) overlap instead of the second cutting the first off.
-const cache = new Map<SfxKey, HTMLAudioElement>()
+//
+// Eagerly created and preloaded here, at module load, rather than lazily
+// on first play — matching the useGLTF.preload(...) convention this
+// codebase already uses for 3D models. Without this, the FIRST play of any
+// given sound has to wait on the browser fetching and decoding the file
+// before it can start, which is exactly the "plays late" delay this fixes
+// (a settlement's own placement sound is usually the very first time
+// 'placement' plays in a match). `preload = 'auto'` plus an explicit
+// `.load()` call kicks off that fetch immediately — Safari in particular
+// doesn't always start fetching from the Audio() constructor alone.
+const cache = new Map<SfxKey, HTMLAudioElement>(
+  (Object.entries(SFX_URLS) as [SfxKey, string][]).map(([key, url]) => {
+    const audio = new Audio(url)
+    audio.preload = 'auto'
+    audio.load()
+    return [key, audio]
+  }),
+)
 
 export function playSfx(key: SfxKey, volume = 0.55): void {
-  let base = cache.get(key)
-  if (!base) {
-    base = new Audio(SFX_URLS[key])
-    cache.set(key, base)
-  }
+  const base = cache.get(key)
+  if (!base) return
   const instance = base.cloneNode(true) as HTMLAudioElement
   instance.volume = volume
   // Browsers reject play() before any user gesture has reached the page —

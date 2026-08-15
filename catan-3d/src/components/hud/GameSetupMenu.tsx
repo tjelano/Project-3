@@ -8,12 +8,11 @@ import textGameOnlineUrl from '../../assets/menu/text-game-online.png'
 import bookIconUrl from '../../assets/menu/house-rules/hr-book-icon.png'
 import headerBarUrl from '../../assets/menu/house-rules/hr-header-bar.png'
 import chevronButtonUrl from '../../assets/menu/house-rules/hr-chevron-button.png'
-import { DEFAULT_GAME_RULES } from './HouseRulesEditor'
 import { HouseRulesDropdown } from './HouseRulesDropdown'
 import { JoinRoomModal } from './JoinRoomModal'
 import { useHoverActive } from './useHoverActive'
 import type { GameStartInfo } from './StartScreen'
-import type { GameRules } from '../../game/types'
+import { DEFAULT_GAME_RULES, type GameRules } from '../../game/types'
 
 type GameMode = 'local' | 'host'
 
@@ -59,11 +58,16 @@ const LAYOUT = {
   houseRulesBar: { left: 17.50, top: 70.34, width: 65.3, height: 10.80 } satisfies Rect,
   startGameButton: { left: 36.2, top: 84.5, width: 28.4, height: 9 } satisfies Rect,
   // Anchors HouseRulesDropdown just under houseRulesBar, re-centered on the
-  // same midpoint now that it's wider than the header above it. This panel
-  // sizes itself from its own content (no fixed aspect ratio needed), so
-  // only left/top/width are used here — width is real layout, not a CSS
-  // scale(), so it stays sharp at any value (see HouseRulesDropdown.tsx).
-  houseRulesDropdown: { left: -4.9, top: 80.4, width: 110 } satisfies Omit<Rect, 'height'>,
+  // same midpoint now that it's wider than the header above it. top must
+  // stay at or below houseRulesBar's own bottom edge (70.34 + 10.80 =
+  // 81.14) — any higher and the dropdown's own (unclickable) top padding
+  // overlaps the header's clickable area, since the dropdown wrapper sits
+  // at a higher z-index and silently eats clicks meant for the header.
+  // This panel sizes itself from its own content (no fixed aspect ratio
+  // needed), so only left/top/width are used here — width is real layout,
+  // not a CSS scale(), so it stays sharp at any value (see
+  // HouseRulesDropdown.tsx).
+  houseRulesDropdown: { left: -4.9, top: 81.2, width: 110 } satisfies Omit<Rect, 'height'>,
   // How far selector-player.png / selector-border.png extend past their
   // box's own edges, in % of that box's own size (a negative inset) — these
   // are frame art meant to wrap AROUND the box, not fill it exactly. X
@@ -83,19 +87,22 @@ const LAYOUT = {
 const START_GAME_GLOW_IDLE_OPACITY = 0
 const START_GAME_GLOW_ACTIVE_OPACITY = 1
 
-// House Rules header row sizing. LAYOUT.houseRulesBar.height sets the
-// button's own hit-target height, which the chevron fills completely
-// (h-full, matches its box exactly) — the book icon and header bar each get
-// their own % of that same height instead, so resizing the icon or bar
-// doesn't require also resizing (and mis-sizing) the chevron.
-const HOUSE_RULES_ICON_HEIGHT_PCT = 100
-const HOUSE_RULES_HEADER_BAR_HEIGHT_PCT = 110
-// How far the "Standard Rules" label sits from the button's left edge —
-// needs to clear the book icon (pinned to that same edge, on top of the
-// bar now that the bar is a full-width background rather than a separate
-// middle segment).
-const HOUSE_RULES_LABEL_LEFT_PX = 64
-const HOUSE_RULES_LABEL_FONT_SIZE_PX = 18
+// House Rules header row sizing — one group for the header composite's own
+// internal layout, separate from LAYOUT.houseRulesBar (which positions the
+// button itself). The book icon and chevron both fill the button's full
+// height directly (h-full); only the header bar and label need their own
+// numbers here.
+const HOUSE_RULES_HEADER = {
+  // % of the button's own height — bigger than 100 lets the bar's art
+  // overhang the button box slightly, matching its painted border weight.
+  barHeightPct: 110,
+  // How far the "Standard Rules" label sits from the button's left edge —
+  // needs to clear the book icon (pinned to that same edge, on top of the
+  // bar now that the bar is a full-width background rather than a separate
+  // middle segment).
+  labelLeftPx: 64,
+  labelFontSizePx: 18,
+}
 
 // Nudges the "Join Existing Game" label off its default centered position
 // (px, positive x = right, positive y = down).
@@ -277,19 +284,18 @@ export function GameSetupMenu({
             src={headerBarUrl}
             alt=""
             className="absolute left-0 top-1/2 w-full -translate-y-1/2 select-none"
-            style={{ height: `${HOUSE_RULES_HEADER_BAR_HEIGHT_PCT}%` }}
+            style={{ height: `${HOUSE_RULES_HEADER.barHeightPct}%` }}
             draggable={false}
           />
           <img
             src={bookIconUrl}
             alt=""
-            className="absolute left-0 top-1/2 -translate-y-1/2 select-none"
-            style={{ height: `${HOUSE_RULES_ICON_HEIGHT_PCT}%` }}
+            className="absolute left-0 top-1/2 h-full -translate-y-1/2 select-none"
             draggable={false}
           />
           <span
             className="absolute inset-0 flex items-center font-display tracking-[0.1em] text-gold uppercase"
-            style={{ fontSize: HOUSE_RULES_LABEL_FONT_SIZE_PX, paddingLeft: HOUSE_RULES_LABEL_LEFT_PX }}
+            style={{ fontSize: HOUSE_RULES_HEADER.labelFontSizePx, paddingLeft: HOUSE_RULES_HEADER.labelLeftPx }}
           >
             Standard Rules
           </span>

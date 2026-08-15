@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import toggleOffUrl from '../../assets/menu/house-rules/hr-toggle-off.png'
 import toggleOnUrl from '../../assets/menu/house-rules/hr-toggle-on.png'
 import panelBgUrl from '../../assets/menu/house-rules/hr-panel-bg.png'
+import { useDraftNumberField } from './useDraftNumberField'
 import type { GameRules } from '../../game/types'
 
 const VP_TARGET_MIN = 3
@@ -34,16 +34,13 @@ const PANEL_PADDING_PX = 28
 
 const STAGGER_STEP_MS = 60
 
-// The whole panel's position, as ONE group control (px nudge) — rather than
-// touching any individual row/icon/bar's own position. Mirrors the
-// group-offset pattern RoomLobby.tsx already uses for its own clusters
-// (ROOM_CODE_OFFSET, PLAYER_ROWS_OFFSET) instead of per-element controls.
-// Width is NOT controlled here with a CSS scale() — scale() stretches
-// already-rendered pixels rather than laying out at a bigger size, which is
-// why the row bars and toggle rings went blurry when scaled past 1. Real
-// width is GameSetupMenu.tsx's LAYOUT.houseRulesDropdown.width (a layout
-// %, not a post-render stretch) — resize the panel there instead.
-const PANEL_OFFSET = { x: 0, y: 0 }
+// The panel's own position/size is fully owned by GameSetupMenu.tsx's
+// LAYOUT.houseRulesDropdown (a layout %) — resize or nudge it there, not
+// here. A local px-based transform would be a second, mismatched coordinate
+// system for positioning the same object (px nudges don't scale the way the
+// parent's % ones do if the panel is later resized) — see the CSS-scale()
+// blur note in the git history for why a stretch transform isn't the fix
+// for sizing either.
 
 function RuleRow({
   label,
@@ -104,25 +101,19 @@ export function HouseRulesDropdown({
   rules: GameRules
   onChange: (rules: GameRules) => void
 }) {
-  // Same decoupled-draft pattern as HouseRulesEditor.tsx: a controlled
-  // number input tied directly to a clamped value can't show an empty or
-  // in-progress string while typing, since Number('') is 0, not NaN.
-  const [vpText, setVpText] = useState(String(rules.victoryPointTarget))
-  const [prevTarget, setPrevTarget] = useState(rules.victoryPointTarget)
-  if (rules.victoryPointTarget !== prevTarget) {
-    setPrevTarget(rules.victoryPointTarget)
-    setVpText(String(rules.victoryPointTarget))
-  }
-
   const setRule = <K extends keyof GameRules>(key: K, value: GameRules[K]) => {
     onChange({ ...rules, [key]: value })
   }
 
+  const vpTarget = useDraftNumberField({
+    value: rules.victoryPointTarget,
+    min: VP_TARGET_MIN,
+    max: VP_TARGET_MAX,
+    onCommit: (clamped) => setRule('victoryPointTarget', clamped),
+  })
+
   return (
-    <div
-      className="relative animate-house-rules-in shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
-      style={{ transform: `translate(${PANEL_OFFSET.x}px, ${PANEL_OFFSET.y}px)` }}
-    >
+    <div className="relative animate-house-rules-in shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
       <img
         src={panelBgUrl}
         alt=""
@@ -159,16 +150,9 @@ export function HouseRulesDropdown({
             type="number"
             min={VP_TARGET_MIN}
             max={VP_TARGET_MAX}
-            value={vpText}
-            onChange={(event) => setVpText(event.target.value)}
-            onBlur={() => {
-              const parsed = Number(vpText)
-              const clamped = Number.isNaN(parsed)
-                ? rules.victoryPointTarget
-                : Math.min(VP_TARGET_MAX, Math.max(VP_TARGET_MIN, Math.round(parsed)))
-              setVpText(String(clamped))
-              if (clamped !== rules.victoryPointTarget) setRule('victoryPointTarget', clamped)
-            }}
+            value={vpTarget.text}
+            onChange={(event) => vpTarget.setText(event.target.value)}
+            onBlur={vpTarget.commit}
             className="w-14 shrink-0 rounded-md border border-glass-border bg-white/5 px-1 py-1 text-center font-body text-sm text-white focus:outline-none"
           />
           <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>

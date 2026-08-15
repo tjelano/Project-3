@@ -14,7 +14,12 @@ const HIDDEN_TILE_ROTATION_Y = Math.PI / 2
 const HIDDEN_TILE_SCALE = 0.94
 
 // How long the dissolve-away takes once a tile reveals, in seconds.
-const REVEAL_FADE_SECONDS = 0.4
+// Exported because CatanBoard has to keep a revealed tile's mist mounted
+// for exactly this long for the animation below to get any frames at all
+// (see useDissolvingTileIds) — two independent copies of this number would
+// drift into either a clipped dissolve or a mist that lingers after it has
+// already shrunk to nothing.
+export const REVEAL_FADE_SECONDS = 0.4
 
 // Same swirling-noise technique as Ocean.tsx's WAVE_GLSL — summed sine waves
 // at incommensurate directions, frequencies and speeds, the established
@@ -69,8 +74,10 @@ function reportMistShaderFailure() {
  * that hasn't been revealed yet. Static shape (hidden-tile.glb) + animated
  * fragment shader (this file) are deliberately separate concerns — see the
  * design spec. `revealed` plays a scale-down dissolve rather than an instant
- * pop; CatanBoard.tsx (Task 8) stops rendering this component entirely once
- * the tile is actually in revealedTileIds.
+ * pop: CatanBoard keeps this component mounted, with `revealed` set, for
+ * REVEAL_FADE_SECONDS after the tile lands in revealedTileIds (the real
+ * terrain is already drawn underneath by then) and only unmounts it once
+ * the shrink has finished.
  */
 export function MistTile({ revealed }: { revealed: boolean }) {
   const instance = useClonedModel(hiddenTileUrl)
@@ -189,7 +196,18 @@ export function MistTile({ revealed }: { revealed: boolean }) {
     // Dissolve-away on reveal: linear shrink to 0 over REVEAL_FADE_SECONDS
     // rather than vanishing instantly.
     const group = groupRef.current
-    if (!group || !revealed) return
+    if (!group) return
+    if (!revealed) {
+      // The shrink is one-way, so an instance that survives `revealed`
+      // going back to false would sit at whatever scale it stopped at —
+      // possibly 0, i.e. a hidden tile wearing no mist at all. Reachable:
+      // starting a New Game inside the dissolve window re-hides a tile
+      // whose HexTile (keyed by tile id) never unmounted. Cheap to just
+      // hold the resting scale here rather than have CatanBoard force a
+      // remount to get it back.
+      if (group.scale.x !== HIDDEN_TILE_SCALE) group.scale.setScalar(HIDDEN_TILE_SCALE)
+      return
+    }
     const step = (HIDDEN_TILE_SCALE / REVEAL_FADE_SECONDS) * delta
     group.scale.setScalar(Math.max(0, group.scale.x - step))
   })

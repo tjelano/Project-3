@@ -2184,6 +2184,7 @@ function App() {
     // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
+    setRevealedTileIds(new Set(snapshot.revealedTileIds ?? []))
     setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
     setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
@@ -2329,6 +2330,9 @@ function App() {
       customBoardCells,
       customBoardBiomeOverrides,
       gameRules,
+      // Set doesn't survive JSON.stringify as itself — convert at this one
+      // serialization boundary, same as every other Map/Set-shaped state.
+      revealedTileIds: Array.from(revealedTileIds),
       totalRollsThisGame,
       consecutiveDoublesThisTurn,
       startingPlayerIndex,
@@ -2360,6 +2364,7 @@ function App() {
     customBoardCells,
     customBoardBiomeOverrides,
     gameRules,
+    revealedTileIds,
     totalRollsThisGame,
     consecutiveDoublesThisTurn,
     startingPlayerIndex,

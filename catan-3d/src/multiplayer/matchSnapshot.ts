@@ -26,6 +26,12 @@ export interface MatchSnapshot {
   // house rules existed default to DEFAULT_GAME_RULES on restore. Player
   // colors need no separate field: they're already on each Player below.
   gameRules?: GameRules
+  // Optional for the same reason boardShapeId is — snapshots saved before
+  // Hidden Tiles existed won't have it. restoreFromSnapshot treats absent
+  // as "nothing revealed yet," which only under-reveals a handful of
+  // already-built tiles on a reconnect to an in-progress pre-feature
+  // match — cosmetic only, self-corrects the moment anyone builds again.
+  revealedTileIds?: string[]
   // Optional for the same reason — absent on pre-house-rules snapshots,
   // which restoreFromSnapshot treats as 0 (safe: at worst it re-protects a
   // handful of already-past rolls from the noSevensFirstTwoRolls check).

@@ -16,13 +16,10 @@ const CHIT_FONT_WORLD_SIZE = 0.27
 // floating above as an upright card.
 const TOKEN_LABEL_Y = 0.012
 
-// Reused every frame instead of allocating a new Vector3 per token per
-// frame — there can be up to 18 of these live at once.
-const WORLD_POS = new THREE.Vector3()
-
 export function NumberToken({ value, yOffset = 0, hidden = false }: { value: number; yOffset?: number; hidden?: boolean }) {
   const isHot = !hidden && (value === 6 || value === 8)
   const yawRef = useRef<THREE.Group>(null)
+  const worldPosRef = useRef<THREE.Vector3 | null>(null)
 
   const label = useMemo(
     () => createLabelTexture(hidden ? '?' : String(value), { fontPx: 96, color: isHot ? '#a32020' : '#2b2b2b' }),
@@ -43,8 +40,17 @@ export function NumberToken({ value, yOffset = 0, hidden = false }: { value: num
   useFrame(({ camera }) => {
     const yawGroup = yawRef.current
     if (!yawGroup) return
-    yawGroup.getWorldPosition(WORLD_POS)
-    yawGroup.rotation.y = Math.atan2(camera.position.x - WORLD_POS.x, camera.position.z - WORLD_POS.z)
+
+    // The tokens never move once placed on the board, so we only need to
+    // calculate their world position once instead of traversing the scene
+    // graph every frame for every token (up to 18 live at once).
+    if (!worldPosRef.current) {
+      worldPosRef.current = new THREE.Vector3()
+      yawGroup.getWorldPosition(worldPosRef.current)
+    }
+
+    const pos = worldPosRef.current
+    yawGroup.rotation.y = Math.atan2(camera.position.x - pos.x, camera.position.z - pos.z)
   })
 
   return (

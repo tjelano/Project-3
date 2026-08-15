@@ -18,6 +18,15 @@ const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allow
   { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
 ]
 
+// hiddenTiles is 4-way, not a ring toggle — its own segmented-control row
+// rather than a CHECKBOX_RULES entry.
+const HIDDEN_TILES_OPTIONS: { value: GameRules['hiddenTiles']; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'numbers', label: 'Numbers' },
+  { value: 'resources', label: 'Resources' },
+  { value: 'both', label: 'Both' },
+]
+
 // Plain rows now (no per-row bar image) — a ring + label, separated by a
 // thin hairline border instead of painted chrome. One size/spacing group
 // for the whole grid, not a control per row.
@@ -137,13 +146,46 @@ export function HouseRulesDropdown({
         </div>
 
         <div
+          className="flex items-center justify-between animate-house-rules-row-in"
+          style={{
+            gap: ROW_RING_GAP_PX,
+            paddingTop: ROW_VERTICAL_PADDING_PX,
+            paddingBottom: ROW_VERTICAL_PADDING_PX,
+            marginTop: ROW_VERTICAL_PADDING_PX,
+            borderTop: `1px solid ${GRID_DIVIDER_COLOR}`,
+            animationDelay: `${CHECKBOX_RULES.length * STAGGER_STEP_MS}ms`,
+          }}
+        >
+          <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>
+            Hidden tiles
+          </span>
+          <div className="flex shrink-0" style={{ gap: ROW_RING_GAP_PX / 2 }}>
+            {HIDDEN_TILES_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setRule('hiddenTiles', option.value)}
+                aria-pressed={rules.hiddenTiles === option.value}
+                className={`rounded-md border px-2 py-1 font-body text-xs transition-colors ${
+                  rules.hiddenTiles === option.value
+                    ? 'border-gold bg-gold/20 text-gold'
+                    : 'border-glass-border bg-white/5 text-white/70'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
           className="flex items-center justify-center animate-house-rules-row-in"
           style={{
             gap: ROW_RING_GAP_PX,
             paddingTop: ROW_VERTICAL_PADDING_PX,
             marginTop: ROW_VERTICAL_PADDING_PX,
             borderTop: `1px solid ${GRID_DIVIDER_COLOR}`,
-            animationDelay: `${CHECKBOX_RULES.length * STAGGER_STEP_MS}ms`,
+            animationDelay: `${(CHECKBOX_RULES.length + 1) * STAGGER_STEP_MS}ms`,
           }}
         >
           <input

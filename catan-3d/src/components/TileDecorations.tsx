@@ -20,13 +20,13 @@ const TOKEN_LABEL_Y = 0.012
 // frame — there can be up to 18 of these live at once.
 const WORLD_POS = new THREE.Vector3()
 
-export function NumberToken({ value, yOffset = 0 }: { value: number; yOffset?: number }) {
-  const isHot = value === 6 || value === 8
+export function NumberToken({ value, yOffset = 0, hidden = false }: { value: number; yOffset?: number; hidden?: boolean }) {
+  const isHot = !hidden && (value === 6 || value === 8)
   const yawRef = useRef<THREE.Group>(null)
 
   const label = useMemo(
-    () => createLabelTexture(String(value), { fontPx: 96, color: isHot ? '#a32020' : '#2b2b2b' }),
-    [value, isHot],
+    () => createLabelTexture(hidden ? '?' : String(value), { fontPx: 96, color: isHot ? '#a32020' : '#2b2b2b' }),
+    [value, isHot, hidden],
   )
   const labelScale = CHIT_FONT_WORLD_SIZE / label.fontPx
 

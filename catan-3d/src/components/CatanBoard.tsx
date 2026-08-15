@@ -6,6 +6,7 @@ import { createSeededRandom } from '../utils/seededRandom'
 import { useClonedModel } from '../hooks/useClonedModel'
 import { ModelErrorBoundary } from './ModelErrorBoundary'
 import { MistTile, REVEAL_FADE_SECONDS } from './MistTile'
+import { hidesResourceMesh } from '../game/hiddenTiles'
 import type { GameRules } from '../game/types'
 import forestTileModelUrl from '../assets/models/forest-tile.glb'
 import hillsTileModelUrl from '../assets/models/hills-tile.glb'
@@ -240,7 +241,7 @@ export const CatanBoard = memo(function CatanBoard({
   revealedTileIds: ReadonlySet<string>
 }) {
   const dissolvingTileIds = useDissolvingTileIds(revealedTileIds)
-  const hidesResource = hiddenTilesMode === 'resources' || hiddenTilesMode === 'both'
+  const hidesResource = hidesResourceMesh(hiddenTilesMode)
   const hidesNumber = hiddenTilesMode === 'numbers' || hiddenTilesMode === 'both'
   return (
     <group>

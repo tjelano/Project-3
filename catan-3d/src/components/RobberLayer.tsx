@@ -5,6 +5,7 @@ import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
 import { useClonedModel } from '../hooks/useClonedModel'
 import { ModelErrorBoundary } from './ModelErrorBoundary'
+import { hidesResourceMesh } from '../game/hiddenTiles'
 import type { GameRules } from '../game/types'
 import robberModelUrl from '../assets/models/robber-figurine-v2.glb'
 
@@ -153,9 +154,7 @@ export function RobberLayer({
   // the figurine — 'numbers' just blanks the chit and leaves terrain (and
   // therefore the robber) in plain sight.
   const tileIsHidden =
-    robberTile != null &&
-    (hiddenTilesMode === 'resources' || hiddenTilesMode === 'both') &&
-    !revealedTileIds.has(robberTile.id)
+    robberTile != null && hidesResourceMesh(hiddenTilesMode) && !revealedTileIds.has(robberTile.id)
 
   return (
     <group>

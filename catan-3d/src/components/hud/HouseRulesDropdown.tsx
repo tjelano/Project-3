@@ -199,7 +199,7 @@ export function HouseRulesDropdown({
           style={{
             gap: ROW_RING_GAP_PX,
             paddingTop: ROW_VERTICAL_PADDING_PX,
-            marginTop: ROW_VERTICAL_PADDING_PX,
+            paddingBottom: ROW_VERTICAL_PADDING_PX,
             borderTop: `1px solid ${GRID_DIVIDER_COLOR}`,
             animationDelay: `${(CHECKBOX_RULES.length + 1) * STAGGER_STEP_MS}ms`,
           }}

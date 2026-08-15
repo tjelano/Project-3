@@ -134,8 +134,26 @@ export const IMPROVEMENT_TRACK_NAMES: Record<ImprovementTrack, string[]> = {
 ```ts
 commodities: Commodities
 cityImprovements: CityImprovements
-metropolisTracks: Set<ImprovementTrack> // 0-3 entries — a player may hold every Metropolis at once
 ```
+
+Metropolis control is NOT a per-player field — it's a single contested
+slot per track, same shape as this codebase's existing
+`longestRoadHolderId`/`largestArmyHolderId` (`App.tsx:260-261`): top-level
+game state, not something stored on the `Player` object. New state:
+
+```ts
+metropolisHolders: Record<ImprovementTrack, number | null> // player id per track, or null if unclaimed
+```
+
+This deliberately does NOT reuse `pickTrophyHolder`
+(`catan-3d/src/game/trophies.ts:70`) — that function's rule is "current
+max always wins, incumbent only keeps exact ties," which is Longest
+Road/Largest Army's actual rule but not Metropolis's: official C&K is
+"first to reach level 4 keeps temporary control even if someone else also
+reaches level 4 later; first to reach level 5 always takes permanent
+control regardless of who currently holds it." Needs its own resolver,
+event-triggered right after a purchase rather than recomputed from a
+live-changing count every render.
 
 `GameRules` gains:
 
@@ -226,18 +244,23 @@ visual differentiator decided once actually looking at it in-browser
 (likely a scale-up plus a tint or a simple marker prop) — same "ship the
 mechanic, defer the art" approach the Hidden Tiles mist review confirmed
 worked well. `getScoreBreakdown` (`catan-3d/src/game/types.ts:277`) gains
-a `metropolis` field: `metropolisTracks.size * 2` VP — a player may hold
-all 3 Metropolises at once, so this sums across tracks rather than
-assuming at most one, which the official rules don't limit.
+a `metropolis` field, taking `metropolisHolders` as a new parameter
+(same pattern as the existing `longestRoadHolderId`/`largestArmyHolderId`
+parameters): `IMPROVEMENT_TRACK_ORDER.filter((t) =>
+metropolisHolders[t] === player.id).length * 2` — a player may hold all 3
+Metropolises at once, so this sums across tracks rather than assuming at
+most one, which the official rules don't limit.
 
 ## Multiplayer sync
 
-`commodities`, `cityImprovements`, and Metropolis ownership are per-player
-fields on the existing `Player` object, which already round-trips through
-`MatchSnapshot.players` in full — no new snapshot field needed beyond what
-carrying the extended `Player` shape already provides. Purchase actions
-follow the same local-action-handler + broadcast + trusted-apply pattern
-already used for settlement/road/city placement.
+`commodities` and `cityImprovements` are per-player fields on the existing
+`Player` object, which already round-trips through `MatchSnapshot.players`
+in full — no new snapshot handling needed for those two. `metropolisHolders`
+is new top-level state and needs its own optional `MatchSnapshot` field,
+saved/restored the same way `longestRoadHolderId`/`largestArmyHolderId`
+already are. Purchase actions follow the same local-action-handler +
+broadcast + trusted-apply pattern already used for settlement/road/city
+placement.
 
 ## Phase A asset list (placeholders)
 

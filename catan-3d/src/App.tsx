@@ -30,6 +30,7 @@ import { buildHexBoard, type BoardCell, type BoardShapeId, type Biome } from './
 import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
+import { revealTilesForVertex } from './game/hiddenTiles'
 import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
@@ -208,6 +209,12 @@ function App() {
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   const [settlements, setSettlements] = useState<Record<string, Building>>({})
   const [roads, setRoads] = useState<Record<string, number>>({})
+  // Which tiles have had a settlement built on a touching vertex — drives
+  // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
+  // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
+  // never checks this set. Never re-hides a tile once added — see
+  // game/hiddenTiles.ts.
+  const [revealedTileIds, setRevealedTileIds] = useState<Set<string>>(new Set())
   const [banner, setBanner] = useState<BannerMessage | null>(null)
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([])
   // Online-only — chat has no meaning in local Pass & Play (one shared
@@ -417,6 +424,7 @@ function App() {
   // in the same scope doesn't affect when they're safe to CALL.
   const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean) => {
     setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+    setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -2137,6 +2145,7 @@ function App() {
     setLastRoll(null)
     setSettlements({})
     setRoads({})
+    setRevealedTileIds(new Set())
     setBanner(null)
     setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
     setWinner(null)
@@ -2415,7 +2424,7 @@ function App() {
           <SceneRig outerSize={frameOuterSize} />
           <BoardFrame innerSize={frameInnerSize} />
           <Ocean innerSize={frameInnerSize} />
-          <CatanBoard tiles={tiles} />
+          <CatanBoard tiles={tiles} hiddenTilesMode={gameRules.hiddenTiles} revealedTileIds={revealedTileIds} />
           <BoardInteractions
             key={boardInstance}
             graph={graph}

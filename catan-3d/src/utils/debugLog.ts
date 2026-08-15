@@ -33,7 +33,7 @@ export function debugLog(event: string, data?: Record<string, unknown>): void {
   const entry: DebugLogEntry = { time: new Date().toISOString(), event, data }
   buffer.push(entry)
   if (buffer.length > MAX_ENTRIES) buffer = buffer.slice(buffer.length - MAX_ENTRIES)
-  console.error('[Catan Debug]', event, data ?? '')
+  console.warn('[Catan Debug]', event, data ?? '')
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(buffer))
   } catch (err) {

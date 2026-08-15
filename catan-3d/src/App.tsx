@@ -1054,12 +1054,22 @@ function App() {
 
   // The one piece of the discard self-healing (below, near
   // activeDiscarderId): releases gamePhase once the (self-healed) queue
-  // empties out. Same render-time pattern as the winner check above —
-  // gamePhase !== 'discard' is what makes it self-terminating.
-  if (gamePhase === 'discard' && validDiscardPlayerIds.length === 0) {
-    debugLog('discard self-heal fired', { discardPlayerIds, wasStuckOn: discardPlayerIds })
+  // empties out. Deliberately NOT the render-time pattern the winner check
+  // above uses — this one also writes a diagnostic log entry (which touches
+  // localStorage and the console), and a side effect like that belongs in a
+  // commit, not in a render body that React is free to run twice or throw
+  // away. gamePhase !== 'discard' still makes it self-terminating.
+  useEffect(() => {
+    if (gamePhase !== 'discard' || validDiscardPlayerIds.length > 0) return
+    debugLog('discard self-heal fired', { discardPlayerIds })
+    // The phase release rides along with the log instead of staying a
+    // render-time adjustment: they are one step ("the queue self-healed, let
+    // the phase go"), and splitting them would make the log unreachable —
+    // a render-phase setState re-renders before effects flush, so an Effect
+    // guarded on gamePhase === 'discard' would never see the discard phase.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setGamePhase('moveRobber')
-  }
+  }, [gamePhase, validDiscardPlayerIds, discardPlayerIds])
 
   // Does this player have a road touching the given intersection? Used for
   // both road and settlement connectivity checks.
@@ -2471,6 +2481,11 @@ function App() {
             robberTileId={robberTileId}
             isMovingRobber={gamePhase === 'moveRobber' && !winner && isMyTurn}
             onMoveRobber={moveRobber}
+            // Same two inputs CatanBoard gets: the figurine has to stand on
+            // top of the mist when its own tile is still fogged, or it is
+            // sealed inside the dome and simply invisible.
+            hiddenTilesMode={gameRules.hiddenTiles}
+            revealedTileIds={revealedTileIds}
           />
           <PortMarkers ports={ports} />
           {diceDisplayMode === 'physics' ? (

@@ -255,7 +255,11 @@ export const CatanBoard = memo(function CatanBoard({
             // Gated on hidesResource so the modes that never put fog on
             // the board ('off', 'numbers') can't mount a mist purely to
             // dissolve it the moment someone builds.
-            dissolving={hidesResource && dissolvingTileIds.has(tile.id)}
+            // isRevealed as well as the dissolving set: a restart can put a
+            // tile back into hiding while its id is still inside its own
+            // REVEAL_FADE_SECONDS window, and hideResource + dissolving both
+            // true at once would shrink the mist away off a hidden tile.
+            dissolving={hidesResource && isRevealed && dissolvingTileIds.has(tile.id)}
           />
         )
       })}

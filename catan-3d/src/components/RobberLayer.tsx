@@ -5,6 +5,7 @@ import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
 import { useClonedModel } from '../hooks/useClonedModel'
 import { ModelErrorBoundary } from './ModelErrorBoundary'
+import type { GameRules } from '../game/types'
 import robberModelUrl from '../assets/models/robber-figurine-v2.glb'
 
 const ROBBER_HIGHLIGHT_COLOR = '#d64545'
@@ -35,12 +36,22 @@ const ROBBER_Y = ROBBER_STAND_Y + ROBBER_MODEL_HALF_HEIGHT * ROBBER_SCALE
 // hex's own ~0.87-1.0 radius, nowhere near the tile edge.
 const ROBBER_X_OFFSET = 0.55
 
+// Stands the figurine on top of the mist instead of inside it when its tile
+// is still hidden. The mist dome is solid and seals the tile centre: its
+// crown sits at TILE_HEIGHT/2 + 0.754 (CatanBoard's HIDDEN_TILE_ELEVATION
+// 0.345 + the model's own +0.409 crown), while the robber's base sits at
+// TILE_HEIGHT/2 + 0.17 and its whole silhouette tops out at ~0.607 — i.e.
+// entirely swallowed. 0.595 lifts the base to 0.765, clearing the crown by
+// 0.011, the same clearance MIST_CHIT_Y_OFFSET gives the number chit. Tune
+// by eye once it's on screen.
+const ROBBER_HIDDEN_TILE_Y_OFFSET = 0.595
+
 useGLTF.preload(robberModelUrl)
 
-function RobberToken({ tile }: { tile: HexTileData }) {
+function RobberToken({ tile, yOffset = 0 }: { tile: HexTileData; yOffset?: number }) {
   const instance = useClonedModel(robberModelUrl)
   return (
-    <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y, tile.z]}>
+    <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y + yOffset, tile.z]}>
       <primitive object={instance} scale={ROBBER_SCALE} />
     </group>
   )
@@ -124,17 +135,34 @@ interface RobberLayerProps {
   robberTileId: string
   isMovingRobber: boolean
   onMoveRobber: (tileId: string) => void
+  hiddenTilesMode: GameRules['hiddenTiles']
+  revealedTileIds: ReadonlySet<string>
 }
 
-export function RobberLayer({ tiles, robberTileId, isMovingRobber, onMoveRobber }: RobberLayerProps) {
+export function RobberLayer({
+  tiles,
+  robberTileId,
+  isMovingRobber,
+  onMoveRobber,
+  hiddenTilesMode,
+  revealedTileIds,
+}: RobberLayerProps) {
   const robberTile = tiles.find((tile) => tile.id === robberTileId)
+
+  // Only the two modes that actually put a mist dome on the board can bury
+  // the figurine — 'numbers' just blanks the chit and leaves terrain (and
+  // therefore the robber) in plain sight.
+  const tileIsHidden =
+    robberTile != null &&
+    (hiddenTilesMode === 'resources' || hiddenTilesMode === 'both') &&
+    !revealedTileIds.has(robberTile.id)
 
   return (
     <group>
       {robberTile && <RobberTileGlow tile={robberTile} />}
       {robberTile && (
         <ModelErrorBoundary label="robber figurine">
-          <RobberToken tile={robberTile} />
+          <RobberToken tile={robberTile} yOffset={tileIsHidden ? ROBBER_HIDDEN_TILE_Y_OFFSET : 0} />
         </ModelErrorBoundary>
       )}
       {isMovingRobber &&

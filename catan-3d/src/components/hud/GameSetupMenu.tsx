@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useGLTF } from '@react-three/drei'
+import hiddenTileUrl from '../../assets/models/hidden-tile.glb'
 import mainMenuUrl from '../../assets/menu/main-menu.png'
 import selectorPlayerUrl from '../../assets/menu/selector-player.png'
 import selectorBorderUrl from '../../assets/menu/selector-border.png'
@@ -186,6 +188,20 @@ export function GameSetupMenu({
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   const [isHouseRulesOpen, setIsHouseRulesOpen] = useState(false)
   const [isJoinOpen, setIsJoinOpen] = useState(false)
+
+  // hidden-tile.glb is 46MB of baked mist texture — the one model in this
+  // codebase deliberately NOT preloaded at module scope, since most sessions
+  // never switch Hidden Tiles on and would pay the download for nothing.
+  // Picking a mode here is the first honest signal it WILL be needed, and it
+  // starts the fetch while the player is still setting up rather than at the
+  // board mount that needs it: R3F wraps every Canvas child in ONE Suspense
+  // boundary, so a cold first mist mount suspends the whole scene, not just
+  // the fogged tile. useGLTF.preload is idempotent, so re-firing on each mode
+  // change costs nothing.
+  useEffect(() => {
+    if (gameRules.hiddenTiles === 'off') return
+    useGLTF.preload(hiddenTileUrl)
+  }, [gameRules.hiddenTiles])
 
   const handleStart = () => {
     if (mode === 'host') {

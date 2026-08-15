@@ -148,6 +148,11 @@ export interface GameRules {
   // Rolling a double grants the SAME player an immediate extra roll, same
   // turn. Three doubles in a row empties that player's whole hand.
   doublesRerollRule: boolean
+  // Hides a tile's number, resource type, or both until a settlement is
+  // built on a vertex touching it — reveal is permanent and shared by every
+  // player (no per-player secret knowledge). Purely a rendering concern:
+  // tile.number/tile.biome are always the real values everywhere else.
+  hiddenTiles: 'off' | 'numbers' | 'resources' | 'both'
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -157,6 +162,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
   allowAdjacentSettlements: false,
   coastalOnlySetupPlacement: false,
   doublesRerollRule: false,
+  hiddenTiles: 'off',
 }
 
 // A victoryPointTarget set above WINNING_SCORE needs proportionally more of

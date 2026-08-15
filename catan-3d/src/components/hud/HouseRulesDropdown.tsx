@@ -18,10 +18,12 @@ const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allow
   { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
 ]
 
-// hiddenTiles is 4-way, not a ring toggle — its own segmented-control row
-// rather than a CHECKBOX_RULES entry.
-const HIDDEN_TILES_OPTIONS: { value: GameRules['hiddenTiles']; label: string }[] = [
-  { value: 'off', label: 'Off' },
+// hiddenTiles is 4-way, not a plain boolean — its own segmented-control row
+// rather than a CHECKBOX_RULES entry. 'off' isn't a segmented button here;
+// it's the row's own ring icon (filled when off is the active mode),
+// matching every other row's icon-means-current-state language instead of
+// reading as a 4th equal option.
+const HIDDEN_TILES_MODE_OPTIONS: { value: Exclude<GameRules['hiddenTiles'], 'off'>; label: string }[] = [
   { value: 'numbers', label: 'Numbers' },
   { value: 'resources', label: 'Resources' },
   { value: 'both', label: 'Both' },
@@ -156,15 +158,30 @@ export function HouseRulesDropdown({
             animationDelay: `${CHECKBOX_RULES.length * STAGGER_STEP_MS}ms`,
           }}
         >
-          <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>
-            Hidden tiles
-          </span>
+          <button
+            type="button"
+            onClick={() => setRule('hiddenTiles', 'off')}
+            aria-label="Turn off hidden tiles"
+            className="flex cursor-pointer items-center"
+            style={{ gap: ROW_RING_GAP_PX }}
+          >
+            <img
+              src={rules.hiddenTiles === 'off' ? toggleOffUrl : toggleOnUrl}
+              alt=""
+              className="pointer-events-none shrink-0 select-none"
+              style={{ width: ROW_RING_SIZE_PX, height: ROW_RING_SIZE_PX }}
+              draggable={false}
+            />
+            <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>
+              Hidden tiles
+            </span>
+          </button>
           <div className="flex shrink-0" style={{ gap: ROW_RING_GAP_PX / 2 }}>
-            {HIDDEN_TILES_OPTIONS.map((option) => (
+            {HIDDEN_TILES_MODE_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setRule('hiddenTiles', option.value)}
+                onClick={() => setRule('hiddenTiles', rules.hiddenTiles === option.value ? 'off' : option.value)}
                 aria-pressed={rules.hiddenTiles === option.value}
                 className={`rounded-md border px-2 py-1 font-body text-xs transition-colors ${
                   rules.hiddenTiles === option.value

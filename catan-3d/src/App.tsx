@@ -339,6 +339,10 @@ function App() {
       warn('Resolve the development card first.')
       return false
     }
+    if (activeScienceFreeResourcePlayerId != null) {
+      warn('Resolve the free resource pick first.')
+      return false
+    }
     return true
   }
 
@@ -983,7 +987,14 @@ function App() {
   // Mirrors GameHud's own canPlayDevCards derivation — needed here too since
   // the 3D hand (click-to-play) lives outside GameHud, in the Canvas.
   const canPlayDevCards =
-    gamePhase === 'playing' && !isRolling && !winner && !pendingTrade && !devCardPicker && !devCardPlayedThisTurn && isMyTurn
+    gamePhase === 'playing' &&
+    !isRolling &&
+    !winner &&
+    !pendingTrade &&
+    !devCardPicker &&
+    activeScienceFreeResourcePlayerId == null &&
+    !devCardPlayedThisTurn &&
+    isMyTurn
 
   // The single place a turn passes to the next player: clears any unused
   // free roads (a Road Building card's free placements don't carry over) and
@@ -1538,7 +1549,13 @@ function App() {
       const eligiblePlayerIds = players
         .filter((p) => p.cityImprovements.science >= 3 && !playersWithProduction.has(p.id))
         .map((p) => p.id)
-      if (eligiblePlayerIds.length > 0) setScienceFreeResourcePlayerIds(eligiblePlayerIds)
+      // Merge, don't replace: a player queued from an earlier roll who
+      // hasn't resolved their pick yet (online, e.g. AFK/slow) must stay
+      // queued even if a later roll's eligible set doesn't include them —
+      // otherwise their still-unclaimed bonus is silently dropped.
+      if (eligiblePlayerIds.length > 0) {
+        setScienceFreeResourcePlayerIds((prev) => [...new Set([...prev, ...eligiblePlayerIds])])
+      }
     }
 
     if (messages.length > 0) {

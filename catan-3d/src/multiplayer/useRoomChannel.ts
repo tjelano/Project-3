@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
+import type { CommodityType, DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 
 export interface RoomPlayer {
@@ -177,11 +177,14 @@ export interface TrophyUpdatedPayload {
 
 export interface DiscardConfirmedPayload {
   playerId: number
-  // Resource -> quantity tally, not a full resources object — the receiver
-  // subtracts these from its OWN copy of the player's resources (trusted
-  // apply), the same shape every other resource-mutating broadcast in this
-  // file uses.
-  counts: Partial<Record<ResourceType, number>>
+  // Resource/commodity -> quantity tally, not a full resources/commodities
+  // object — the receiver subtracts these from its OWN copy of the
+  // player's holdings (trusted apply), the same shape every other
+  // resource-mutating broadcast in this file uses. Commodity keys only
+  // ever appear here when the Cities & Knights commodities house rule is
+  // on (see PlayerHand3D's discard-selection gate and App.tsx's
+  // confirmDiscard/autoDiscardCounts).
+  counts: Partial<Record<ResourceType | CommodityType, number>>
 }
 
 interface GameStartedPayload {

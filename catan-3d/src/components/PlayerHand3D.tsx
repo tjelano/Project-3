@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import {
+  COMMODITY_ORDER,
   DEV_CARD_ORDER,
   DEV_CARD_PLAY_LABELS,
   RESOURCE_ORDER,
+  type CommodityType,
+  type Commodities,
   type DevCardType,
   type ResourceType,
   type Resources,
@@ -27,8 +30,11 @@ import roadBuildingArt from '../assets/cards/Road_Building_development.png'
 import victoryPointArt from '../assets/cards/Victory_Point_development.png'
 import yearOfPlentyArt from '../assets/cards/Year_of_Plenty_development.png'
 import backArt from '../assets/cards/backside_design.png'
+import paperArt from '../assets/cards/Paper_commodity.png'
+import clothArt from '../assets/cards/Cloth_commodity.png'
+import coinArt from '../assets/cards/Coin_commodity.png'
 
-type CardKey = ResourceType | DevCardType
+type CardKey = ResourceType | DevCardType | CommodityType
 
 const CARD_ART: Record<CardKey, string> = {
   lumber: lumberArt,
@@ -41,7 +47,18 @@ const CARD_ART: Record<CardKey, string> = {
   roadBuilding: roadBuildingArt,
   yearOfPlenty: yearOfPlentyArt,
   monopoly: monopolyArt,
+  paper: paperArt,
+  cloth: clothArt,
+  coin: coinArt,
 }
+
+// The 3 commodity textures (see Cities & Knights Phase A) are a SEPARATE
+// art source from the eleven resource/dev-card images above — placeholders
+// whose content already fills the full 432x578 canvas edge-to-edge
+// (verified alpha bbox (0,0,432,578) on all three), unlike the resource art
+// CARD_ART_CROP_X/Y below were tuned for. Checked here rather than assumed,
+// since loadCardTexture's crop is otherwise unconditional on every call.
+const COMMODITY_CARD_KEYS: readonly CardKey[] = COMMODITY_ORDER
 
 // One loader and one cache for the whole app: eleven images shared across
 // however many cards are in hand, decoded once each.
@@ -69,7 +86,16 @@ const CARD_ART_OFFSET_X = 52 / 432
 const CARD_ART_CROP_Y = 483 / 578 // 50px top margin, 45px bottom margin
 const CARD_ART_OFFSET_Y = 45 / 578
 
-function loadCardTexture(url: string): THREE.Texture {
+// applyLegacyCrop defaults to true so every existing call site (resource
+// art, dev-card art, the card back) keeps its byte-for-byte current
+// behavior. Only the 3 commodity textures pass false: their placeholder
+// art has zero transparent margin (see COMMODITY_CARD_KEYS above), so the
+// resource-art-tuned crop below would cut real content off their edges
+// instead of trimming padding that isn't there. Safe to key the shared
+// cache on `url` alone (not `url` + this flag) because the two never
+// disagree for the same URL — which crop a given image needs is fixed by
+// which file it is, not by which call site happens to load it first.
+function loadCardTexture(url: string, applyLegacyCrop = true): THREE.Texture {
   const cached = textureCache.get(url)
   if (cached) return cached
   // Statically imported (see the comment atop this file), so a missing/
@@ -84,8 +110,10 @@ function loadCardTexture(url: string): THREE.Texture {
   // cards render washed out and pale.
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 8
-  texture.repeat.set(CARD_ART_CROP_X, CARD_ART_CROP_Y)
-  texture.offset.set(CARD_ART_OFFSET_X, CARD_ART_OFFSET_Y)
+  if (applyLegacyCrop) {
+    texture.repeat.set(CARD_ART_CROP_X, CARD_ART_CROP_Y)
+    texture.offset.set(CARD_ART_OFFSET_X, CARD_ART_OFFSET_Y)
+  }
   // premultiplyAlpha fixes a SEPARATE, smaller issue at the card's own
   // rounded-corner cutout edge (inside the crop above): background-removal
   // leaves a thin semi-transparent fringe there whose RGB still carries a
@@ -187,12 +215,16 @@ interface CardSlot {
 }
 
 // One card object per physical card held. Resources first in fixed order,
-// then development cards, so a hand doesn't reshuffle as counts change — a
-// card you were about to hover shouldn't jump out from under the cursor.
-function buildCardSlots(resources: Resources, devCards: DevCardType[]): CardSlot[] {
+// then commodities (same stable-order convention), then development cards,
+// so a hand doesn't reshuffle as counts change — a card you were about to
+// hover shouldn't jump out from under the cursor.
+function buildCardSlots(resources: Resources, commodities: Commodities, devCards: DevCardType[]): CardSlot[] {
   const out: CardSlot[] = []
   for (const resource of RESOURCE_ORDER) {
     for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
+  }
+  for (const commodity of COMMODITY_ORDER) {
+    for (let i = 0; i < commodities[commodity]; i++) out.push({ id: `${commodity}-${i}`, key: commodity })
   }
   for (const dev of DEV_CARD_ORDER) {
     const count = devCards.filter((card) => card === dev).length
@@ -333,7 +365,7 @@ function HandCard({
       return [edge, edge, edge, edge, back, back]
     }
     const face = new THREE.MeshStandardMaterial({
-      map: loadCardTexture(CARD_ART[cardKey]),
+      map: loadCardTexture(CARD_ART[cardKey], !COMMODITY_CARD_KEYS.includes(cardKey)),
       roughness: 0.42,
       metalness: 0.05,
       emissive: new THREE.Color('#c8a93e'),
@@ -527,6 +559,7 @@ function HandCard({
 
 export function PlayerHand3D({
   resources,
+  commodities,
   devCards,
   devCardsBoughtThisTurn,
   canPlayDevCards,
@@ -536,6 +569,7 @@ export function PlayerHand3D({
   onToggleDiscard,
 }: {
   resources: Resources
+  commodities: Commodities
   devCards: DevCardType[]
   // A card bought THIS turn can't be played yet — mirrors the same rule
   // App.tsx's playableDevCardCount enforces for the 2D sidebar buttons.
@@ -552,7 +586,10 @@ export function PlayerHand3D({
   const rootRef = useRef<THREE.Group>(null)
   const backTexture = useMemo(() => loadCardTexture(backArt), [])
 
-  const cards = useMemo(() => buildCardSlots(resources, devCards), [resources, devCards])
+  const cards = useMemo(
+    () => buildCardSlots(resources, commodities, devCards),
+    [resources, commodities, devCards],
+  )
 
   // Which specific card instances (by id) are legal to click right now.
   // Instance identity doesn't matter beyond count — any two Knights are
@@ -593,7 +630,13 @@ export function PlayerHand3D({
           lighting is angled away from the viewer. */}
       <pointLight position={[0, HAND_Y + 0.5, HAND_Z + 0.9]} intensity={2.4} distance={3} color="#ffeed2" />
       {cards.map((card, i) => {
-        const isResourceCard = (RESOURCE_ORDER as readonly CardKey[]).includes(card.key)
+        // Both resource and commodity cards are discardable — a
+        // commodity-heavy over-limit player has to be able to satisfy the
+        // discard requirement from either pile. Dev cards remain
+        // never-discardable.
+        const isDiscardableCard =
+          (RESOURCE_ORDER as readonly CardKey[]).includes(card.key) ||
+          (COMMODITY_ORDER as readonly CardKey[]).includes(card.key)
         return (
           <HandCard
             key={card.id}
@@ -604,7 +647,7 @@ export function PlayerHand3D({
             playable={playableIds.has(card.id)}
             onPlay={() => onPlayDevCard?.(card.key as DevCardType)}
             selected={!!discardSelection?.includes(card.id)}
-            onToggleSelect={discardActive && isResourceCard ? () => onToggleDiscard?.(card.id) : undefined}
+            onToggleSelect={discardActive && isDiscardableCard ? () => onToggleDiscard?.(card.id) : undefined}
           />
         )
       })}

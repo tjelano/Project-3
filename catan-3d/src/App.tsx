@@ -38,6 +38,7 @@ import {
   CITY_COST,
   COMMODITY_FOR_BIOME,
   COMMODITY_LABELS,
+  COMMODITY_ORDER,
   DEFAULT_GAME_RULES,
   DEV_CARD_COST,
   DEV_CARD_SINGULAR,
@@ -60,6 +61,8 @@ import {
   totalCommodityCount,
   totalResourceCount,
   type Building,
+  type Commodities,
+  type CommodityType,
   type DevCardType,
   type GameRules,
   type Player,
@@ -115,13 +118,30 @@ const DISCARD_TIMEOUT_MS = 90_000
 // of first, so the loss is spread across their hand rather than wiping out
 // a single resource type. Only needs to be deterministic, not "smart": this
 // only ever runs as a fallback for someone who wasn't there to choose.
-function autoDiscardCounts(resources: Resources, required: number): Partial<Record<ResourceType, number>> {
-  const counts: Partial<Record<ResourceType, number>> = {}
+// Resources are exhausted first, then commodities pick up the remainder —
+// without this second pass, a commodity-heavy hand with too few resources
+// could hit `remaining > 0` forever with nothing left for the resource loop
+// to take, since applyDiscard only ever removes what this function reports.
+function autoDiscardCounts(
+  resources: Resources,
+  commodities: Commodities,
+  required: number,
+): Partial<Record<ResourceType | CommodityType, number>> {
+  const counts: Partial<Record<ResourceType | CommodityType, number>> = {}
   let remaining = required
-  const byHeldCount = [...RESOURCE_ORDER].sort((a, b) => resources[b] - resources[a])
-  for (const type of byHeldCount) {
+  const byHeldResourceCount = [...RESOURCE_ORDER].sort((a, b) => resources[b] - resources[a])
+  for (const type of byHeldResourceCount) {
     if (remaining <= 0) break
     const take = Math.min(resources[type], remaining)
+    if (take > 0) {
+      counts[type] = take
+      remaining -= take
+    }
+  }
+  const byHeldCommodityCount = [...COMMODITY_ORDER].sort((a, b) => commodities[b] - commodities[a])
+  for (const type of byHeldCommodityCount) {
+    if (remaining <= 0) break
+    const take = Math.min(commodities[type], remaining)
     if (take > 0) {
       counts[type] = take
       remaining -= take
@@ -670,30 +690,37 @@ function App() {
   // Trusted state mutation for one player's confirmed discard — shared by
   // the local actor (confirmDiscard, below, which also broadcasts) and
   // receiving clients (onDiscardConfirmed), same trusted-apply split as
-  // every other structural mutation in this file. counts is a resource ->
-  // quantity tally (derived from the discarder's flagged card ids), not a
-  // full resources object, so it composes with whatever that player's
-  // resources happen to be on THIS client — no risk of clobbering a
-  // concurrent change from something else.
-  const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType, number>>) => {
+  // every other structural mutation in this file. counts is a resource/
+  // commodity -> quantity tally (derived from the discarder's flagged card
+  // ids), not a full resources/commodities object, so it composes with
+  // whatever that player's holdings happen to be on THIS client — no risk
+  // of clobbering a concurrent change from something else.
+  const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const resources = { ...p.resources }
+        const commodities = { ...p.commodities }
         for (const [type, count] of Object.entries(counts)) {
           // Broadcast-sourced on the receiving end (the local path only
-          // ever produces valid ResourceType keys and finite counts from
-          // the player's own confirmed card selection) — validated here
-          // too since this function is the one trusted-apply path both
-          // sides funnel through. A bogus key/count would otherwise write
-          // NaN into a real resource count permanently.
-          if (!RESOURCE_ORDER.includes(type as ResourceType) || !Number.isFinite(count)) {
+          // ever produces valid ResourceType/CommodityType keys and finite
+          // counts from the player's own confirmed card selection) —
+          // validated here too since this function is the one trusted-apply
+          // path both sides funnel through. A bogus key/count would
+          // otherwise write NaN into a real count permanently.
+          if (!Number.isFinite(count)) {
             console.error('[Catan] Ignoring invalid discard entry:', type, count)
             continue
           }
-          resources[type as ResourceType] -= count as number
+          if (RESOURCE_ORDER.includes(type as ResourceType)) {
+            resources[type as ResourceType] -= count as number
+          } else if (COMMODITY_ORDER.includes(type as CommodityType)) {
+            commodities[type as CommodityType] -= count as number
+          } else {
+            console.error('[Catan] Ignoring invalid discard entry:', type, count)
+          }
         }
-        return { ...p, resources }
+        return { ...p, resources, commodities }
       }),
     )
     const remaining = discardPlayerIds.filter((id) => id !== playerId)
@@ -1580,17 +1607,18 @@ function App() {
     const required = Math.floor(handSize / 2)
     if (discardSelection.length !== required) return
 
-    // Card ids are "<resourceType>-<index>" (buildCardSlots in
+    // Card ids are "<resourceType|commodityType>-<index>" (buildCardSlots in
     // PlayerHand3D) — the index is purely a 3D-picking detail, only the
-    // type prefix matters for the actual resource mutation.
-    const counts: Partial<Record<ResourceType, number>> = {}
+    // type prefix matters for the actual resource/commodity mutation.
+    const counts: Partial<Record<ResourceType | CommodityType, number>> = {}
     for (const id of discardSelection) {
-      const type = id.slice(0, id.lastIndexOf('-')) as ResourceType
+      const type = id.slice(0, id.lastIndexOf('-')) as ResourceType | CommodityType
       // Safe today only via a cross-file invariant (PlayerHand3D never lets
-      // a dev-card id into discardSelection, and no ResourceType contains a
-      // hyphen) — validated here too so a future change to either side
-      // can't silently slip a bogus key into a real resource mutation.
-      if (!RESOURCE_ORDER.includes(type)) {
+      // a dev-card id into discardSelection, and no ResourceType/
+      // CommodityType contains a hyphen) — validated here too so a future
+      // change to either side can't silently slip a bogus key into a real
+      // resource/commodity mutation.
+      if (!RESOURCE_ORDER.includes(type as ResourceType) && !COMMODITY_ORDER.includes(type as CommodityType)) {
         console.error('[Catan] Ignoring an unrecognized card id in discard selection:', id)
         continue
       }
@@ -1624,7 +1652,7 @@ function App() {
           totalResourceCount(player.resources) +
           (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
         const required = Math.floor(handSize / 2)
-        const counts = autoDiscardCounts(player.resources, required)
+        const counts = autoDiscardCounts(player.resources, player.commodities, required)
         applyDiscard(playerId, counts)
         inform(`${player.name}'s discard timed out — ${required} card${required === 1 ? '' : 's'} discarded automatically.`)
         if (onlineInfo) broadcastDiscardConfirmed({ playerId, counts })
@@ -2548,6 +2576,7 @@ function App() {
               is you in an online match, or whoever's turn it is locally. */}
           <PlayerHand3D
             resources={localPlayer.resources}
+            commodities={localPlayer.commodities}
             devCards={localPlayer.devCards}
             devCardsBoughtThisTurn={localPlayer.devCardsBoughtThisTurn}
             canPlayDevCards={canPlayDevCards}

@@ -13,6 +13,8 @@ export interface Player {
   name: string
   colorToken: PlayerColorToken
   resources: Resources
+  commodities: Commodities
+  cityImprovements: CityImprovements
   settlementsRemaining: number
   roadsRemaining: number
   citiesRemaining: number
@@ -90,6 +92,65 @@ export const RESOURCE_COLORS: Record<ResourceType, string> = {
   ore: '#78909c',
 }
 
+export type CommodityType = 'paper' | 'cloth' | 'coin'
+
+export type Commodities = Record<CommodityType, number>
+
+export const COMMODITY_ORDER: CommodityType[] = ['paper', 'cloth', 'coin']
+
+export const COMMODITY_LABELS: Record<CommodityType, string> = {
+  paper: 'Paper',
+  cloth: 'Cloth',
+  coin: 'Coin',
+}
+
+// Same reasoning as RESOURCE_COLORS: kept as plain hex, not a CSS custom
+// property, because Three.js materials can't read those.
+export const COMMODITY_COLORS: Record<CommodityType, string> = {
+  paper: '#dcd3b0',
+  cloth: '#7fae60',
+  coin: '#c9a227',
+}
+
+// Only 3 of the 5 resource-producing biomes yield a commodity when a city
+// collects from them — fields/hills cities just get double the plain
+// resource instead (unchanged base-game behavior, see App.tsx's
+// production loop). Confirmed against the official Cities & Knights
+// rulebook (CN3087) — see the design spec for the full citation.
+export const COMMODITY_FOR_BIOME: Partial<Record<Biome, CommodityType>> = {
+  forest: 'paper',
+  pasture: 'cloth',
+  mountains: 'coin',
+}
+
+export type ImprovementTrack = 'science' | 'trade' | 'politics'
+
+export type CityImprovements = Record<ImprovementTrack, number> // 0-5 each
+
+export const IMPROVEMENT_TRACK_ORDER: ImprovementTrack[] = ['science', 'trade', 'politics']
+
+export const IMPROVEMENT_TRACK_LABELS: Record<ImprovementTrack, string> = {
+  science: 'Science',
+  trade: 'Trade',
+  politics: 'Politics',
+}
+
+// Which commodity spends on which track's improvements.
+export const COMMODITY_FOR_TRACK: Record<ImprovementTrack, CommodityType> = {
+  science: 'paper',
+  trade: 'cloth',
+  politics: 'coin',
+}
+
+// The building name at each level, confirmed against the physical City
+// Improvement board component — index 0 is level 1 (level 0 is the
+// unbuilt "Basic City" starting state, which has no name of its own).
+export const IMPROVEMENT_TRACK_NAMES: Record<ImprovementTrack, string[]> = {
+  science: ['School', 'Library', 'Aqueduct', 'Theater', 'University'],
+  trade: ['Market', 'Trading House', 'Merchant Guild', 'Bank', 'Great Exchange'],
+  politics: ['Town Hall', 'Embassy', 'Fortress', 'Courthouse', 'High Assembly'],
+}
+
 // What each hex biome produces when its number is rolled. Desert never
 // produces anything.
 export const BIOME_TO_RESOURCE: Record<Biome, ResourceType | null> = {
@@ -153,6 +214,10 @@ export interface GameRules {
   // player (no per-player secret knowledge). Purely a rendering concern:
   // tile.number/tile.biome are always the real values everywhere else.
   hiddenTiles: 'off' | 'numbers' | 'resources' | 'both'
+  // Cities adjacent to forest/pasture/mountains hexes also produce a
+  // commodity; players spend commodities climbing 3 city improvement
+  // tracks. See docs/superpowers/specs/2026-08-15-cities-knights-commodities-design.md.
+  citiesAndKnightsCommodities: boolean
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -163,6 +228,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
   coastalOnlySetupPlacement: false,
   doublesRerollRule: false,
   hiddenTiles: 'off',
+  citiesAndKnightsCommodities: false,
 }
 
 // A victoryPointTarget set above WINNING_SCORE needs proportionally more of
@@ -212,6 +278,14 @@ export function emptyResources(): Resources {
   return { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }
 }
 
+export function emptyCommodities(): Commodities {
+  return { paper: 0, cloth: 0, coin: 0 }
+}
+
+export function emptyCityImprovements(): CityImprovements {
+  return { science: 0, trade: 0, politics: 0 }
+}
+
 const DEFAULT_COLOR_TOKENS: PlayerColorToken[] = [
   'player-1',
   'player-2',
@@ -239,6 +313,8 @@ export function createInitialPlayers(
     name: names?.[index]?.trim() || `Player ${index + 1}`,
     colorToken,
     resources: emptyResources(),
+    commodities: emptyCommodities(),
+    cityImprovements: emptyCityImprovements(),
     settlementsRemaining,
     roadsRemaining,
     citiesRemaining,
@@ -259,12 +335,15 @@ export function buildSetupOrder(playerCount: number, startIndex = 0): number[] {
   return [...ascending, ...[...ascending].reverse()]
 }
 
+export type MetropolisHolders = Record<ImprovementTrack, number | null>
+
 export interface ScoreBreakdown {
   settlements: number
   cities: number
   victoryPointCards: number
   longestRoad: number
   largestArmy: number
+  metropolis: number
   total: number
 }
 
@@ -279,6 +358,7 @@ export function getScoreBreakdown(
   settlements: Record<string, Building>,
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
+  metropolisHolders: MetropolisHolders,
 ): ScoreBreakdown {
   let settlementCount = 0
   let cityCount = 0
@@ -290,13 +370,15 @@ export function getScoreBreakdown(
   const victoryPointCards = player.devCards.filter((card) => card === 'victoryPoint').length
   const longestRoad = player.id === longestRoadHolderId ? LONGEST_ROAD_VP : 0
   const largestArmy = player.id === largestArmyHolderId ? LARGEST_ARMY_VP : 0
+  const metropolis = IMPROVEMENT_TRACK_ORDER.filter((track) => metropolisHolders[track] === player.id).length * 2
   return {
     settlements: settlementCount,
     cities: cityCount,
     victoryPointCards,
     longestRoad,
     largestArmy,
-    total: settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy,
+    metropolis,
+    total: settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis,
   }
 }
 
@@ -305,8 +387,9 @@ export function getPlayerScore(
   settlements: Record<string, Building>,
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
+  metropolisHolders: MetropolisHolders,
 ): number {
-  return getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId).total
+  return getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders).total
 }
 
 // The score everyone at the table can legitimately see. Victory Point
@@ -320,8 +403,9 @@ export function getPublicScore(
   settlements: Record<string, Building>,
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
+  metropolisHolders: MetropolisHolders,
 ): number {
-  const score = getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId)
+  const score = getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
   return score.total - score.victoryPointCards
 }
 

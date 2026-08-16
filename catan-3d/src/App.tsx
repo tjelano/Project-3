@@ -31,6 +31,7 @@ import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
+import { autoDiscardCounts, applyDiscardCounts } from './game/discard'
 import { debugLog } from './utils/debugLog'
 import {
   BIOME_LABELS,
@@ -61,14 +62,12 @@ import {
   totalCommodityCount,
   totalResourceCount,
   type Building,
-  type Commodities,
   type CommodityType,
   type DevCardType,
   type GameRules,
   type Player,
   type PlayerColorToken,
   type ResourceType,
-  type Resources,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 
@@ -112,43 +111,6 @@ const TRADE_OFFER_TIMEOUT_MS = 90_000
 // table (gamePhase can't leave 'discard' until every over-limit player has
 // gone).
 const DISCARD_TIMEOUT_MS = 90_000
-
-// Deterministic forced discard for a player who never confirmed one in
-// time — greedily takes from whichever resource they're holding the most
-// of first, so the loss is spread across their hand rather than wiping out
-// a single resource type. Only needs to be deterministic, not "smart": this
-// only ever runs as a fallback for someone who wasn't there to choose.
-// Resources are exhausted first, then commodities pick up the remainder —
-// without this second pass, a commodity-heavy hand with too few resources
-// could hit `remaining > 0` forever with nothing left for the resource loop
-// to take, since applyDiscard only ever removes what this function reports.
-function autoDiscardCounts(
-  resources: Resources,
-  commodities: Commodities,
-  required: number,
-): Partial<Record<ResourceType | CommodityType, number>> {
-  const counts: Partial<Record<ResourceType | CommodityType, number>> = {}
-  let remaining = required
-  const byHeldResourceCount = [...RESOURCE_ORDER].sort((a, b) => resources[b] - resources[a])
-  for (const type of byHeldResourceCount) {
-    if (remaining <= 0) break
-    const take = Math.min(resources[type], remaining)
-    if (take > 0) {
-      counts[type] = take
-      remaining -= take
-    }
-  }
-  const byHeldCommodityCount = [...COMMODITY_ORDER].sort((a, b) => commodities[b] - commodities[a])
-  for (const type of byHeldCommodityCount) {
-    if (remaining <= 0) break
-    const take = Math.min(commodities[type], remaining)
-    if (take > 0) {
-      counts[type] = take
-      remaining -= take
-    }
-  }
-  return counts
-}
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
@@ -699,27 +661,7 @@ function App() {
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
-        const resources = { ...p.resources }
-        const commodities = { ...p.commodities }
-        for (const [type, count] of Object.entries(counts)) {
-          // Broadcast-sourced on the receiving end (the local path only
-          // ever produces valid ResourceType/CommodityType keys and finite
-          // counts from the player's own confirmed card selection) —
-          // validated here too since this function is the one trusted-apply
-          // path both sides funnel through. A bogus key/count would
-          // otherwise write NaN into a real count permanently.
-          if (!Number.isFinite(count)) {
-            console.error('[Catan] Ignoring invalid discard entry:', type, count)
-            continue
-          }
-          if (RESOURCE_ORDER.includes(type as ResourceType)) {
-            resources[type as ResourceType] -= count as number
-          } else if (COMMODITY_ORDER.includes(type as CommodityType)) {
-            commodities[type as CommodityType] -= count as number
-          } else {
-            console.error('[Catan] Ignoring invalid discard entry:', type, count)
-          }
-        }
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
       }),
     )

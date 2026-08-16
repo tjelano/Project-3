@@ -29,6 +29,7 @@ import { RankingsPanel } from './RankingsPanel'
 import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
 import { CityImprovementsPanel } from './CityImprovementsPanel'
+import { ProgressCardsPanel, type ProgressCardPlayHandlers } from './ProgressCardsPanel'
 
 // 'scienceFreeResource' isn't a DevCardPickerMode (App.tsx keeps it as a
 // separate queue, not devCardPicker — see the design note on
@@ -132,6 +133,20 @@ interface GameHudProps {
   // never shows city improvement tracks.
   citiesAndKnightsCommodities: boolean
   onBuyImprovement: (track: ImprovementTrack) => void
+  // Cities & Knights progress cards — gates whether ProgressCardsPanel
+  // renders at all, same "derived from GameRules, not folded into
+  // citiesAndKnightsCommodities" split GameRules itself keeps (see that
+  // field's own comment in game/types.ts: naturally inert without
+  // citiesAndKnightsCommodities also on, but no UI-level dependency
+  // enforced here either, matching that precedent).
+  citiesAndKnightsProgressCards: boolean
+  // Remaining cards in each of the 3 progress-card decks — shown in the
+  // panel header the same way DiscardPanel/EventLogPanel show live counts.
+  progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
+  // Per-type Play handlers — a Partial (Tasks 8-16 each add one key) so a
+  // card with no wired-in Play action yet renders disabled instead of
+  // crashing on a missing handler.
+  progressCardPlayHandlers: ProgressCardPlayHandlers
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -197,6 +212,9 @@ export function GameHud({
   pendingMetropolisTrack,
   citiesAndKnightsCommodities,
   onBuyImprovement,
+  citiesAndKnightsProgressCards,
+  progressCardDeckCounts,
+  progressCardPlayHandlers,
   isMyDiscardTurn,
   discardingPlayerName,
   discardRequiredCount,
@@ -346,6 +364,13 @@ export function GameHud({
             onBuy={onBuyImprovement}
             pendingMetropolisTrack={pendingMetropolisTrack}
             metropolisPurchaseBlocked={metropolisPurchaseBlocked}
+          />
+        )}
+        {citiesAndKnightsProgressCards && (
+          <ProgressCardsPanel
+            progressCards={viewer.progressCards}
+            deckCounts={progressCardDeckCounts}
+            playHandlers={progressCardPlayHandlers}
           />
         )}
       </div>

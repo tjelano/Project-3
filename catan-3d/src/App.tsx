@@ -18,6 +18,7 @@ import { PlayerHand3D } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
+import type { ProgressCardPlayHandlers } from './components/hud/ProgressCardsPanel'
 import {
   useRoomChannel,
   type RoomPlayer,
@@ -3049,6 +3050,11 @@ function App() {
     )
   }
 
+  // Empty until Tasks 8-16 each wire in one progress-card type's Play
+  // action — ProgressCardsPanel treats a missing key as "no handler yet"
+  // (disabled button), not a crash, so this is safe to ship key-less.
+  const progressCardPlayHandlers: ProgressCardPlayHandlers = {}
+
   return (
     <div className="relative h-screen w-screen bg-board-navy">
       <CanvasErrorBoundary>
@@ -3217,6 +3223,13 @@ function App() {
         }
         citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
         onBuyImprovement={buyCityImprovement}
+        citiesAndKnightsProgressCards={gameRules.citiesAndKnightsProgressCards}
+        progressCardDeckCounts={{
+          science: progressCardDecks.science.length,
+          trade: progressCardDecks.trade.length,
+          politics: progressCardDecks.politics.length,
+        }}
+        progressCardPlayHandlers={progressCardPlayHandlers}
         isMyDiscardTurn={isMyDiscardTurn}
         discardingPlayerName={discardingPlayer?.name ?? ''}
         discardRequiredCount={discardRequiredCount}

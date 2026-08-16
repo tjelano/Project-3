@@ -3177,6 +3177,7 @@ function App() {
         currentPlayerIndex={currentPlayerIndex}
         isMyTurn={isMyTurn}
         lastRoll={lastRoll}
+        lastEventDie={lastEventDie}
         onRollDice={rollDice}
         hasRolledThisTurn={hasRolledThisTurn}
         onEndTurn={handleEndTurn}

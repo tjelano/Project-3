@@ -15,6 +15,8 @@ import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
 import { RollDiceButton } from './RollDiceButton'
+import { EventDieIndicator } from './EventDieIndicator'
+import type { EventDieFace } from '../Dice3D'
 import { EventBanner } from './EventBanner'
 import { EventLogPanel } from './EventLogPanel'
 import { ChatBoxPanel } from './ChatBoxPanel'
@@ -58,6 +60,7 @@ interface GameHudProps {
   // action buttons stay locked until they hear a TURN_PASSED broadcast.
   isMyTurn: boolean
   lastRoll: number | null
+  lastEventDie: EventDieFace | null
   onRollDice: () => void
   // Once true, the Roll Dice button morphs into End Turn (same slot) — the
   // ONLY way currentPlayerIndex ever advances is that explicit click.
@@ -158,6 +161,7 @@ export function GameHud({
   currentPlayerIndex,
   isMyTurn,
   lastRoll,
+  lastEventDie,
   onRollDice,
   hasRolledThisTurn,
   onEndTurn,
@@ -389,6 +393,11 @@ export function GameHud({
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
+      {lastEventDie && (
+        <div className="pointer-events-none absolute right-8 bottom-40">
+          <EventDieIndicator face={lastEventDie} />
+        </div>
+      )}
       {activePickerMode && (
         <DevCardResourcePicker
           title={DEV_CARD_PICKER_COPY[activePickerMode].title}

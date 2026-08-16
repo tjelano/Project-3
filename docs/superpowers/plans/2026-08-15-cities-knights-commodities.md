@@ -1243,6 +1243,24 @@ Run: `cd catan-3d && npm run dev`
    click) once a player's cities are all already flying that track's
    Metropolis.
 
+**Correction found during implementation:** Step 3/4's snippets above
+trigger `pendingMetropolisTrack`/the city-selection prompt on
+`newLevel === 4 || 5` alone, regardless of whether the purchase actually
+flips who holds the Metropolis. That's a real bug: a second-place level-4
+arrival would still get prompted to pick a city, silently overwriting
+`metropolisVertexIds[track]` to point at the WRONG player's city while
+`metropolisHolders[track]` correctly kept the incumbent — a state
+disagreement Task 7's visual would render incorrectly. It also soft-locks
+a single-city player re-leveling a track they already hold (re-prompted,
+but their only city already carries the marker, so there's nothing new to
+click and the prompt never clears). Fix actually shipped: a new
+`purchaseClaimsMetropolis(currentHolderId, currentHolderLevel, buyerId,
+newLevel): boolean` in `game/cityImprovements.ts` — true only when the
+purchase would actually flip control to the buyer — used by both the
+spend-time gate and the button's disabled state so they can't disagree.
+Use this function, not a bare `newLevel === 4 || 5` check, for any future
+work touching this path.
+
 - [ ] **Step 9: Run typecheck/lint/tests — this is the point the full suite should be clean**
 
 Run: `cd catan-3d && npx tsc -b && npx eslint . && npx vitest run`

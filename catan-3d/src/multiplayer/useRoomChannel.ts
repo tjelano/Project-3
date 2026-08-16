@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ResourceType } from '../game/types'
+import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ProgressCardType, ResourceType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
+import type { EventDieFace } from '../components/Dice3D'
 
 export interface RoomPlayer {
   // Only ever present on entries the HOOK hands back via `players` (set
@@ -58,6 +59,7 @@ function generateClientId(): string {
 
 export interface DiceRolledPayload {
   dice: [number, number]
+  eventDie: EventDieFace
   total: number
   playerId: number
 }
@@ -146,6 +148,21 @@ export interface CityImprovementPurchasedPayload {
   playerId: number
   track: ImprovementTrack
   newLevel: number
+}
+
+// Cities & Knights progress cards — sent once per event-die trigger with a
+// non-'ship' face, batching every eligible player's draw for that track in
+// one payload. card is the exact draw for each player: like
+// DevCardBoughtPayload.card, a receiver can't reproduce which card a
+// draw resolved to from its own independently-shuffled deck copy, so the
+// roller has to say so explicitly. The receiver still pops the SAME COUNT
+// off its own progressCardDecks[track] to keep its remaining-deck length in
+// sync (see onProgressCardsDrawn in App.tsx) — which specific cards remain
+// doesn't matter, since a deck's remaining contents are never shown to
+// anyone.
+export interface ProgressCardsDrawnPayload {
+  track: ImprovementTrack
+  draws: { playerId: number; card: ProgressCardType }[]
 }
 
 // Cities & Knights Metropolis — sent once a player's city-selection click
@@ -335,6 +352,7 @@ export interface RoomChannelHandlers {
   onNewGame?: (payload: NewGamePayload) => void
   onDevCardBought?: (payload: DevCardBoughtPayload) => void
   onCityImprovementPurchased?: (payload: CityImprovementPurchasedPayload) => void
+  onProgressCardsDrawn?: (payload: ProgressCardsDrawnPayload) => void
   // Trusted-apply — see MetropolisClaimedPayload's own comment above for why
   // receivers apply payload.playerId directly instead of re-resolving it.
   onMetropolisClaimed?: (payload: MetropolisClaimedPayload) => void
@@ -532,6 +550,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<CityImprovementPurchasedPayload>('broadcast', { event: 'CITY_IMPROVEMENT_PURCHASED' }, ({ payload }) => {
       handlersRef.current.onCityImprovementPurchased?.(payload)
     })
+    channel.on<ProgressCardsDrawnPayload>('broadcast', { event: 'PROGRESS_CARDS_DRAWN' }, ({ payload }) => {
+      handlersRef.current.onProgressCardsDrawn?.(payload)
+    })
     channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, ({ payload }) => {
       handlersRef.current.onMetropolisClaimed?.(payload)
     })
@@ -728,6 +749,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastCityImprovementPurchased = (payload: CityImprovementPurchasedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'CITY_IMPROVEMENT_PURCHASED', payload })
   }
+  const broadcastProgressCardsDrawn = (payload: ProgressCardsDrawnPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_CARDS_DRAWN', payload })
+  }
   const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'METROPOLIS_CLAIMED', payload })
   }
@@ -773,6 +797,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastCityImprovementPurchased,
+    broadcastProgressCardsDrawn,
     broadcastMetropolisClaimed,
     broadcastBankTrade,
     broadcastCommodityTraded,

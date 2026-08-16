@@ -88,8 +88,11 @@ function createRestingAnim(): DieAnimState {
 export interface DiceRollTarget {
   d1: number
   d2: number
+  eventDie: EventDieFace
   rollId: number
 }
+
+export type EventDieFace = 'ship' | 'science' | 'trade' | 'politics'
 
 interface Dice3DProps {
   roll: DiceRollTarget | null

@@ -5,6 +5,24 @@ import {
   type ImprovementTrack,
   type ProgressCardType,
 } from './types'
+import type { EventDieFace } from '../components/Dice3D'
+
+const EVENT_DIE_FACES: EventDieFace[] = ['ship', 'ship', 'ship', 'science', 'trade', 'politics']
+
+// The 6-sided Cities & Knights event die, rolled alongside the two
+// production dice: 3 ship faces (this plan doesn't implement the Knights &
+// Barbarians expansion, so a ship face is a no-op) and 1 face each for
+// science/trade/politics (triggers a progress card draw on that track — see
+// resolveEventDieDraws below). Lives here, a plain module-scope function in
+// a non-component file, rather than inline in App.tsx's handlePhysicsSettled
+// closure: eslint's react-hooks/purity rule flags a direct Math.random()
+// call reachable from a component's render closure, but is opaque to (and so
+// doesn't flag) a call out to an ordinary imported function — same reason
+// App.tsx's devDeck/progressCardDecks initializers can call shuffle()/
+// buildProgressCardDeck() (impure internally) without tripping it either.
+export function rollEventDie(): EventDieFace {
+  return EVENT_DIE_FACES[Math.floor(Math.random() * 6)]
+}
 
 // One full shuffled deck for a track, exact composition per
 // PROGRESS_CARD_DECK_COMPOSITION (18 cards, every track).

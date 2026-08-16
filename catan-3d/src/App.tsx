@@ -12,7 +12,7 @@ import { computeFrameInnerSize, computeFrameOuterSize } from './three/layout'
 import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { PortMarkers } from './components/PortMarkers'
-import { Dice3D, type DiceRollTarget } from './components/Dice3D'
+import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
 import { PlayerHand3D } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
@@ -32,6 +32,7 @@ import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './game/discard'
+import { buildProgressCardDeck, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
   buyImprovementLevel,
@@ -56,6 +57,7 @@ import {
   IMPROVEMENT_TRACK_ORDER,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
+  PROGRESS_CARD_LABELS,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   ROAD_COST,
@@ -80,6 +82,7 @@ import {
   type MetropolisHolders,
   type Player,
   type PlayerColorToken,
+  type ProgressCardType,
   type ResourceType,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
@@ -244,6 +247,18 @@ function App() {
   // shared screen, which already shows the hover directly.
   const [remoteHover, setRemoteHover] = useState<HoverChangedPayload>({ playerId: -1, vertexId: null, edgeId: null })
   const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
+  const [progressCardDecks, setProgressCardDecks] = useState<Record<ImprovementTrack, ProgressCardType[]>>(() => ({
+    science: buildProgressCardDeck('science'),
+    trade: buildProgressCardDeck('trade'),
+    politics: buildProgressCardDeck('politics'),
+  }))
+  // Queue of players currently over the 4-card progress-card hand limit,
+  // same per-player-queue shape as discardPlayerIds/scienceFreeResourcePlayerIds
+  // below — deterministic (computed from each client's own now-updated
+  // players state inside applyProgressCardDraws below), so no broadcast is
+  // needed to populate it; every client reaches the same queue independently
+  // from the same trusted-applied hand contents.
+  const [progressCardOverLimitPlayerIds, setProgressCardOverLimitPlayerIds] = useState<number[]>([])
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
   // Guards resolvePlayerTrade against a rapid double-click on Accept — a
@@ -448,10 +463,10 @@ function App() {
   // handleDiceSettled/applyRollResult below applies the result. playerId is
   // remembered alongside it so applyRollResult can tell whether this roll is
   // still current by the time the animation actually finishes.
-  const beginDiceAnimation = (d1: number, d2: number, playerId: number) => {
+  const beginDiceAnimation = (d1: number, d2: number, eventDie: EventDieFace, playerId: number) => {
     setIsRolling(true)
     playSfx('diceRoll')
-    setDiceRoll((prev) => ({ d1, d2, rollId: (prev?.rollId ?? 0) + 1 }))
+    setDiceRoll((prev) => ({ d1, d2, eventDie, rollId: (prev?.rollId ?? 0) + 1 }))
     setDiceRollPlayerId(playerId)
   }
 
@@ -759,6 +774,40 @@ function App() {
     )
   }
 
+  // Trusted state mutation for a batch of progress-card draws from one
+  // event-die trigger — shared by the local roller (handlePhysicsSettled,
+  // below, which also broadcasts) and receiving clients
+  // (onProgressCardsDrawn). Deck-count bookkeeping is intentionally NOT
+  // done here — the roller sets its own progressCardDecks[track] to the
+  // exact remainder its local resolveEventDieDraws computed, while a
+  // receiver just needs to pop the same COUNT off its own independently-
+  // shuffled local copy (see the devDeck/onDevCardBought precedent this
+  // mirrors) — those are different operations on the same state, so each
+  // caller does its own deck update after calling this for the hand-only
+  // mutation.
+  const applyProgressCardDraws = (draws: { playerId: number; card: ProgressCardType }[]) => {
+    if (draws.length === 0) return
+    setPlayers((prev) =>
+      prev.map((p) => {
+        const drawn = draws.filter((d) => d.playerId === p.id).map((d) => d.card)
+        return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
+      }),
+    )
+    // Deterministic — every client (roller and receivers alike) computes
+    // this from its own just-updated hand, no broadcast needed. Merges
+    // rather than overwrites, same reasoning as scienceFreeResourcePlayerIds
+    // above: a second draw before the first discard resolves must not
+    // silently drop the earlier over-limit player.
+    const overLimitIds = draws
+      .map((d) => d.playerId)
+      .filter((id, i, arr) => arr.indexOf(id) === i) // de-dupe multiple draws to the same player
+    debugLog('applyProgressCardDraws', { draws, overLimitIdsBefore: progressCardOverLimitPlayerIds, overLimitIds })
+    setProgressCardOverLimitPlayerIds((prev) => {
+      const next = [...new Set([...prev, ...overLimitIds])]
+      return next
+    })
+  }
+
   // Trusted state mutation for Trade level 3's 2:1 commodity trade — shared
   // by the local actor (tradeCommodity, below, which also broadcasts) and
   // receiving clients (onCommodityTraded). The rate is hardcoded at 2 here
@@ -839,6 +888,7 @@ function App() {
     broadcastCityImprovementPurchased,
     broadcastCommodityTraded,
     broadcastMetropolisClaimed,
+    broadcastProgressCardsDrawn,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -846,7 +896,7 @@ function App() {
     // roller clicks their own End Turn button.
     onDiceRolled: (payload) => {
       setDiceDisplayMode('remote')
-      beginDiceAnimation(payload.dice[0], payload.dice[1], payload.playerId)
+      beginDiceAnimation(payload.dice[0], payload.dice[1], payload.eventDie, payload.playerId)
     },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
@@ -952,6 +1002,23 @@ function App() {
         return
       }
       applyCityImprovementPurchase(payload.playerId, payload.track)
+    },
+    onProgressCardsDrawn: (payload) => {
+      // Broadcast-sourced — same validation shape as onCityImprovementPurchased:
+      // payload.track goes straight into progressCardDecks[track] indexing, so
+      // a bogus value must be rejected before use.
+      if (!IMPROVEMENT_TRACK_ORDER.includes(payload.track)) {
+        console.error('[Catan] Ignoring malformed progress-card-draw payload:', payload)
+        return
+      }
+      applyProgressCardDraws(payload.draws)
+      // Pop the SAME COUNT off this client's own local deck copy — contents
+      // never shown to anyone, so which specific cards remain doesn't need to
+      // match the roller's; only the remaining length does.
+      setProgressCardDecks((prev) => ({
+        ...prev,
+        [payload.track]: prev[payload.track].slice(payload.draws.length),
+      }))
     },
     // Trusted-apply — the purchasing client already resolved which player
     // controls the track AND which of their cities carries the marker (see
@@ -1570,6 +1637,11 @@ function App() {
   const handlePhysicsSettled = (d1: number, d2: number) => {
     const total = d1 + d2
     const isDouble = d1 === d2
+    // The event die is rolled unconditionally, every attempt — even a
+    // voided/rerolled 7 still had a real event die face, but since that
+    // whole roll is discarded and rerolled below, it's rolled fresh each
+    // attempt rather than hoisted above this function.
+    const eventDie = rollEventDie()
     // House rule: a 7 rolled within the first two rolls of the game is
     // voided and rerolled instead of applied. Only the roller's own client
     // runs real physics, so this decision — unlike everything else a roll
@@ -1587,8 +1659,36 @@ function App() {
     }
     const rollerId = players[currentPlayerIndex].id
     if (onlineInfo) {
-      broadcastDiceRolled({ dice: [d1, d2], total, playerId: rollerId })
+      broadcastDiceRolled({ dice: [d1, d2], eventDie, total, playerId: rollerId })
     }
+
+    // Cities & Knights progress card draw — roller-only (this client's own
+    // local, unseeded progressCardDecks order decides which exact card each
+    // eligible player draws, same trust boundary as the devDeck/
+    // onDevCardBought pattern), broadcast separately from DICE_ROLLED. Runs
+    // before applyRollResult, which is the shared deterministic bookkeeping
+    // path (total===7 discard/robber, resource production) that every
+    // client — roller and receivers alike — runs identically; card draws
+    // must not become part of that path since only the roller can resolve
+    // them.
+    if (eventDie !== 'ship') {
+      const track = eventDie // 'science' | 'trade' | 'politics'
+      const turnOrderIds = [
+        ...players.slice(currentPlayerIndex).map((p) => p.id),
+        ...players.slice(0, currentPlayerIndex).map((p) => p.id),
+      ]
+      const result = resolveEventDieDraws(players, track, d1, progressCardDecks[track], turnOrderIds)
+      if (result.draws.length > 0) {
+        applyProgressCardDraws(result.draws)
+        setProgressCardDecks((prev) => ({ ...prev, [track]: result.remainingDeck }))
+        for (const { playerId, card } of result.draws) {
+          const p = playerById.get(playerId)
+          if (p) inform(`${p.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card.`)
+        }
+        if (onlineInfo) broadcastProgressCardsDrawn({ track, draws: result.draws })
+      }
+    }
+
     const doublesCount = applyRollResult(total, isDouble, rollerId)
 
     // House rule: a double grants the SAME player another roll, same turn —

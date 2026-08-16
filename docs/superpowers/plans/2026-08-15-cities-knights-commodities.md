@@ -1173,7 +1173,38 @@ this correctly depends on knowing every player's current level at the
 exact moment of purchase, which only the purchasing client's local state
 is guaranteed fresh for at that instant).
 
-- [ ] **Step 7: Manual verification**
+**Known, accepted race condition (not fixed in this task):** if two
+players on separate clients both cross into level 4 on the SAME track
+within the same tiny window — before either's broadcast has propagated —
+each resolves `metropolisHolderAfterPurchase` against its own stale local
+`metropolisHolders` (both see `null`), so both locally claim it and
+broadcast. Because this codebase's multiplayer model is peer broadcast +
+trusted-apply with no server-side arbitration (unlike a hypothetical
+authoritative backend), the two clients could end up applying those two
+broadcasts in different orders and disagree about the final holder. This
+is consistent with the existing risk profile of other simultaneous local
+actions in this codebase (e.g. two players clicking the same vertex at
+once), which this project has not built conflict resolution for either —
+treat as an accepted, rare edge case for Phase A rather than a blocker.
+If it needs hardening later, the cheap option is routing Metropolis
+resolution through `isEffectiveHost` (already used for `MatchSnapshot`
+saves) instead of resolving on whichever client happens to cross the
+threshold first.
+
+- [ ] **Step 7: Proactively disable the buy button when no spare city exists**
+
+`CityImprovementsPanel`'s `affordable` check (Task 5) only tests
+`canAffordImprovement` (commodity cost) — extend it so a purchase that
+would cross into level 4 or 5 also requires an eligible city, computed the
+same way Step 3's block does, so the button is visibly disabled BEFORE a
+click rather than only rejecting after. Pass the player's own city vertex
+IDs (derivable from `settlements` — filter to `ownerId === player.id &&
+type === 'city'`) and `metropolisVertexIds` into `CityImprovementsPanel`
+as new props, and compute `hasSpareCity = ownCityVertexIds.some((id) =>
+metropolisVertexIds[track] !== id)` alongside the existing affordability
+check for tracks at level 3 or 4.
+
+- [ ] **Step 8: Manual verification**
 
 Run: `cd catan-3d && npm run dev`
 
@@ -1191,12 +1222,15 @@ Run: `cd catan-3d && npm run dev`
    first player's old vertex).
 5. Online: confirm both tabs agree on holder AND vertex after a change.
 6. Reconnect/reload: confirm both survive a snapshot restore.
+7. Confirm the buy button is already disabled (not just rejected on
+   click) once a player's cities are all already flying that track's
+   Metropolis.
 
-- [ ] **Step 8: Run typecheck/lint/tests — this is the point the full suite should be clean**
+- [ ] **Step 9: Run typecheck/lint/tests — this is the point the full suite should be clean**
 
 Run: `cd catan-3d && npx tsc -b && npx eslint . && npx vitest run`
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add catan-3d/src/App.tsx catan-3d/src/game/types.ts catan-3d/src/multiplayer/matchSnapshot.ts catan-3d/src/multiplayer/useRoomChannel.ts catan-3d/src/components/hud/CityImprovementsPanel.tsx

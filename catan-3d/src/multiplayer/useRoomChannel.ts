@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { CommodityType, DevCardType, GameRules, PlayerColorToken, ResourceType } from '../game/types'
+import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ResourceType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 
 export interface RoomPlayer {
@@ -133,6 +133,19 @@ export interface DevCardBoughtPayload {
   // which specific card that is doesn't matter, since a devDeck's
   // remaining contents are never shown to anyone.
   card: DevCardType
+}
+
+// Cities & Knights house rule — one commodity-funded level-up on one of the
+// buyer's 3 improvement tracks. newLevel is carried for the receiver's own
+// event-log message only — applyCityImprovementPurchase (App.tsx) recomputes
+// the actual cost/level from THIS client's own copy of the buyer's current
+// level (via buyImprovementLevel/improvementLevelCost) rather than trusting
+// it over the wire, same trust model as every other trusted-apply function
+// in this file.
+export interface CityImprovementPurchasedPayload {
+  playerId: number
+  track: ImprovementTrack
+  newLevel: number
 }
 
 export interface BankTradePayload {
@@ -295,6 +308,7 @@ export interface RoomChannelHandlers {
   // same players and room.
   onNewGame?: (payload: NewGamePayload) => void
   onDevCardBought?: (payload: DevCardBoughtPayload) => void
+  onCityImprovementPurchased?: (payload: CityImprovementPurchasedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
@@ -485,6 +499,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<DevCardBoughtPayload>('broadcast', { event: 'DEV_CARD_BOUGHT' }, ({ payload }) => {
       handlersRef.current.onDevCardBought?.(payload)
     })
+    channel.on<CityImprovementPurchasedPayload>('broadcast', { event: 'CITY_IMPROVEMENT_PURCHASED' }, ({ payload }) => {
+      handlersRef.current.onCityImprovementPurchased?.(payload)
+    })
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
       handlersRef.current.onBankTrade?.(payload)
     })
@@ -672,6 +689,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastDevCardBought = (payload: DevCardBoughtPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DEV_CARD_BOUGHT', payload })
   }
+  const broadcastCityImprovementPurchased = (payload: CityImprovementPurchasedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_IMPROVEMENT_PURCHASED', payload })
+  }
   const broadcastBankTrade = (payload: BankTradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
   }
@@ -710,6 +730,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,
+    broadcastCityImprovementPurchased,
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,

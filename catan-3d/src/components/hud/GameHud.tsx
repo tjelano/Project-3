@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupStage } from '../../App'
-import type { Building, DevCardType, Player, ResourceType } from '../../game/types'
+import type { Building, DevCardType, ImprovementTrack, Player, ResourceType } from '../../game/types'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
@@ -16,6 +16,7 @@ import { DevCardResourcePicker } from './DevCardResourcePicker'
 import { RankingsPanel } from './RankingsPanel'
 import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
+import { CityImprovementsPanel } from './CityImprovementsPanel'
 
 // 'scienceFreeResource' isn't a DevCardPickerMode (App.tsx keeps it as a
 // separate queue, not devCardPicker — see the design note on
@@ -84,8 +85,11 @@ interface GameHudProps {
   // Cities & Knights house rule — whether commodity cards count toward the
   // "cards in hand" discard-risk total shown in ResourcePanel. Passed as a
   // plain boolean (not the whole GameRules object) since that's the only
-  // piece a display component like ResourcePanel needs.
+  // piece a display component like ResourcePanel needs. Also gates whether
+  // CityImprovementsPanel renders at all — a match with this house rule off
+  // never shows city improvement tracks.
   citiesAndKnightsCommodities: boolean
+  onBuyImprovement: (track: ImprovementTrack) => void
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -145,6 +149,7 @@ export function GameHud({
   longestRoadLengths,
   largestArmyHolderId,
   citiesAndKnightsCommodities,
+  onBuyImprovement,
   isMyDiscardTurn,
   discardingPlayerName,
   discardRequiredCount,
@@ -189,6 +194,12 @@ export function GameHud({
     !pickerBlocked &&
     !devCardPlayedThisTurn &&
     isMyTurn
+  // Mirrors canBuyDevCard's derivation above — city improvements are also
+  // only purchasable during your own action phase. No devDeckCount-style
+  // stock check here (commodities affordability is checked per-track inside
+  // CityImprovementsPanel itself, via canAffordImprovement).
+  const canBuyImprovement =
+    gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const statusLabel = pickerBlocked
     ? 'Choose your resources…'
     : tradeBlocked
@@ -245,6 +256,18 @@ export function GameHud({
           longestRoadLengths={longestRoadLengths}
           largestArmyHolderId={largestArmyHolderId}
         />
+        {/* Placement is a first-pass call, not yet confirmed live in the
+            browser (see this task's report) — stacked here alongside
+            BuildingCostsPanel/RankingsPanel since it's the same "your own
+            reference info" category, but may move once actually rendered. */}
+        {citiesAndKnightsCommodities && (
+          <CityImprovementsPanel
+            commodities={viewer.commodities}
+            cityImprovements={viewer.cityImprovements}
+            canBuy={canBuyImprovement}
+            onBuy={onBuyImprovement}
+          />
+        )}
       </div>
       <EventLogPanel events={eventLog} />
       {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}

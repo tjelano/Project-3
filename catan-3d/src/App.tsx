@@ -32,6 +32,7 @@ import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, applyDiscardCounts } from './game/discard'
+import { canAffordImprovement, buyImprovementLevel } from './game/cityImprovements'
 import { debugLog } from './utils/debugLog'
 import {
   BIOME_LABELS,
@@ -43,6 +44,8 @@ import {
   DEFAULT_GAME_RULES,
   DEV_CARD_COST,
   DEV_CARD_SINGULAR,
+  IMPROVEMENT_TRACK_LABELS,
+  IMPROVEMENT_TRACK_NAMES,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
   RESOURCE_LABELS,
@@ -65,6 +68,7 @@ import {
   type CommodityType,
   type DevCardType,
   type GameRules,
+  type ImprovementTrack,
   type Player,
   type PlayerColorToken,
   type ResourceType,
@@ -695,6 +699,23 @@ function App() {
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
+  // Trusted state mutation for a city improvement purchase — shared by the
+  // local actor (buyCityImprovement, below, which also broadcasts) and
+  // receiving clients (onCityImprovementPurchased). Recomputes the cost from
+  // THIS client's own copy of the buyer's current level via
+  // buyImprovementLevel/improvementLevelCost, rather than trusting a cost
+  // value sent over the wire — same trust model as every other trusted-apply
+  // function in this file (applyDiscard, applyScienceFreeResourcePick, etc).
+  const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== playerId) return p
+        const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, track)
+        return { ...p, commodities, cityImprovements }
+      }),
+    )
+  }
+
   // A player's own color never changes once the match starts, so this is
   // kept as its own value (not read inline from `players` below) — `players`
   // itself churns on nearly every game action (resources, dice, builds),
@@ -749,6 +770,7 @@ function App() {
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,
+    broadcastCityImprovementPurchased,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -833,6 +855,13 @@ function App() {
       )
       setDevDeck((prev) => prev.slice(1))
     },
+    // Same reasoning as onDevCardBought above — a city improvement purchase
+    // only touches the buyer's own commodities/cityImprovements, so every
+    // OTHER client still needs telling or its copy of that player's track
+    // levels silently drifts. applyCityImprovementPurchase recomputes the
+    // cost locally rather than trusting payload.newLevel for the deduction —
+    // newLevel is carried for logging/event-log purposes only.
+    onCityImprovementPurchased: (payload) => applyCityImprovementPurchase(payload.playerId, payload.track),
     onBankTrade: (payload) => {
       // Broadcast-sourced — validated before ever being used as resources[]
       // keys/arithmetic operands. Same reasoning as applyRobberMove: a
@@ -2017,6 +2046,25 @@ function App() {
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }
 
+  // Cities & Knights house rule — spends commodities to advance one of the
+  // acting player's 3 city improvement tracks by a level. Task 6 (not yet
+  // implemented) will extend this once a level-4/5 purchase needs to
+  // reconcile Metropolis control; this task only handles the spend + level
+  // increment shared by every level.
+  const buyCityImprovement = (track: ImprovementTrack) => {
+    const player = players[currentPlayerIndex]
+    if (!canInteract()) return
+    if (!canAffordImprovement(player.commodities, track, player.cityImprovements[track])) {
+      warn('Not enough commodities for that improvement.')
+      return
+    }
+
+    applyCityImprovementPurchase(player.id, track)
+    const newLevel = player.cityImprovements[track] + 1
+    inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
+    if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel })
+  }
+
   // Every "play a dev card" action shares the same preconditions, so they
   // live in one place — this is what let the one-card-per-turn rule go
   // missing from four separate handlers. Warns and returns false when the
@@ -2693,6 +2741,7 @@ function App() {
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}
         citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
+        onBuyImprovement={buyCityImprovement}
         isMyDiscardTurn={isMyDiscardTurn}
         discardingPlayerName={discardingPlayer?.name ?? ''}
         discardRequiredCount={discardRequiredCount}

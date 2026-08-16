@@ -426,3 +426,7 @@ export function deductCost(resources: Resources, cost: Partial<Resources>): Reso
 export function totalResourceCount(resources: Resources): number {
   return RESOURCE_ORDER.reduce((sum, resource) => sum + resources[resource], 0)
 }
+
+export function totalCommodityCount(commodities: Commodities): number {
+  return COMMODITY_ORDER.reduce((sum, commodity) => sum + commodities[commodity], 0)
+}

@@ -36,6 +36,8 @@ import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
   CITY_COST,
+  COMMODITY_FOR_BIOME,
+  COMMODITY_LABELS,
   DEFAULT_GAME_RULES,
   DEV_CARD_COST,
   DEV_CARD_SINGULAR,
@@ -55,6 +57,7 @@ import {
   getPublicScore,
   removeOne,
   shuffle,
+  totalCommodityCount,
   totalResourceCount,
   type Building,
   type DevCardType,
@@ -934,9 +937,13 @@ function App() {
     () =>
       discardPlayerIds.filter((id) => {
         const player = playerById.get(id)
-        return player != null && totalResourceCount(player.resources) > 7
+        if (player == null) return false
+        const handSize =
+          totalResourceCount(player.resources) +
+          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+        return handSize > 7
       }),
-    [discardPlayerIds, playerById],
+    [discardPlayerIds, playerById, gameRules.citiesAndKnightsCommodities],
   )
 
   // Who's actively discarding on THIS screen right now. Local Pass & Play
@@ -951,7 +958,13 @@ function App() {
     : (validDiscardPlayerIds[0] ?? null)
   const isMyDiscardTurn = activeDiscarderId != null
   const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
-  const discardRequiredCount = discardingPlayer ? Math.floor(totalResourceCount(discardingPlayer.resources) / 2) : 0
+  const discardRequiredCount = discardingPlayer
+    ? Math.floor(
+        (totalResourceCount(discardingPlayer.resources) +
+          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(discardingPlayer.commodities) : 0)) /
+          2,
+      )
+    : 0
 
   // The personal camera-anchored hand shows YOUR OWN cards in an online
   // match — not whoever's turn it currently is, which is what
@@ -1434,10 +1447,13 @@ function App() {
       // for the same reason as everything else above: opening a robber
       // phase for a turn that's no longer the roller's would be wrong.
       if (isStillRollersTurn) {
-        const overLimitIds = players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+        const handSizeOf = (p: Player) =>
+          totalResourceCount(p.resources) +
+          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(p.commodities) : 0)
+        const overLimitIds = players.filter((p) => handSizeOf(p) > 7).map((p) => p.id)
         debugLog('7 rolled — discard check', {
           overLimitIds,
-          resourceCounts: players.map((p) => ({ id: p.id, name: p.name, total: totalResourceCount(p.resources) })),
+          resourceCounts: players.map((p) => ({ id: p.id, name: p.name, total: handSizeOf(p) })),
           consecutiveDoublesThisTurn,
           onlineLocalPlayerId: onlineInfo?.localPlayerId,
         })
@@ -1462,7 +1478,7 @@ function App() {
     }
 
     setPlayers((prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
+      const next = prev.map((p) => ({ ...p, resources: { ...p.resources }, commodities: { ...p.commodities } }))
       const byId = new Map(next.map((p) => [p.id, p]))
 
       for (const tile of tiles) {
@@ -1472,12 +1488,27 @@ function App() {
         const resource = BIOME_TO_RESOURCE[tile.biome]
         if (!resource) continue
 
+        const commodity = COMMODITY_FOR_BIOME[tile.biome]
+
         const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
         for (const vertexId of vertexIds) {
           const building = settlements[vertexId]
           if (!building) continue
           const owner = byId.get(building.ownerId)
           if (!owner) continue
+
+          // A city on a commodity-producing hex (forest/pasture/mountains)
+          // gets 1 resource + 1 commodity instead of 2 resource, when the
+          // house rule is on. Settlements and fields/hills/desert
+          // production are untouched.
+          if (building.type === 'city' && gameRules.citiesAndKnightsCommodities && commodity) {
+            owner.resources[resource] += 1
+            owner.commodities[commodity] += 1
+            messages.push(
+              `${owner.name} city yields 1 ${RESOURCE_LABELS[resource]} + 1 ${COMMODITY_LABELS[commodity]}!`,
+            )
+            continue
+          }
 
           const amount = building.type === 'city' ? 2 : 1
           owner.resources[resource] += amount
@@ -1528,7 +1559,10 @@ function App() {
     if (activeDiscarderId == null) return
     const player = playerById.get(activeDiscarderId)
     if (!player) return
-    const required = Math.floor(totalResourceCount(player.resources) / 2)
+    const handSize =
+      totalResourceCount(player.resources) +
+      (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+    const required = Math.floor(handSize / 2)
     setDiscardSelection((prev) => {
       if (prev.includes(cardId)) return prev.filter((id) => id !== cardId)
       if (prev.length >= required) return prev
@@ -1540,7 +1574,10 @@ function App() {
     if (activeDiscarderId == null) return
     const player = playerById.get(activeDiscarderId)
     if (!player) return
-    const required = Math.floor(totalResourceCount(player.resources) / 2)
+    const handSize =
+      totalResourceCount(player.resources) +
+      (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+    const required = Math.floor(handSize / 2)
     if (discardSelection.length !== required) return
 
     // Card ids are "<resourceType>-<index>" (buildCardSlots in
@@ -1583,7 +1620,10 @@ function App() {
       for (const playerId of validDiscardPlayerIds) {
         const player = playerById.get(playerId)
         if (!player) continue
-        const required = Math.floor(totalResourceCount(player.resources) / 2)
+        const handSize =
+          totalResourceCount(player.resources) +
+          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+        const required = Math.floor(handSize / 2)
         const counts = autoDiscardCounts(player.resources, required)
         applyDiscard(playerId, counts)
         inform(`${player.name}'s discard timed out — ${required} card${required === 1 ? '' : 's'} discarded automatically.`)
@@ -2257,9 +2297,20 @@ function App() {
     // discardPlayerIds isn't persisted (fully derivable from resource
     // counts) — if the snapshot was saved mid-discard, recompute who still
     // owes one from the restored players rather than trusting a stale list.
+    // Uses snapshot.gameRules (not the outer gameRules closure) because
+    // setGameRules just above hasn't taken effect yet within this same
+    // function call.
+    const restoredRules = snapshot.gameRules ?? DEFAULT_GAME_RULES
     setDiscardPlayerIds(
       snapshot.gamePhase === 'discard'
-        ? snapshot.players.filter((p) => totalResourceCount(p.resources) > 7).map((p) => p.id)
+        ? snapshot.players
+            .filter(
+              (p) =>
+                totalResourceCount(p.resources) +
+                  (restoredRules.citiesAndKnightsCommodities ? totalCommodityCount(p.commodities) : 0) >
+                7,
+            )
+            .map((p) => p.id)
         : [],
     )
     setBoardInstance((n) => n + 1)
@@ -2579,6 +2630,7 @@ function App() {
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}
+        citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
         isMyDiscardTurn={isMyDiscardTurn}
         discardingPlayerName={discardingPlayer?.name ?? ''}
         discardRequiredCount={discardRequiredCount}

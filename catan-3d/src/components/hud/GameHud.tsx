@@ -65,6 +65,11 @@ interface GameHudProps {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
+  // Cities & Knights house rule — whether commodity cards count toward the
+  // "cards in hand" discard-risk total shown in ResourcePanel. Passed as a
+  // plain boolean (not the whole GameRules object) since that's the only
+  // piece a display component like ResourcePanel needs.
+  citiesAndKnightsCommodities: boolean
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -121,6 +126,7 @@ export function GameHud({
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
+  citiesAndKnightsCommodities,
   isMyDiscardTurn,
   discardingPlayerName,
   discardRequiredCount,
@@ -217,6 +223,8 @@ export function GameHud({
       {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}
+        commodities={viewer.commodities}
+        countsCommodities={citiesAndKnightsCommodities}
         canTrade={canTrade}
         onOpenTrade={() => setIsTradeOpen(true)}
         devCards={viewer.devCards}

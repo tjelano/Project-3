@@ -1,7 +1,9 @@
 import {
   DEV_CARD_ORDER,
   DEV_CARD_PLAY_LABELS,
+  totalCommodityCount,
   totalResourceCount,
+  type Commodities,
   type DevCardType,
   type Resources,
 } from '../../game/types'
@@ -9,6 +11,8 @@ import { CollapsibleSection } from './CollapsibleSection'
 
 export function ResourcePanel({
   resources,
+  commodities,
+  countsCommodities,
   canTrade,
   onOpenTrade,
   devCards,
@@ -20,6 +24,11 @@ export function ResourcePanel({
   onPlayDevCard,
 }: {
   resources: Resources
+  // Commodities (Cities & Knights house rule) — only counted toward the
+  // discard-risk hand size when countsCommodities is true, but always
+  // passed down the same way resources already is.
+  commodities: Commodities
+  countsCommodities: boolean
   canTrade: boolean
   onOpenTrade: () => void
   devCards: DevCardType[]
@@ -30,7 +39,7 @@ export function ResourcePanel({
   canPlayDevCards: boolean
   onPlayDevCard: (type: DevCardType) => void
 }) {
-  const handSize = totalResourceCount(resources)
+  const handSize = totalResourceCount(resources) + (countsCommodities ? totalCommodityCount(commodities) : 0)
   // Catan discards half your hand on a 7 once you hold more than seven.
   const atDiscardRisk = handSize > 7
 

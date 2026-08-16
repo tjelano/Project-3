@@ -887,7 +887,19 @@ function App() {
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
-    onScienceFreeResourcePicked: (payload) => applyScienceFreeResourcePick(payload.playerId, payload.resource),
+    onScienceFreeResourcePicked: (payload) => {
+      // Broadcast-sourced — same validation shape as onCityImprovementPurchased
+      // above: payload.resource goes straight into resources[resource]
+      // arithmetic, so a bogus key would write NaN into a real player's state
+      // permanently. Also requiring playerId to still be in the pending queue
+      // — a duplicated message must not grant a second free pick or apply one
+      // to a player who was never actually eligible on this client.
+      if (!RESOURCE_ORDER.includes(payload.resource) || !scienceFreeResourcePlayerIds.includes(payload.playerId)) {
+        console.error('[Catan] Ignoring malformed science free-resource payload:', payload)
+        return
+      }
+      applyScienceFreeResourcePick(payload.playerId, payload.resource)
+    },
     // Trusted-apply from the effective host's own broadcast — see the
     // render-time trophy computation below, which only runs locally for
     // !onlineInfo || isEffectiveHost. Every other client just takes

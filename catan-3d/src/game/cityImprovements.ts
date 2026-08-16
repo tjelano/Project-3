@@ -33,6 +33,15 @@ export function buyImprovementLevel(
   track: ImprovementTrack,
 ): { commodities: Commodities; cityImprovements: CityImprovements } {
   const currentLevel = cityImprovements[track]
+  // The local caller (App.tsx's buyCityImprovement) already checks
+  // canAffordImprovement before calling this, but the broadcast receiver
+  // (onCityImprovementPurchased) calls it directly with no re-check — a
+  // duplicated or malformed message must not be able to push a track past
+  // its ceiling or drive a commodity count negative on that client.
+  if (currentLevel >= MAX_IMPROVEMENT_LEVEL) {
+    console.error('[Catan] Ignoring an improvement purchase past the maximum level:', track, currentLevel)
+    return { commodities, cityImprovements }
+  }
   const cost = improvementLevelCost(currentLevel + 1)
   const commodity = COMMODITY_FOR_TRACK[track]
   return {

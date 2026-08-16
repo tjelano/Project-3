@@ -98,9 +98,9 @@ export function applyDiscardCounts(
       continue
     }
     if (RESOURCE_ORDER.includes(type as ResourceType)) {
-      nextResources[type as ResourceType] -= count as number
+      nextResources[type as ResourceType] = Math.max(0, nextResources[type as ResourceType] - (count as number))
     } else if (COMMODITY_ORDER.includes(type as CommodityType)) {
-      nextCommodities[type as CommodityType] -= count as number
+      nextCommodities[type as CommodityType] = Math.max(0, nextCommodities[type as CommodityType] - (count as number))
     } else {
       console.error('[Catan] Ignoring invalid discard entry:', type, count)
     }

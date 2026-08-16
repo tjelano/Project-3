@@ -24,7 +24,7 @@ was modified — every item below is a note for manual review.
 - **Port ratios.** CN3081 p.7: 3:1 generic ports, 2:1 resource-specific
   ports, and a 4:1 default bank rate for players with no relevant port
   ("GENERAL TRADE WITH THE SUPPLY (4:1)"). This exactly matches
-  `App.tsx`'s `getPortRate` (`c:\Users\tjela\Documents\Claude Websites\Portfolio\Project 3\catan-3d\src\App.tsx:1091-1100`):
+  `App.tsx`'s `getPortRate` (`catan-3d/src/App.tsx:1091-1100`):
   returns `2` for an owned matching-resource port, else `3` if any 3:1
   port is owned, else `4`.
 - **Production amounts.** CN3081 p.6: 1 resource card per settlement, 2

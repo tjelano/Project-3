@@ -1299,14 +1299,23 @@ const METROPOLIS_MARKER_COLOR = '#f4c430' // gold, matches this UI's existing go
 function CityMesh({ colorToken, isMetropolis }: { colorToken: PlayerColorToken; isMetropolis: boolean }) {
   const instance = useClonedModel(CITY_URLS[colorToken])
   const scale = isMetropolis ? CITY_SCALE * METROPOLIS_SCALE_MULTIPLIER : CITY_SCALE
+  // position.y must track `scale`, not the fixed CITY_HALF_HEIGHT constant:
+  // the model is centred-bbox (local Y range -1..+1, see the comment above
+  // CITY_SCALE), so its rendered bottom is position.y - scale. At the base
+  // scale these happen to be equal (CITY_HALF_HEIGHT === CITY_SCALE), which
+  // is what let an earlier draft of this snippet hardcode CITY_HALF_HEIGHT
+  // here and still look right for a non-Metropolis city — but a Metropolis
+  // uses a LARGER scale while that hardcoded position.y stayed fixed,
+  // sinking the enlarged model ~0.085 units below the board surface. Same
+  // reasoning applies to the marker's Y offset below.
   return (
     <group>
-      <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={scale} />
+      <primitive object={instance} position={[0, scale, 0]} scale={scale} />
       {isMetropolis && (
         // Placeholder marker — a simple floating gold cone, not final art.
         // Swap for real Metropolis geometry in a later pass per this
         // expansion's placeholder-first policy.
-        <mesh position={[0, CITY_HALF_HEIGHT * 2 + 0.15, 0]} rotation={[Math.PI, 0, 0]}>
+        <mesh position={[0, scale * 2 + 0.15, 0]} rotation={[Math.PI, 0, 0]}>
           <coneGeometry args={[0.08, 0.18, 4]} />
           <meshStandardMaterial color={METROPOLIS_MARKER_COLOR} emissive={METROPOLIS_MARKER_COLOR} emissiveIntensity={0.4} />
         </mesh>

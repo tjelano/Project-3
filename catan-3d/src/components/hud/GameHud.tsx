@@ -195,11 +195,19 @@ export function GameHud({
     !devCardPlayedThisTurn &&
     isMyTurn
   // Mirrors canBuyDevCard's derivation above — city improvements are also
-  // only purchasable during your own action phase. No devDeckCount-style
-  // stock check here (commodities affordability is checked per-track inside
-  // CityImprovementsPanel itself, via canAffordImprovement).
+  // only purchasable during your own action phase, after rolling (same
+  // "roll before you build/buy" rule buildSettlementRaw/buyDevCard/bankTrade
+  // enforce in App.tsx). No devDeckCount-style stock check here (commodities
+  // affordability is checked per-track inside CityImprovementsPanel itself,
+  // via canAffordImprovement).
   const canBuyImprovement =
-    gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
+    gamePhase === 'playing' &&
+    !isRolling &&
+    gameActive &&
+    !tradeBlocked &&
+    !pickerBlocked &&
+    isMyTurn &&
+    hasRolledThisTurn
   const statusLabel = pickerBlocked
     ? 'Choose your resources…'
     : tradeBlocked

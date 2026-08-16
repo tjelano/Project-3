@@ -2054,6 +2054,14 @@ function App() {
   const buyCityImprovement = (track: ImprovementTrack) => {
     const player = players[currentPlayerIndex]
     if (!canInteract()) return
+    // Same "roll before you build/buy" gate every other action in this file
+    // already has (buildSettlementRaw, buildRoad, buyDevCard, bankTrade) —
+    // without it, leftover commodities from a prior turn let a player buy an
+    // improvement the instant their turn starts, before rolling.
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before buying a city improvement.')
+      return
+    }
     if (!canAffordImprovement(player.commodities, track, player.cityImprovements[track])) {
       warn('Not enough commodities for that improvement.')
       return

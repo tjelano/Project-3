@@ -25,18 +25,11 @@ markers, 2 Great Bridge markers. 94 tokens: 32 VP tokens, 50 cloth tokens,
 
 ## Ships
 
-**Cost:** not printed as a distinct value anywhere in CN3083 — the
-"BUILDING COST:" header on the player-aid page (p.2) sits directly above
-"Gold fields produce 1 resource of choice", strongly implying ship cost is
-shown only as an icon grid we couldn't resolve from text extraction. The
-Seafarers 5–6 player-aid page (CN3084 p.1) explicitly lists "Ship" as one
-of 5 rows under "BUILDING COSTS" (Road / Ship / Settlement / City /
-Development Card) but again only as unreadable icons in this extraction
-pass. Public/common knowledge for this edition is 1 lumber + 1 wool per
-ship (same as a road, wool swapped for brick) — **not independently
-confirmed from the rulebook text in this pass**; treat as needing a quick
-visual double-check against the physical component or box insert before
-locking a cost constant.
+**Cost: confirmed — 1 lumber + 1 wool.** Verified by rendering CN3083 p.2
+as an image and reading the "BUILDING COST:" icon box directly (a ship
+icon = a log-bundle icon + a sheep icon), not inferred from text
+extraction or prior knowledge. Same cost as a road with wool swapped for
+brick.
 
 **Placement rules** (CN3083 p.2, confirmed verbatim):
 - Ships are placed on the empty edges of sea hexes.
@@ -318,13 +311,17 @@ is the CATAN 5–6 base mechanic, restated here since it governs how any
 
 ## Things not fully confirmed in this pass
 
-- **Exact ship build cost** — printed only as icons in both PDFs' extracted
-  text; not independently re-derived here. Double-check before hard-coding.
-- **Exact per-level resource cost for each Wonder of Catan** — rulebook
-  text says "the same 5 resources" per level but doesn't spell out the
-  resource-type breakdown in extractable text; it's on the physical tile
-  art. Only relevant once the Scenario Maps phase reaches Wonders of Catan
-  specifically — not blocking for the Ships phase.
+- **Exact per-level resource cost for each Wonder of Catan** — checked
+  directly (rendered CN3083 pp.18-19 as images, not just text): the
+  breakdown genuinely isn't in this rulebook at all. The rules text only
+  says "pay the cost shown at the top of the [Wonder] tile" and "each
+  level costs the same 5 resources" — the actual resource-type icons are
+  printed solely on the physical Wonder tile component, which this
+  rulebook never reproduces as a legible close-up (the following pages are
+  the scenario board map and hex/number-disc counts, not tile art). Needs
+  the physical tile or a clear photo of it. Only relevant once the
+  Scenario Maps phase reaches Wonders of Catan specifically — not blocking
+  for the Ships phase.
 - **Exact hex-by-hex scenario map layouts** were not transcribed (each
   scenario page has a numeric hex/port/number-disc component table plus a
   board diagram image) — this doc captures the rules and one-line

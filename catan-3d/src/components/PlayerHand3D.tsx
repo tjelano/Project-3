@@ -53,11 +53,11 @@ const CARD_ART: Record<CardKey, string> = {
 }
 
 // The 3 commodity textures (see Cities & Knights Phase A) are a SEPARATE
-// art source from the eleven resource/dev-card images above — placeholders
-// whose content already fills the full 432x578 canvas edge-to-edge
-// (verified alpha bbox (0,0,432,578) on all three), unlike the resource art
-// CARD_ART_CROP_X/Y below were tuned for. Checked here rather than assumed,
-// since loadCardTexture's crop is otherwise unconditional on every call.
+// art source from the eleven resource/dev-card images above, whose content
+// already fills the full 432x578 canvas edge-to-edge (verified alpha bbox
+// (0,0,432,578) on all three), unlike the resource art CARD_ART_CROP_X/Y
+// below were tuned for. Checked here rather than assumed, since
+// loadCardTexture's crop is otherwise unconditional on every call.
 const COMMODITY_CARD_KEYS: readonly CardKey[] = COMMODITY_ORDER
 
 // One loader and one cache for the whole app: eleven images shared across
@@ -88,8 +88,8 @@ const CARD_ART_OFFSET_Y = 45 / 578
 
 // applyLegacyCrop defaults to true so every existing call site (resource
 // art, dev-card art, the card back) keeps its byte-for-byte current
-// behavior. Only the 3 commodity textures pass false: their placeholder
-// art has zero transparent margin (see COMMODITY_CARD_KEYS above), so the
+// behavior. Only the 3 commodity textures pass false: their art has zero
+// transparent margin (see COMMODITY_CARD_KEYS above), so the
 // resource-art-tuned crop below would cut real content off their edges
 // instead of trimming padding that isn't there. Safe to key the shared
 // cache on `url` alone (not `url` + this flag) because the two never

@@ -224,6 +224,16 @@ function App() {
   // eventLog is, for the same unbounded-growth reason.
   const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([])
   const [diceRoll, setDiceRoll] = useState<DiceRollTarget | null>(null)
+  // The most recently rolled event die face, on THIS client — written by
+  // BOTH the roller's own path (handlePhysicsSettled, right where eventDie
+  // is computed) and a receiver's mirrored path (beginDiceAnimation), so it
+  // reads correctly on the roller's own screen (diceRoll only ever gets
+  // written by beginDiceAnimation, which the roller's own client never
+  // calls) and in local Pass & Play (where beginDiceAnimation never runs at
+  // all, since onDiceRolled never fires with no network). Deliberately its
+  // own state rather than reading diceRoll.eventDie for that reason — not a
+  // dedup of the same value, a genuinely different write path.
+  const [lastEventDie, setLastEventDie] = useState<EventDieFace | null>(null)
   // Who actually rolled the dice currently animating in `diceRoll` — a
   // mirrored roll's 3D tumble takes real time to settle, and a TURN_PASSED
   // broadcast for THAT SAME roll can arrive and be processed on this client
@@ -467,6 +477,7 @@ function App() {
     setIsRolling(true)
     playSfx('diceRoll')
     setDiceRoll((prev) => ({ d1, d2, eventDie, rollId: (prev?.rollId ?? 0) + 1 }))
+    setLastEventDie(eventDie)
     setDiceRollPlayerId(playerId)
   }
 
@@ -1657,6 +1668,11 @@ function App() {
       setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
       return
     }
+    // Only reachable for an ACCEPTED roll (a voided 7 returns above) — same
+    // "only counts once accepted" treatment lastRoll already gets inside
+    // applyRollResult, so a discarded reroll attempt's face never briefly
+    // shows as current on the roller's own screen.
+    setLastEventDie(eventDie)
     const rollerId = players[currentPlayerIndex].id
     if (onlineInfo) {
       broadcastDiceRolled({ dice: [d1, d2], eventDie, total, playerId: rollerId })
@@ -1745,6 +1761,7 @@ function App() {
       isStillRollersTurn,
       consecutiveDoublesThisTurnBefore: consecutiveDoublesThisTurn,
       doublesCount,
+      lastEventDie,
       onlineLocalPlayerId: onlineInfo?.localPlayerId,
       isMyRoll: onlineInfo ? rollerId === onlineInfo.localPlayerId : true,
     })
@@ -2712,6 +2729,12 @@ function App() {
     setRevealedTileIds(new Set())
     setBanner(null)
     setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
+    setProgressCardDecks({
+      science: buildProgressCardDeck('science'),
+      trade: buildProgressCardDeck('trade'),
+      politics: buildProgressCardDeck('politics'),
+    })
+    setProgressCardOverLimitPlayerIds([])
     setWinner(null)
     setPendingTrade(null)
     setFreeRoadsRemaining(0)

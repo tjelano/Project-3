@@ -3,6 +3,7 @@ import toggleOnUrl from '../../assets/menu/house-rules/hr-toggle-on.png'
 import panelBgUrl from '../../assets/menu/house-rules/hr-panel-bg.png'
 import { useDraftNumberField } from './useDraftNumberField'
 import type { GameRules } from '../../game/types'
+import { WINNING_SCORE } from '../../game/types'
 
 const VP_TARGET_MIN = 3
 const VP_TARGET_MAX = 50
@@ -10,12 +11,13 @@ const VP_TARGET_MAX = 50
 // The 5 checkbox rules fill 5 of a 2x3 grid's 6 cells, leaving one open —
 // add a 6th checkbox rule here and it drops straight into that last cell.
 // A 7th+ rule extends the grid to 2x4 (bump GRID_ROW_COUNT accordingly).
-const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule'; label: string }[] = [
+const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities'; label: string }[] = [
   { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
   { key: 'friendlyRobber', label: 'Friendly robber' },
   { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only' },
   { key: 'noSevensFirstTwoRolls', label: 'No 7s on first 2 rolls' },
   { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
+  { key: 'citiesAndKnightsCommodities', label: 'Commodities & city improvements' },
 ]
 
 // hiddenTiles is 4-way, not a plain boolean — its own segmented-control row
@@ -113,6 +115,14 @@ export function HouseRulesDropdown({
   onChange: (rules: GameRules) => void
 }) {
   const setRule = <K extends keyof GameRules>(key: K, value: GameRules[K]) => {
+    // Toggling Commodities & City Improvements on pre-fills the VP target to
+    // 13 (the standard C&K winning score) — but only while the target is
+    // still untouched at its default. A player who already customized
+    // victoryPointTarget before toggling this on keeps their own value.
+    if (key === 'citiesAndKnightsCommodities' && value === true && rules.victoryPointTarget === WINNING_SCORE) {
+      onChange({ ...rules, citiesAndKnightsCommodities: true, victoryPointTarget: 13 })
+      return
+    }
     onChange({ ...rules, [key]: value })
   }
 

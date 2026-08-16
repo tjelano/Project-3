@@ -41,6 +41,15 @@ const DEV_CARD_PICKER_COPY: Record<PickerMode, { title: string; subtitle: string
   scienceFreeResource: { title: 'Free Resource', subtitle: 'Science level 3: choose 1 resource.', pickCount: 1 },
 }
 
+// Stable "nothing is blocked" verdict for when the Cities & Knights house
+// rule is off — a module constant rather than a fresh object literal per
+// render so the (unrendered) panel below never sees a new identity either.
+const NO_METROPOLIS_PURCHASE_BLOCKED: Record<ImprovementTrack, boolean> = {
+  science: false,
+  trade: false,
+  politics: false,
+}
+
 interface GameHudProps {
   players: Player[]
   currentPlayerIndex: number
@@ -210,12 +219,22 @@ export function GameHud({
   // viewer's own city vertices internally, so the button's disabled state and
   // the real spend-time gate cannot drift apart (they each used to re-derive
   // both of those independently, which is how they were free to).
-  const metropolisPurchaseBlocked = Object.fromEntries(
-    IMPROVEMENT_TRACK_ORDER.map((track) => [
-      track,
-      evaluateMetropolisPurchase(players, settlements, metropolisHolders, metropolisVertexIds, track, viewer.id).blocked,
-    ]),
-  ) as Record<ImprovementTrack, boolean>
+  // Only computed when the house rule is actually on — the sole consumer
+  // (CityImprovementsPanel, below) is gated on the same flag, so off the rule
+  // this was a players.find sweep per track on every single render whose
+  // result nothing could ever read. It also reaches into each player's
+  // cityImprovements, which a pre-Cities-&-Knights snapshot can be missing
+  // entirely (see restoreFromSnapshot's normalization in App.tsx) — keeping
+  // the work behind the flag keeps this off that crash path too.
+  const metropolisPurchaseBlocked = citiesAndKnightsCommodities
+    ? (Object.fromEntries(
+        IMPROVEMENT_TRACK_ORDER.map((track) => [
+          track,
+          evaluateMetropolisPurchase(players, settlements, metropolisHolders, metropolisVertexIds, track, viewer.id)
+            .blocked,
+        ]),
+      ) as Record<ImprovementTrack, boolean>)
+    : NO_METROPOLIS_PURCHASE_BLOCKED
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
   // Covers BOTH forced-choice pickers (devCardPicker and the Science

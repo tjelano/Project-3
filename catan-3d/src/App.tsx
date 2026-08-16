@@ -31,7 +31,7 @@ import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
-import { autoDiscardCounts, applyDiscardCounts } from './game/discard'
+import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './game/discard'
 import {
   canAffordImprovement,
   buyImprovementLevel,
@@ -53,6 +53,7 @@ import {
   DEV_CARD_SINGULAR,
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
+  IMPROVEMENT_TRACK_ORDER,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
   RESOURCE_LABELS,
@@ -65,12 +66,12 @@ import {
   createInitialPlayers,
   deductCost,
   getPlayerScore,
+  emptyCityImprovements,
+  emptyCommodities,
   emptyResources,
   getPublicScore,
   removeOne,
   shuffle,
-  totalCommodityCount,
-  totalResourceCount,
   type Building,
   type CommodityType,
   type DevCardType,
@@ -928,13 +929,33 @@ function App() {
     // levels silently drifts. applyCityImprovementPurchase recomputes the
     // cost locally rather than trusting payload.newLevel for the deduction —
     // newLevel is carried for logging/event-log purposes only.
-    onCityImprovementPurchased: (payload) => applyCityImprovementPurchase(payload.playerId, payload.track),
+    onCityImprovementPurchased: (payload) => {
+      // Broadcast-sourced — same validation shape as onBankTrade/
+      // onCommodityTraded below, and for the same reason: payload.track goes
+      // straight into commodities[COMMODITY_FOR_TRACK[track]] arithmetic and
+      // cityImprovements[track], so a bogus track string would write NaN into
+      // a real player's state permanently.
+      if (!IMPROVEMENT_TRACK_ORDER.includes(payload.track)) {
+        console.error('[Catan] Ignoring malformed city-improvement payload:', payload)
+        return
+      }
+      applyCityImprovementPurchase(payload.playerId, payload.track)
+    },
     // Trusted-apply — the purchasing client already resolved which player
     // controls the track AND which of their cities carries the marker (see
     // buildSettlementRaw's pendingMetropolisClaim branch); every other
     // client just takes both values as given, same trust model
     // onTrophyUpdated already uses for trophy state.
     onMetropolisClaimed: (payload) => {
+      // Same broadcast-sourced validation as onCityImprovementPurchased just
+      // above — payload.track is used as the key both of these records are
+      // written under, so an unrecognized value would quietly add a bogus
+      // fourth entry that IMPROVEMENT_TRACK_ORDER-driven readers (score,
+      // panel) never see, while the real track stays unclaimed.
+      if (!IMPROVEMENT_TRACK_ORDER.includes(payload.track)) {
+        console.error('[Catan] Ignoring malformed metropolis-claim payload:', payload)
+        return
+      }
       setMetropolisVertexIds((prev) => ({ ...prev, [payload.track]: payload.vertexId }))
       setMetropolisHolders((prev) => ({ ...prev, [payload.track]: payload.playerId }))
     },
@@ -1052,10 +1073,7 @@ function App() {
       discardPlayerIds.filter((id) => {
         const player = playerById.get(id)
         if (player == null) return false
-        const handSize =
-          totalResourceCount(player.resources) +
-          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
-        return handSize > 7
+        return discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities) > 7
       }),
     [discardPlayerIds, playerById, gameRules.citiesAndKnightsCommodities],
   )
@@ -1074,9 +1092,11 @@ function App() {
   const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
   const discardRequiredCount = discardingPlayer
     ? Math.floor(
-        (totalResourceCount(discardingPlayer.resources) +
-          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(discardingPlayer.commodities) : 0)) /
-          2,
+        discardHandSize(
+          discardingPlayer.resources,
+          discardingPlayer.commodities,
+          gameRules.citiesAndKnightsCommodities,
+        ) / 2,
       )
     : 0
 
@@ -1632,8 +1652,7 @@ function App() {
       // phase for a turn that's no longer the roller's would be wrong.
       if (isStillRollersTurn) {
         const handSizeOf = (p: Player) =>
-          totalResourceCount(p.resources) +
-          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(p.commodities) : 0)
+          discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
         const overLimitIds = players.filter((p) => handSizeOf(p) > 7).map((p) => p.id)
         debugLog('7 rolled — discard check', {
           overLimitIds,
@@ -1767,9 +1786,7 @@ function App() {
     if (activeDiscarderId == null) return
     const player = playerById.get(activeDiscarderId)
     if (!player) return
-    const handSize =
-      totalResourceCount(player.resources) +
-      (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+    const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
     const required = Math.floor(handSize / 2)
     setDiscardSelection((prev) => {
       if (prev.includes(cardId)) return prev.filter((id) => id !== cardId)
@@ -1782,9 +1799,7 @@ function App() {
     if (activeDiscarderId == null) return
     const player = playerById.get(activeDiscarderId)
     if (!player) return
-    const handSize =
-      totalResourceCount(player.resources) +
-      (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+    const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
     const required = Math.floor(handSize / 2)
     if (discardSelection.length !== required) return
 
@@ -1829,9 +1844,7 @@ function App() {
       for (const playerId of validDiscardPlayerIds) {
         const player = playerById.get(playerId)
         if (!player) continue
-        const handSize =
-          totalResourceCount(player.resources) +
-          (gameRules.citiesAndKnightsCommodities ? totalCommodityCount(player.commodities) : 0)
+        const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
         const required = Math.floor(handSize / 2)
         const counts = autoDiscardCounts(player.resources, player.commodities, required)
         applyDiscard(playerId, counts)
@@ -2271,6 +2284,18 @@ function App() {
   const buyCityImprovement = (track: ImprovementTrack) => {
     const player = players[currentPlayerIndex]
     if (!canInteract()) return
+    // canInteract() above only rejects 'moveRobber', NOT 'discard' — so
+    // without this the acting player could still climb a track mid-discard,
+    // changing the very commodity count their own required discard was sized
+    // against. Every sibling action (buyDevCard, bankTrade,
+    // proposePlayerTrade, tradeCommodity) states the phase explicitly for the
+    // same reason. No isRolling re-check here, unlike those siblings —
+    // canInteract() already covers it (they only need their own because they
+    // gate on the weaker canPerformAction()).
+    if (gamePhase !== 'playing') {
+      warn("You can't buy a city improvement right now.")
+      return
+    }
     // Same "roll before you build/buy" gate every other action in this file
     // already has (buildSettlementRaw, buildRoad, buyDevCard, bankTrade) —
     // without it, leftover commodities from a prior turn let a player buy an
@@ -2631,7 +2656,23 @@ function App() {
     setPlayerNames(snapshot.playerNames)
     // Player colors are already on each snapshot.players entry (colorToken)
     // — no separate restore step needed.
-    setPlayers(snapshot.players)
+    //
+    // commodities/cityImprovements ARE required Player fields, but any row in
+    // match_snapshots written before the Cities & Knights feature landed has
+    // neither. Restoring one of those raw put `undefined` on a field the rest
+    // of this file indexes into unconditionally (GameHud's Metropolis
+    // evaluation, the discard hand-size math, buyCityImprovement) and threw a
+    // hard TypeError, killing the client mid-match — reachable from BOTH
+    // entry points into this function (the lobby Join flow and the
+    // connection-restored resync effect below). Normalized here, in the one
+    // place both go through, with the same `?? fallback` treatment every
+    // other newly-added snapshot field above already gets.
+    const normalizedPlayers = snapshot.players.map((p) => ({
+      ...p,
+      commodities: p.commodities ?? emptyCommodities(),
+      cityImprovements: p.cityImprovements ?? emptyCityImprovements(),
+    }))
+    setPlayers(normalizedPlayers)
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
     setOnlineInfo({
       roomCode: online.roomCode,
@@ -2673,7 +2714,7 @@ function App() {
     // host's local state only. Restored for the reconnecting client alone —
     // other players' unresolved claims are none of this screen's business.
     const restoredClaimTrack = unresolvedMetropolisClaimTrack(
-      snapshot.players,
+      normalizedPlayers,
       snapshot.settlements,
       restoredMetropolisHolders,
       restoredMetropolisVertexIds,
@@ -2700,13 +2741,8 @@ function App() {
     const restoredRules = snapshot.gameRules ?? DEFAULT_GAME_RULES
     setDiscardPlayerIds(
       snapshot.gamePhase === 'discard'
-        ? snapshot.players
-            .filter(
-              (p) =>
-                totalResourceCount(p.resources) +
-                  (restoredRules.citiesAndKnightsCommodities ? totalCommodityCount(p.commodities) : 0) >
-                7,
-            )
+        ? normalizedPlayers
+            .filter((p) => discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) > 7)
             .map((p) => p.id)
         : [],
     )

@@ -1,13 +1,16 @@
 import {
+  COMMODITY_COLORS,
+  COMMODITY_LABELS,
+  COMMODITY_ORDER,
   DEV_CARD_ORDER,
   DEV_CARD_PLAY_LABELS,
-  totalCommodityCount,
-  totalResourceCount,
   type Commodities,
   type DevCardType,
   type Resources,
 } from '../../game/types'
+import { discardHandSize } from '../../game/discard'
 import { CollapsibleSection } from './CollapsibleSection'
+import { CommodityIcon } from './CommodityIcon'
 
 export function ResourcePanel({
   resources,
@@ -24,9 +27,10 @@ export function ResourcePanel({
   onPlayDevCard,
 }: {
   resources: Resources
-  // Commodities (Cities & Knights house rule) — only counted toward the
-  // discard-risk hand size when countsCommodities is true, but always
-  // passed down the same way resources already is.
+  // Commodities (Cities & Knights house rule) — counted toward the
+  // discard-risk hand size AND broken out as their own per-type row, both
+  // only when countsCommodities is true. Always passed down the same way
+  // resources already is.
   commodities: Commodities
   countsCommodities: boolean
   canTrade: boolean
@@ -39,7 +43,9 @@ export function ResourcePanel({
   canPlayDevCards: boolean
   onPlayDevCard: (type: DevCardType) => void
 }) {
-  const handSize = totalResourceCount(resources) + (countsCommodities ? totalCommodityCount(commodities) : 0)
+  // Same single rule App.tsx's discard pipeline measures against — see
+  // discardHandSize (game/discard.ts) on why this must not be re-inlined.
+  const handSize = discardHandSize(resources, commodities, countsCommodities)
   // Catan discards half your hand on a 7 once you hold more than seven.
   const atDiscardRisk = handSize > 7
 
@@ -69,6 +75,34 @@ export function ResourcePanel({
       </div>
       {atDiscardRisk && (
         <span className="px-1 font-body text-[10px] text-player-1/80">Over 7 — a rolled 7 costs you half.</span>
+      )}
+
+      {/* Same reasoning as the "Cards in hand" total above: the commodity
+          cards themselves live in the 3D hand, but "how much paper do I have"
+          is a number you need constantly (every City Improvements cost is
+          quoted in one specific commodity) and counting a fanned hand by eye
+          is exactly what a HUD should spare you. Gated on countsCommodities
+          so base-game matches, which can never hold any, don't get a row of
+          three permanent zeroes. */}
+      {countsCommodities && (
+        <div className="flex items-center gap-1">
+          {COMMODITY_ORDER.map((commodity) => (
+            // Tinted per commodity from the same palette the 3D board reads
+            // (COMMODITY_COLORS). Set on the chip rather than the icon
+            // because CommodityIcon fills from currentColor and takes no
+            // style prop — the count below re-declares its own color, so it
+            // doesn't inherit the tint.
+            <div
+              key={commodity}
+              title={COMMODITY_LABELS[commodity]}
+              style={{ color: COMMODITY_COLORS[commodity] }}
+              className="flex flex-1 items-center justify-center gap-1 rounded-full bg-white/5 py-1 ring-1 ring-glass-border"
+            >
+              <CommodityIcon commodity={commodity} className="h-3 w-3 shrink-0" />
+              <span className="font-data text-xs tabular-nums text-white/80">{commodities[commodity]}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       <button

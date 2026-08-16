@@ -1,6 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { autoDiscardCounts, applyDiscardCounts } from './discard'
+import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './discard'
 import { emptyResources, emptyCommodities } from './types'
+
+describe('discardHandSize', () => {
+  it('counts resources only when the commodities house rule is off', () => {
+    const resources = { ...emptyResources(), lumber: 3, ore: 2 }
+    const commodities = { ...emptyCommodities(), paper: 4, cloth: 4 }
+
+    expect(discardHandSize(resources, commodities, false)).toBe(5)
+  })
+
+  it('adds commodities to the hand size when the house rule is on', () => {
+    const resources = { ...emptyResources(), lumber: 3, ore: 2 }
+    const commodities = { ...emptyCommodities(), paper: 4, cloth: 4 }
+
+    // 5 resources + 8 commodities — the difference between "safe" and
+    // "discards half on a 7", which is exactly why every call site has to
+    // agree on this one formula.
+    expect(discardHandSize(resources, commodities, true)).toBe(13)
+  })
+
+  it('counts every commodity type, not just the first', () => {
+    const commodities = { paper: 1, cloth: 2, coin: 3 }
+
+    expect(discardHandSize(emptyResources(), commodities, true)).toBe(6)
+  })
+
+  it('is 0 for an empty hand either way', () => {
+    expect(discardHandSize(emptyResources(), emptyCommodities(), true)).toBe(0)
+    expect(discardHandSize(emptyResources(), emptyCommodities(), false)).toBe(0)
+  })
+
+  it('drives the required-discard count the discard flow derives from it', () => {
+    // Every discard call site takes Math.floor(handSize / 2) off this — an
+    // odd combined hand rounds down, and a commodity-heavy hand only crosses
+    // the limit at all when the house rule is on.
+    const resources = { ...emptyResources(), grain: 5 }
+    const commodities = { ...emptyCommodities(), coin: 4 }
+
+    const withRule = discardHandSize(resources, commodities, true)
+    const withoutRule = discardHandSize(resources, commodities, false)
+
+    expect(withRule > 7).toBe(true)
+    expect(withoutRule > 7).toBe(false)
+    expect(Math.floor(withRule / 2)).toBe(4)
+  })
+})
 
 describe('autoDiscardCounts', () => {
   it('falls through to commodities when resources alone cannot satisfy required', () => {

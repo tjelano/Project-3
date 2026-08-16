@@ -2,8 +2,7 @@ import toggleOffUrl from '../../assets/menu/house-rules/hr-toggle-off.png'
 import toggleOnUrl from '../../assets/menu/house-rules/hr-toggle-on.png'
 import panelBgUrl from '../../assets/menu/house-rules/hr-panel-bg.png'
 import { useDraftNumberField } from './useDraftNumberField'
-import type { GameRules } from '../../game/types'
-import { WINNING_SCORE } from '../../game/types'
+import { WINNING_SCORE, type GameRules } from '../../game/types'
 
 const VP_TARGET_MIN = 3
 const VP_TARGET_MAX = 50

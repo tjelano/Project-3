@@ -1,4 +1,34 @@
-import { COMMODITY_ORDER, RESOURCE_ORDER, type Commodities, type CommodityType, type ResourceType, type Resources } from './types'
+import {
+  COMMODITY_ORDER,
+  RESOURCE_ORDER,
+  totalCommodityCount,
+  totalResourceCount,
+  type Commodities,
+  type CommodityType,
+  type ResourceType,
+  type Resources,
+} from './types'
+
+// The hand size the 7-card discard rule is measured against. Official
+// Cities & Knights counts resource AND commodity cards together ("resource
+// cards + commodity cards", CN3087); base Catan counts resources only, so
+// commodities fold in exactly when the citiesAndKnightsCommodities house
+// rule is on — that's what `countsCommodities` carries.
+//
+// A RULE, not an incidental expression: it was previously inlined at ~8
+// separate sites (the 7-roll over-limit check, the discard-queue self-heal,
+// the selection cap, the confirm check, the auto-discard timeout, the
+// snapshot restore, and the HUD's own hand-size/discard-risk indicator).
+// Every one of those has to agree — a single site drifting means a player
+// is asked to discard on one screen and not another, or selects a cap that
+// doesn't match what confirm requires. One definition here instead.
+export function discardHandSize(
+  resources: Resources,
+  commodities: Commodities,
+  countsCommodities: boolean,
+): number {
+  return totalResourceCount(resources) + (countsCommodities ? totalCommodityCount(commodities) : 0)
+}
 
 // Deterministic forced discard for a player who never confirmed one in
 // time — greedily takes from whichever resource they're holding the most

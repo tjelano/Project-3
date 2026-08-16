@@ -69,7 +69,7 @@ export function VictoryBanner({
         <p className="mt-3 font-body text-sm text-white/60">Final Score: {winnerScore} Victory Points</p>
 
         <div className="mt-8 overflow-x-auto rounded-xl border border-glass-border">
-          <div className="grid min-w-[26rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.75rem] items-center gap-x-2 bg-white/5 px-4 py-2 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
+          <div className="grid min-w-[28rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2.75rem] items-center gap-x-2 bg-white/5 px-4 py-2 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
             <span />
             <span className="text-left">Player</span>
             <span>Set</span>
@@ -77,6 +77,10 @@ export function VictoryBanner({
             <span>VP</span>
             <span title="Longest Road">LR</span>
             <span title="Largest Army">LA</span>
+            {/* Without this column a Metropolis holder's visible columns
+                simply don't add up to their own Score — the 2 VP per held
+                track is already in score.total (see getScoreBreakdown). */}
+            <span title="Metropolis">Met</span>
             <span>Score</span>
           </div>
           {ranked.map(({ player, score }, index) => {
@@ -84,7 +88,7 @@ export function VictoryBanner({
             return (
               <div
                 key={player.id}
-                className={`grid min-w-[26rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.75rem] items-center gap-x-2 border-t border-glass-border px-4 py-2.5 font-body text-sm ${
+                className={`grid min-w-[28rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2.75rem] items-center gap-x-2 border-t border-glass-border px-4 py-2.5 font-body text-sm ${
                   isWinner ? 'bg-gold/10' : ''
                 }`}
               >
@@ -103,6 +107,9 @@ export function VictoryBanner({
                 </span>
                 <span className={score.largestArmy ? 'text-gold' : 'text-white/25'}>
                   {score.largestArmy ? `+${score.largestArmy}` : '–'}
+                </span>
+                <span className={score.metropolis ? 'text-gold' : 'text-white/25'}>
+                  {score.metropolis ? `+${score.metropolis}` : '–'}
                 </span>
                 <span className={`font-display font-semibold ${isWinner ? 'text-gold' : 'text-white/80'}`}>
                   {score.total}

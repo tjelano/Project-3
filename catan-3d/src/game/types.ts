@@ -349,10 +349,14 @@ export interface ScoreBreakdown {
 
 // Authoritative score breakdown: 1 per settlement, 2 per city, 1 per hidden
 // Victory Point development card, +2 for holding Longest Road, +2 for
-// holding Largest Army. Trophy holders are tracked as App-level state (see
-// trophies.ts) rather than recomputed here, since "current holder" depends
-// on transfer history (a tie doesn't unseat the incumbent), not just an
-// instantaneous max.
+// holding Largest Army, and +2 per improvement track this player holds the
+// Metropolis for (Cities & Knights, so 0 unless that house rule is on).
+// Trophy holders are tracked as App-level state (see trophies.ts) rather
+// than recomputed here, since "current holder" depends on transfer history
+// (a tie doesn't unseat the incumbent), not just an instantaneous max —
+// metropolisHolders is App-level state for the same reason (see
+// metropolisHolderAfterPurchase in cityImprovements.ts, where arrival order
+// decides control).
 export function getScoreBreakdown(
   player: Player,
   settlements: Record<string, Building>,

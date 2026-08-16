@@ -99,7 +99,6 @@ export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }
 // piece's "deliberately over-scaled" design intent.
 // ---------------------------------------------------------------------------
 const CITY_SCALE = 0.284
-const CITY_HALF_HEIGHT = 1 * CITY_SCALE
 
 // Placeholder-first policy (per this expansion's plan): a Metropolis has no
 // bespoke model yet, so it's differentiated from a plain city by scaling the
@@ -112,14 +111,20 @@ const METROPOLIS_MARKER_COLOR = '#f4c430' // gold, matches this UI's existing go
 function CityMesh({ colorToken, isMetropolis }: { colorToken: PlayerColorToken; isMetropolis: boolean }) {
   const instance = useClonedModel(CITY_URLS[colorToken])
   const scale = isMetropolis ? CITY_SCALE * METROPOLIS_SCALE_MULTIPLIER : CITY_SCALE
+  // position.y must track `scale`, not a fixed half-height constant: the
+  // model is centred-bbox (local Y range -1..+1, see the comment above
+  // CITY_SCALE), so its rendered bottom is position.y - scale. Deriving
+  // position.y from scale itself keeps the bottom at exactly 0 for ANY
+  // scale — plain city or Metropolis alike. Same reasoning applies to the
+  // marker's Y offset below.
   return (
     <group>
-      <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={scale} />
+      <primitive object={instance} position={[0, scale, 0]} scale={scale} />
       {isMetropolis && (
         // Placeholder marker — a simple floating gold cone, not final art.
         // Swap for real Metropolis geometry in a later pass per this
         // expansion's placeholder-first policy.
-        <mesh position={[0, CITY_HALF_HEIGHT * 2 + 0.15, 0]} rotation={[Math.PI, 0, 0]}>
+        <mesh position={[0, scale * 2 + 0.15, 0]} rotation={[Math.PI, 0, 0]}>
           <coneGeometry args={[0.08, 0.18, 4]} />
           <meshStandardMaterial color={METROPOLIS_MARKER_COLOR} emissive={METROPOLIS_MARKER_COLOR} emissiveIntensity={0.4} />
         </mesh>

@@ -55,3 +55,26 @@ export function metropolisHolderAfterPurchase(
   if (newLevel >= 5 && currentHolderLevel < 5) return buyerId
   return currentHolderId
 }
+
+// True when a purchase reaching `newLevel` would actually make `buyerId` the
+// (new) Metropolis holder for this track — i.e. a genuine claim that needs a
+// spare city and a marker placement. False for: any level below 4 (no
+// Metropolis involved yet), a buyer who ALREADY holds this track (leveling
+// further doesn't move an already-placed marker — see
+// metropolisHolderAfterPurchase's own "buyerId === currentHolderId" branch),
+// and a second-or-later arrival at level 4 while someone else already holds
+// it (arrival-order keeps temporary control with the incumbent). Callers
+// (App.tsx's buyCityImprovement, GameHud's spare-city gate) both need this
+// exact same "is this actually a claim" test — kept here, not duplicated, so
+// the spend-time gate and the button's disabled state can never disagree
+// about which purchases require a spare city.
+export function purchaseClaimsMetropolis(
+  currentHolderId: number | null,
+  currentHolderLevel: number,
+  buyerId: number,
+  newLevel: number,
+): boolean {
+  if (newLevel < 4) return false
+  if (currentHolderId === buyerId) return false
+  return metropolisHolderAfterPurchase(currentHolderId, currentHolderLevel, buyerId, newLevel) === buyerId
+}

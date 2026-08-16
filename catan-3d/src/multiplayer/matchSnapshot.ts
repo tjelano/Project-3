@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '../lib/supabaseClient'
-import type { Building, DevCardType, GameRules, Player } from '../game/types'
+import type { Building, DevCardType, GameRules, ImprovementTrack, MetropolisHolders, Player } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { GamePhase, SetupStage } from '../App'
 
@@ -60,6 +60,14 @@ export interface MatchSnapshot {
   winner: Player | null
   longestRoadHolderId: number | null
   largestArmyHolderId: number | null
+  // Optional for the same reason boardShapeId is — snapshots saved before
+  // Cities & Knights' Metropolis existed won't have either field.
+  // restoreFromSnapshot (App.tsx) falls back to all-null on both, which is
+  // always correct for a pre-feature match (nobody could have claimed a
+  // Metropolis yet). pendingMetropolisTrack is deliberately NOT persisted
+  // here — see its own declaration in App.tsx.
+  metropolisHolders?: MetropolisHolders
+  metropolisVertexIds?: Record<ImprovementTrack, string | null>
   devCardPlayedThisTurn: boolean
   freeRoadsRemaining: number
   // Whether the current player has already rolled this turn — restored so a

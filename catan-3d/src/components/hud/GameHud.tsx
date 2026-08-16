@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupStage } from '../../App'
-import type { Building, DevCardType, ImprovementTrack, Player, ResourceType } from '../../game/types'
+import {
+  IMPROVEMENT_TRACK_ORDER,
+  type Building,
+  type DevCardType,
+  type ImprovementTrack,
+  type MetropolisHolders,
+  type Player,
+  type ResourceType,
+} from '../../game/types'
+import { purchaseClaimsMetropolis } from '../../game/cityImprovements'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
@@ -82,6 +91,19 @@ interface GameHudProps {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
+  // Cities & Knights Metropolis — who currently controls each track (for
+  // scoring, passed on to RankingsPanel/VictoryBanner) and which of that
+  // player's cities carries each track's marker (for CityImprovementsPanel's
+  // spare-city gate below). Both live in App.tsx (Task 6), not on Player,
+  // since a Metropolis's marker belongs to one specific city vertex, not
+  // just "a player."
+  metropolisHolders: MetropolisHolders
+  metropolisVertexIds: Record<ImprovementTrack, string | null>
+  // Set the instant the viewer's own purchase crosses into level 4/5 on a
+  // track — threaded straight down from App.tsx (not derivable from any
+  // prop GameHud already has) so CityImprovementsPanel can swap that row to
+  // a "select a city" prompt.
+  pendingMetropolisTrack: ImprovementTrack | null
   // Cities & Knights house rule — whether commodity cards count toward the
   // "cards in hand" discard-risk total shown in ResourcePanel. Passed as a
   // plain boolean (not the whole GameRules object) since that's the only
@@ -148,6 +170,9 @@ export function GameHud({
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
+  metropolisHolders,
+  metropolisVertexIds,
+  pendingMetropolisTrack,
   citiesAndKnightsCommodities,
   onBuyImprovement,
   isMyDiscardTurn,
@@ -170,6 +195,32 @@ export function GameHud({
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
+  // The viewer's own city vertex ids — feeds the spare-city gate just below.
+  // Derived here from settlements/viewer rather than added as its own
+  // top-level prop, mirroring canBuyDevCard's own "derive from what GameHud
+  // already has" pattern.
+  const viewerCityVertexIds = Object.entries(settlements)
+    .filter(([, building]) => building.ownerId === viewer.id && building.type === 'city')
+    .map(([vertexId]) => vertexId)
+  // Per track: does buying the viewer's NEXT level require (and lack) a
+  // spare city? purchaseClaimsMetropolis mirrors App.tsx's buyCityImprovement
+  // exactly — only a purchase that would actually flip control to the
+  // viewer needs a spare city at all (a second player merely matching an
+  // existing level-4 holder, or the viewer releveling a track they already
+  // hold, both need nothing new placed). Kept in sync with the real gate via
+  // the shared helper rather than a looser "level 3 or 4" approximation here,
+  // so the button's disabled state never lies about what a click will do.
+  const metropolisPurchaseBlocked = Object.fromEntries(
+    IMPROVEMENT_TRACK_ORDER.map((track) => {
+      const newLevel = viewer.cityImprovements[track] + 1
+      const currentHolderId = metropolisHolders[track]
+      const currentHolderLevel =
+        currentHolderId != null ? (players.find((p) => p.id === currentHolderId)?.cityImprovements[track] ?? 0) : 0
+      const claimsMetropolis = purchaseClaimsMetropolis(currentHolderId, currentHolderLevel, viewer.id, newLevel)
+      const hasSpareCity = viewerCityVertexIds.some((vertexId) => metropolisVertexIds[track] !== vertexId)
+      return [track, claimsMetropolis && !hasSpareCity]
+    }),
+  ) as Record<ImprovementTrack, boolean>
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
   // Covers BOTH forced-choice pickers (devCardPicker and the Science
@@ -263,6 +314,7 @@ export function GameHud({
           longestRoadHolderId={longestRoadHolderId}
           longestRoadLengths={longestRoadLengths}
           largestArmyHolderId={largestArmyHolderId}
+          metropolisHolders={metropolisHolders}
         />
         {/* Placement is a first-pass call, not yet confirmed live in the
             browser (see this task's report) — stacked here alongside
@@ -274,6 +326,8 @@ export function GameHud({
             cityImprovements={viewer.cityImprovements}
             canBuy={canBuyImprovement}
             onBuy={onBuyImprovement}
+            pendingMetropolisTrack={pendingMetropolisTrack}
+            metropolisPurchaseBlocked={metropolisPurchaseBlocked}
           />
         )}
       </div>
@@ -346,6 +400,7 @@ export function GameHud({
           settlements={settlements}
           longestRoadHolderId={longestRoadHolderId}
           largestArmyHolderId={largestArmyHolderId}
+          metropolisHolders={metropolisHolders}
           onReturnToMenu={onReturnToMenu}
         />
       )}

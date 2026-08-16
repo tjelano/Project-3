@@ -1,4 +1,4 @@
-import { getPublicScore, type Building, type Player, type PlayerColorToken } from '../../game/types'
+import { getPublicScore, type Building, type MetropolisHolders, type Player, type PlayerColorToken } from '../../game/types'
 import { CollapsibleSection } from './CollapsibleSection'
 
 const DOT_CLASS: Record<PlayerColorToken, string> = {
@@ -22,6 +22,7 @@ interface RankingsPanelProps {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
+  metropolisHolders: MetropolisHolders
 }
 
 export function RankingsPanel({
@@ -31,6 +32,7 @@ export function RankingsPanel({
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
+  metropolisHolders,
 }: RankingsPanelProps) {
   // Public score only — Victory Point dev cards stay face-down, so this
   // board never reveals them. The viewer gets a private "+N" hint for
@@ -39,7 +41,7 @@ export function RankingsPanel({
   const ranked = [...players]
     .map((player) => ({
       player,
-      score: getPublicScore(player, settlements, longestRoadHolderId, largestArmyHolderId),
+      score: getPublicScore(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders),
       hidden:
         player.id === viewerPlayerId
           ? player.devCards.filter((card) => card === 'victoryPoint').length

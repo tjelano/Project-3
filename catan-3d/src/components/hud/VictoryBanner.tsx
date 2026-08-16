@@ -1,4 +1,4 @@
-import { getScoreBreakdown, type Building, type Player, type PlayerColorToken } from '../../game/types'
+import { getScoreBreakdown, type Building, type MetropolisHolders, type Player, type PlayerColorToken } from '../../game/types'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 const WINNER_TEXT_CLASS: Record<PlayerColorToken, string> = {
@@ -25,6 +25,7 @@ interface VictoryBannerProps {
   settlements: Record<string, Building>
   longestRoadHolderId: number | null
   largestArmyHolderId: number | null
+  metropolisHolders: MetropolisHolders
   onReturnToMenu: () => void
 }
 
@@ -34,12 +35,13 @@ export function VictoryBanner({
   settlements,
   longestRoadHolderId,
   largestArmyHolderId,
+  metropolisHolders,
   onReturnToMenu,
 }: VictoryBannerProps) {
   const ranked = [...players]
     .map((player) => ({
       player,
-      score: getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId),
+      score: getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders),
     }))
     .sort((a, b) => b.score.total - a.score.total)
   const winnerScore = ranked.find((row) => row.player.id === winner.id)?.score.total ?? 0

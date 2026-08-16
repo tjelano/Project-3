@@ -4,6 +4,7 @@ import {
   canAffordImprovement,
   buyImprovementLevel,
   metropolisHolderAfterPurchase,
+  purchaseClaimsMetropolis,
 } from './cityImprovements'
 import { emptyCommodities } from './types'
 
@@ -88,5 +89,31 @@ describe('metropolisHolderAfterPurchase', () => {
 
   it('a second player reaching level 5 does NOT displace an existing level-5 holder', () => {
     expect(metropolisHolderAfterPurchase(1, 5, /* buyerId */ 2, /* newLevel */ 5)).toBe(1)
+  })
+})
+
+describe('purchaseClaimsMetropolis', () => {
+  it('is false below level 4 — no Metropolis involved yet', () => {
+    expect(purchaseClaimsMetropolis(null, 0, 3, 3)).toBe(false)
+  })
+
+  it('is true for a first-ever level-4 claim on an unclaimed track', () => {
+    expect(purchaseClaimsMetropolis(null, 0, 3, 4)).toBe(true)
+  })
+
+  it('is false for a second player merely matching an existing level-4 holder — the incumbent keeps control', () => {
+    expect(purchaseClaimsMetropolis(1, 4, 2, 4)).toBe(false)
+  })
+
+  it('is true for a different player overtaking a level-4-only holder by reaching level 5', () => {
+    expect(purchaseClaimsMetropolis(1, 4, 2, 5)).toBe(true)
+  })
+
+  it('is false when the buyer already holds this track and is only leveling up further — nothing about the marker changes', () => {
+    expect(purchaseClaimsMetropolis(1, 4, 1, 5)).toBe(false)
+  })
+
+  it('is false for a second player reaching level 5 against an existing level-5 holder', () => {
+    expect(purchaseClaimsMetropolis(1, 5, 2, 5)).toBe(false)
   })
 })

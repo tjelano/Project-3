@@ -32,7 +32,12 @@ import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, applyDiscardCounts } from './game/discard'
-import { canAffordImprovement, buyImprovementLevel } from './game/cityImprovements'
+import {
+  canAffordImprovement,
+  buyImprovementLevel,
+  metropolisHolderAfterPurchase,
+  purchaseClaimsMetropolis,
+} from './game/cityImprovements'
 import { debugLog } from './utils/debugLog'
 import {
   BIOME_LABELS,
@@ -69,6 +74,7 @@ import {
   type DevCardType,
   type GameRules,
   type ImprovementTrack,
+  type MetropolisHolders,
   type Player,
   type PlayerColorToken,
   type ResourceType,
@@ -248,6 +254,24 @@ function App() {
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
   const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
+  // Cities & Knights Metropolis — per-track control (who currently holds
+  // each track's Metropolis, for scoring) and per-track placement (which of
+  // that player's own city vertices carries the marker, for the 3D board —
+  // Task 7). Kept as two separate records rather than one, since control is
+  // per-player but the marker itself sits on one specific city (see the
+  // design note on Task 6's own plan entry).
+  const [metropolisHolders, setMetropolisHolders] = useState<MetropolisHolders>({ science: null, trade: null, politics: null })
+  const [metropolisVertexIds, setMetropolisVertexIds] = useState<Record<ImprovementTrack, string | null>>({
+    science: null,
+    trade: null,
+    politics: null,
+  })
+  // Set the instant a purchase crosses into level 4/5 on a track, cleared the
+  // instant the resulting city-selection click resolves (buildSettlementRaw's
+  // early branch, below). Local-only UI state — deliberately NOT part of
+  // MatchSnapshot (see the snapshot-save effect's own comment on this), same
+  // reasoning as other local-only in-progress state like isMovingRobber.
+  const [pendingMetropolisTrack, setPendingMetropolisTrack] = useState<ImprovementTrack | null>(null)
 
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
   const [setupStepIndex, setSetupStepIndex] = useState(0)
@@ -771,6 +795,7 @@ function App() {
     broadcastHoverChanged,
     broadcastChatMessage,
     broadcastCityImprovementPurchased,
+    broadcastMetropolisClaimed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -862,6 +887,15 @@ function App() {
     // cost locally rather than trusting payload.newLevel for the deduction —
     // newLevel is carried for logging/event-log purposes only.
     onCityImprovementPurchased: (payload) => applyCityImprovementPurchase(payload.playerId, payload.track),
+    // Trusted-apply — the purchasing client already resolved which player
+    // controls the track AND which of their cities carries the marker (see
+    // buildSettlementRaw's pendingMetropolisTrack branch); every other
+    // client just takes both values as given, same trust model
+    // onTrophyUpdated already uses for trophy state.
+    onMetropolisClaimed: (payload) => {
+      setMetropolisVertexIds((prev) => ({ ...prev, [payload.track]: payload.vertexId }))
+      setMetropolisHolders((prev) => ({ ...prev, [payload.track]: payload.playerId }))
+    },
     onBankTrade: (payload) => {
       // Broadcast-sourced — validated before ever being used as resources[]
       // keys/arithmetic operands. Same reasoning as applyRobberMove: a
@@ -1102,7 +1136,9 @@ function App() {
   // Same render-time pattern — !winner is the self-terminating guard.
   if (!winner && gameStarted) {
     const found = players.find(
-      (p) => getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId) >= gameRules.victoryPointTarget,
+      (p) =>
+        getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders) >=
+        gameRules.victoryPointTarget,
     )
     if (found) setWinner(found)
   }
@@ -1192,6 +1228,35 @@ function App() {
   }
 
   const buildSettlementRaw = (vertexId: string) => {
+    // Metropolis selection reuses this exact click pipeline (VertexSlot's
+    // onBuild) rather than a parallel click-target overlay — this branch
+    // runs BEFORE canInteract()/setup checks below since choosing a
+    // Metropolis city isn't gated by "has this player rolled yet" the way
+    // building is; it's just resolving where a purchase that already
+    // happened gets its marker.
+    if (pendingMetropolisTrack) {
+      const track = pendingMetropolisTrack
+      const building = settlements[vertexId]
+      const player = players[currentPlayerIndex]
+      if (!building || building.type !== 'city' || building.ownerId !== player.id) {
+        warn('Choose one of your own cities for the Metropolis.')
+        return
+      }
+      if (metropolisVertexIds[track] === vertexId) {
+        warn('That city already holds this Metropolis.')
+        return
+      }
+      setMetropolisVertexIds((prev) => ({ ...prev, [track]: vertexId }))
+      const currentHolderId = metropolisHolders[track]
+      const currentHolderLevel =
+        currentHolderId != null ? (players.find((p) => p.id === currentHolderId)?.cityImprovements[track] ?? 0) : 0
+      const nextHolderId = metropolisHolderAfterPurchase(currentHolderId, currentHolderLevel, player.id, player.cityImprovements[track])
+      setMetropolisHolders((prev) => ({ ...prev, [track]: nextHolderId }))
+      setPendingMetropolisTrack(null)
+      if (onlineInfo) broadcastMetropolisClaimed({ track, playerId: nextHolderId!, vertexId })
+      return
+    }
+
     if (!canInteract()) return
 
     const player = players[currentPlayerIndex]
@@ -1730,7 +1795,11 @@ function App() {
         // otherwise apply to).
         if (gameRules.friendlyRobber) {
           const owner = playerById.get(building.ownerId)
-          if (owner && getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId) <= 2) continue
+          if (
+            owner &&
+            getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders) <= 2
+          )
+            continue
         }
         victimIds.push(building.ownerId)
       }
@@ -2046,11 +2115,40 @@ function App() {
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }
 
+  // A player's own city vertex ids for the given owner — used both to gate a
+  // level-4/5 improvement purchase (below) and to disable the buy button
+  // pre-emptively in CityImprovementsPanel (GameHud derives its own copy of
+  // this the same way, from the same settlements/ownerId shape).
+  const ownCityVertexIds = (ownerId: number): string[] =>
+    Object.entries(settlements)
+      .filter(([, building]) => building.ownerId === ownerId && building.type === 'city')
+      .map(([vertexId]) => vertexId)
+
+  // A city counts as "eligible" for a NEW Metropolis of this track if it
+  // isn't already flying that exact track's marker — a city already holding
+  // a DIFFERENT track's Metropolis is still eligible (CN3087 allows one
+  // Metropolis per track per city, not one Metropolis total per city).
+  const hasEligibleMetropolisCity = (ownerId: number, track: ImprovementTrack): boolean =>
+    ownCityVertexIds(ownerId).some((vertexId) => metropolisVertexIds[track] !== vertexId)
+
   // Cities & Knights house rule — spends commodities to advance one of the
-  // acting player's 3 city improvement tracks by a level. Task 6 (not yet
-  // implemented) will extend this once a level-4/5 purchase needs to
-  // reconcile Metropolis control; this task only handles the spend + level
-  // increment shared by every level.
+  // acting player's 3 city improvement tracks by a level. Crossing into
+  // level 4 or 5 additionally requires a spare city (not already flying
+  // THIS track's Metropolis) — but ONLY when this specific purchase would
+  // actually flip control to the buyer (purchaseClaimsMetropolis). A second
+  // player merely matching an existing level-4 holder doesn't get a marker
+  // at all (the incumbent keeps temporary control — arrival-order rule, see
+  // metropolisHolderAfterPurchase), and a player who already holds this
+  // track doesn't need to re-place anything just to level up further.
+  // Gating/prompting on newLevel alone (ignoring who'd actually end up
+  // holding it) would let a non-claiming purchase overwrite
+  // metropolisVertexIds with the wrong player's city while metropolisHolders
+  // still (correctly) names someone else — the two would disagree about who
+  // controls what — and would also make an already-holder's own re-level
+  // permanently stuck re-prompting for a city they can never re-select (the
+  // "already holds this Metropolis" guard in buildSettlementRaw would keep
+  // rejecting their own already-marked city). Enforced here, at spend time,
+  // so a player can never pay for a claim they can't actually place.
   const buyCityImprovement = (track: ImprovementTrack) => {
     const player = players[currentPlayerIndex]
     if (!canInteract()) return
@@ -2066,11 +2164,25 @@ function App() {
       warn('Not enough commodities for that improvement.')
       return
     }
+    const newLevel = player.cityImprovements[track] + 1
+    const currentHolderId = metropolisHolders[track]
+    const currentHolderLevel =
+      currentHolderId != null ? (players.find((p) => p.id === currentHolderId)?.cityImprovements[track] ?? 0) : 0
+    const claimsMetropolis = purchaseClaimsMetropolis(currentHolderId, currentHolderLevel, player.id, newLevel)
+    if (claimsMetropolis && !hasEligibleMetropolisCity(player.id, track)) {
+      warn('You need a spare city not already flying this Metropolis to reach that level.')
+      return
+    }
 
     applyCityImprovementPurchase(player.id, track)
-    const newLevel = player.cityImprovements[track] + 1
     inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
     if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel })
+    if (claimsMetropolis) {
+      setPendingMetropolisTrack(track)
+      // Selection is resolved by clicking one of the player's own eligible
+      // cities — see buildSettlementRaw's early branch. metropolisHolders/
+      // metropolisVertexIds don't update until that click resolves.
+    }
   }
 
   // Every "play a dev card" action shares the same preconditions, so they
@@ -2394,12 +2506,18 @@ function App() {
     setWinner(snapshot.winner)
     setLongestRoadHolderId(snapshot.longestRoadHolderId)
     setLargestArmyHolderId(snapshot.largestArmyHolderId)
+    setMetropolisHolders(snapshot.metropolisHolders ?? { science: null, trade: null, politics: null })
+    setMetropolisVertexIds(snapshot.metropolisVertexIds ?? { science: null, trade: null, politics: null })
     setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
     setHasRolledThisTurn(snapshot.hasRolledThisTurn)
     setBanner(null)
     setPendingTrade(null)
     setDevCardPicker(null)
+    // Not part of MatchSnapshot (see its own declaration) — a reconnect
+    // mid-selection just re-prompts on the next eligible purchase instead of
+    // trying to resume an interrupted click.
+    setPendingMetropolisTrack(null)
     setDiceRoll(null)
     setIsRolling(false)
     setDiscardSelection([])
@@ -2547,6 +2665,8 @@ function App() {
       winner,
       longestRoadHolderId,
       largestArmyHolderId,
+      metropolisHolders,
+      metropolisVertexIds,
       devCardPlayedThisTurn,
       freeRoadsRemaining,
       hasRolledThisTurn,
@@ -2579,6 +2699,8 @@ function App() {
     winner,
     longestRoadHolderId,
     largestArmyHolderId,
+    metropolisHolders,
+    metropolisVertexIds,
     devCardPlayedThisTurn,
     freeRoadsRemaining,
     hasRolledThisTurn,
@@ -2748,6 +2870,9 @@ function App() {
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}
+        metropolisHolders={metropolisHolders}
+        metropolisVertexIds={metropolisVertexIds}
+        pendingMetropolisTrack={pendingMetropolisTrack}
         citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
         onBuyImprovement={buyCityImprovement}
         isMyDiscardTurn={isMyDiscardTurn}

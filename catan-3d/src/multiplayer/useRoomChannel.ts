@@ -148,6 +148,21 @@ export interface CityImprovementPurchasedPayload {
   newLevel: number
 }
 
+// Cities & Knights Metropolis — sent once a player's city-selection click
+// (App.tsx's buildSettlementRaw, pendingMetropolisTrack branch) resolves
+// which of their cities gets the marker. Every OTHER client trusts this
+// resolution outright (playerId is the ALREADY-RESOLVED next holder, not
+// just "who clicked") rather than re-running metropolisHolderAfterPurchase
+// itself — same trust model broadcastTrophyUpdated already uses for trophy
+// state, since correctly resolving control depends on knowing every
+// player's current level at the exact moment of purchase, which only the
+// purchasing client's local state is guaranteed fresh for at that instant.
+export interface MetropolisClaimedPayload {
+  track: ImprovementTrack
+  playerId: number
+  vertexId: string
+}
+
 export interface BankTradePayload {
   playerId: number
   give: ResourceType
@@ -309,6 +324,9 @@ export interface RoomChannelHandlers {
   onNewGame?: (payload: NewGamePayload) => void
   onDevCardBought?: (payload: DevCardBoughtPayload) => void
   onCityImprovementPurchased?: (payload: CityImprovementPurchasedPayload) => void
+  // Trusted-apply — see MetropolisClaimedPayload's own comment above for why
+  // receivers apply payload.playerId directly instead of re-resolving it.
+  onMetropolisClaimed?: (payload: MetropolisClaimedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
@@ -502,6 +520,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<CityImprovementPurchasedPayload>('broadcast', { event: 'CITY_IMPROVEMENT_PURCHASED' }, ({ payload }) => {
       handlersRef.current.onCityImprovementPurchased?.(payload)
     })
+    channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, ({ payload }) => {
+      handlersRef.current.onMetropolisClaimed?.(payload)
+    })
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
       handlersRef.current.onBankTrade?.(payload)
     })
@@ -692,6 +713,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastCityImprovementPurchased = (payload: CityImprovementPurchasedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'CITY_IMPROVEMENT_PURCHASED', payload })
   }
+  const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'METROPOLIS_CLAIMED', payload })
+  }
   const broadcastBankTrade = (payload: BankTradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
   }
@@ -731,6 +755,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastCityImprovementPurchased,
+    broadcastMetropolisClaimed,
     broadcastBankTrade,
     broadcastHoverChanged,
     broadcastChatMessage,

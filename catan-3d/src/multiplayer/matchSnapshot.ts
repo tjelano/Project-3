@@ -64,8 +64,11 @@ export interface MatchSnapshot {
   // Cities & Knights' Metropolis existed won't have either field.
   // restoreFromSnapshot (App.tsx) falls back to all-null on both, which is
   // always correct for a pre-feature match (nobody could have claimed a
-  // Metropolis yet). pendingMetropolisTrack is deliberately NOT persisted
-  // here — see its own declaration in App.tsx.
+  // Metropolis yet). The pending-claim prompt is deliberately NOT persisted
+  // here: it's re-derived on restore from these two fields plus each player's
+  // track levels (unresolvedMetropolisClaimTrack in game/cityImprovements.ts),
+  // which — unlike a stored field — also recovers an interrupted claim made
+  // by a player who ISN'T the snapshot-writing host.
   metropolisHolders?: MetropolisHolders
   metropolisVertexIds?: Record<ImprovementTrack, string | null>
   devCardPlayedThisTurn: boolean

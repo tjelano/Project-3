@@ -9,7 +9,7 @@ import {
   type Player,
   type ResourceType,
 } from '../../game/types'
-import { purchaseClaimsMetropolis } from '../../game/cityImprovements'
+import { evaluateMetropolisPurchase } from '../../game/cityImprovements'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
@@ -195,31 +195,17 @@ export function GameHud({
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
-  // The viewer's own city vertex ids — feeds the spare-city gate just below.
-  // Derived here from settlements/viewer rather than added as its own
-  // top-level prop, mirroring canBuyDevCard's own "derive from what GameHud
-  // already has" pattern.
-  const viewerCityVertexIds = Object.entries(settlements)
-    .filter(([, building]) => building.ownerId === viewer.id && building.type === 'city')
-    .map(([vertexId]) => vertexId)
-  // Per track: does buying the viewer's NEXT level require (and lack) a
-  // spare city? purchaseClaimsMetropolis mirrors App.tsx's buyCityImprovement
-  // exactly — only a purchase that would actually flip control to the
-  // viewer needs a spare city at all (a second player merely matching an
-  // existing level-4 holder, or the viewer releveling a track they already
-  // hold, both need nothing new placed). Kept in sync with the real gate via
-  // the shared helper rather than a looser "level 3 or 4" approximation here,
-  // so the button's disabled state never lies about what a click will do.
+  // Per track: does buying the viewer's NEXT level require (and lack) a spare
+  // city? This is the EXACT same call App.tsx's buyCityImprovement makes, with
+  // the same inputs — the helper derives the current holder's level and the
+  // viewer's own city vertices internally, so the button's disabled state and
+  // the real spend-time gate cannot drift apart (they each used to re-derive
+  // both of those independently, which is how they were free to).
   const metropolisPurchaseBlocked = Object.fromEntries(
-    IMPROVEMENT_TRACK_ORDER.map((track) => {
-      const newLevel = viewer.cityImprovements[track] + 1
-      const currentHolderId = metropolisHolders[track]
-      const currentHolderLevel =
-        currentHolderId != null ? (players.find((p) => p.id === currentHolderId)?.cityImprovements[track] ?? 0) : 0
-      const claimsMetropolis = purchaseClaimsMetropolis(currentHolderId, currentHolderLevel, viewer.id, newLevel)
-      const hasSpareCity = viewerCityVertexIds.some((vertexId) => metropolisVertexIds[track] !== vertexId)
-      return [track, claimsMetropolis && !hasSpareCity]
-    }),
+    IMPROVEMENT_TRACK_ORDER.map((track) => [
+      track,
+      evaluateMetropolisPurchase(players, settlements, metropolisHolders, metropolisVertexIds, track, viewer.id).blocked,
+    ]),
   ) as Record<ImprovementTrack, boolean>
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade

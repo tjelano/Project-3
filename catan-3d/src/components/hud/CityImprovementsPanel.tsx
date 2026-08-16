@@ -15,17 +15,18 @@ interface CityImprovementsPanelProps {
   cityImprovements: CityImprovements
   canBuy: boolean // false when it's not this player's turn/action phase, mirrors other build buttons
   onBuy: (track: ImprovementTrack) => void
-  // Set the instant a purchase crosses into level 4/5 — that track's row
-  // swaps to a "click a city" prompt instead of its normal buy button until
-  // the selection resolves (App.tsx's buildSettlementRaw, pendingMetropolisTrack
-  // branch). Never true for more than one track at once.
+  // Set the instant a purchase actually claims a Metropolis — that track's
+  // row swaps to a "click a city" prompt instead of its normal buy button
+  // until the selection resolves (App.tsx's buildSettlementRaw,
+  // pendingMetropolisClaim branch). Never true for more than one track at
+  // once, and only ever passed non-null to the claim's OWN player.
   pendingMetropolisTrack: ImprovementTrack | null
   // Per track: true when buying the viewer's NEXT level would both actually
-  // claim that track's Metropolis (purchaseClaimsMetropolis — a second
-  // player merely matching an existing level-4 holder needs nothing) AND the
-  // viewer currently lacks a spare city to place it on. Computed in GameHud
-  // (which has the full player list metropolisHolderAfterPurchase needs),
-  // not here — this component just reads the final verdict.
+  // claim that track's Metropolis (a second player merely matching an
+  // existing level-4 holder needs nothing) AND the viewer currently lacks a
+  // spare city to place it on. Computed in GameHud via the shared
+  // evaluateMetropolisPurchase helper (which needs the full player list), not
+  // here — this component just reads the final verdict.
   metropolisPurchaseBlocked: Record<ImprovementTrack, boolean>
 }
 

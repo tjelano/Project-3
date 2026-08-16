@@ -173,6 +173,17 @@ export interface BankTradePayload {
   rate: number
 }
 
+// Cities & Knights Trade level 3 — 2:1 commodity trading. Unlike
+// BankTradePayload, the rate is never sent: it's always fixed at 2:1 by
+// this ability (no port/rate lookup, see TradeModal's own 'commodity' mode),
+// so the receiver's applyCommodityTrade (App.tsx) can hardcode it too rather
+// than trusting a value over the wire.
+export interface CommodityTradedPayload {
+  playerId: number
+  give: CommodityType
+  receive: ResourceType | CommodityType
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -328,6 +339,7 @@ export interface RoomChannelHandlers {
   // receivers apply payload.playerId directly instead of re-resolving it.
   onMetropolisClaimed?: (payload: MetropolisClaimedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
+  onCommodityTraded?: (payload: CommodityTradedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -526,6 +538,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
       handlersRef.current.onBankTrade?.(payload)
     })
+    channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, ({ payload }) => {
+      handlersRef.current.onCommodityTraded?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -719,6 +734,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastBankTrade = (payload: BankTradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
   }
+  const broadcastCommodityTraded = (payload: CommodityTradedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'COMMODITY_TRADED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -757,6 +775,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCityImprovementPurchased,
     broadcastMetropolisClaimed,
     broadcastBankTrade,
+    broadcastCommodityTraded,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

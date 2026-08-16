@@ -3,6 +3,7 @@ import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupS
 import {
   IMPROVEMENT_TRACK_ORDER,
   type Building,
+  type CommodityType,
   type DevCardType,
   type ImprovementTrack,
   type MetropolisHolders,
@@ -61,6 +62,13 @@ interface GameHudProps {
   canRestart: boolean
   portRates: Record<ResourceType, number>
   onTrade: (give: ResourceType, receive: ResourceType) => void
+  // Cities & Knights Trade level 3 — 2:1 commodity trading, any time on the
+  // viewer's own turn (not just after building/buying). Gated inside
+  // TradeModal itself (canTradeCommodities, derived below from the viewer's
+  // own trade track level) rather than here, same split onTrade/bankTrade
+  // already has between "can the modal even be opened" (canTrade, below) and
+  // "is this specific trade currently legal" (App.tsx's own guards).
+  onTradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
   isRolling: boolean
   devDeckCount: number
   onBuyDevCard: () => void
@@ -151,6 +159,7 @@ export function GameHud({
   canRestart,
   portRates,
   onTrade,
+  onTradeCommodity,
   isRolling,
   devDeckCount,
   onBuyDevCard,
@@ -342,6 +351,15 @@ export function GameHud({
           onProposeTrade={onProposeTrade}
           onClose={() => setIsTradeOpen(false)}
           isMyTurn={isMyTurn}
+          commodities={viewer.commodities}
+          // Not further AND-ed with citiesAndKnightsCommodities here — a
+          // player can only ever reach trade level 3 via CityImprovementsPanel,
+          // which already only renders under that same house rule (see its
+          // own conditional above), same precedent buyCityImprovement/
+          // canBuyImprovement rely on without re-checking the house rule
+          // flag themselves.
+          canTradeCommodities={viewer.cityImprovements.trade >= 3}
+          onTradeCommodity={onTradeCommodity}
         />
       )}
       <RollDiceButton

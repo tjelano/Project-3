@@ -758,6 +758,29 @@ function App() {
     )
   }
 
+  // Trusted state mutation for Trade level 3's 2:1 commodity trade — shared
+  // by the local actor (tradeCommodity, below, which also broadcasts) and
+  // receiving clients (onCommodityTraded). The rate is hardcoded at 2 here
+  // rather than trusted over the wire (CommodityTradedPayload carries no
+  // rate field at all) since this ability, unlike bank trades, has no
+  // port-derived variance — it's always exactly 2:1. `receive` can name
+  // either a resource or a different commodity (the rulebook allows both),
+  // so which bucket gets the +1 is resolved by membership in COMMODITY_ORDER.
+  const applyCommodityTrade = (playerId: number, give: CommodityType, receive: ResourceType | CommodityType) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== playerId) return p
+        const commodities = { ...p.commodities, [give]: p.commodities[give] - 2 }
+        if ((COMMODITY_ORDER as string[]).includes(receive)) {
+          const receiveCommodity = receive as CommodityType
+          return { ...p, commodities: { ...commodities, [receiveCommodity]: commodities[receiveCommodity] + 1 } }
+        }
+        const receiveResource = receive as ResourceType
+        return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
+      }),
+    )
+  }
+
   // A player's own color never changes once the match starts, so this is
   // kept as its own value (not read inline from `players` below) — `players`
   // itself churns on nearly every game action (resources, dice, builds),
@@ -813,6 +836,7 @@ function App() {
     broadcastHoverChanged,
     broadcastChatMessage,
     broadcastCityImprovementPurchased,
+    broadcastCommodityTraded,
     broadcastMetropolisClaimed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
@@ -937,6 +961,20 @@ function App() {
             : p,
         ),
       )
+    },
+    // Broadcast-sourced — same validation shape as onBankTrade just above,
+    // since this payload also indexes straight into commodities[]/resources[]
+    // and does arithmetic on the result. receive can validly be either a
+    // resource or a commodity (this ability allows trading for either), so
+    // both COMMODITY_ORDER and RESOURCE_ORDER are checked before accepting it.
+    onCommodityTraded: (payload) => {
+      const validReceive =
+        (COMMODITY_ORDER as string[]).includes(payload.receive) || RESOURCE_ORDER.includes(payload.receive as ResourceType)
+      if (!COMMODITY_ORDER.includes(payload.give) || !validReceive) {
+        console.error('[Catan] Ignoring malformed commodity-trade payload:', payload)
+        return
+      }
+      applyCommodityTrade(payload.playerId, payload.give, payload.receive)
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -1949,6 +1987,53 @@ function App() {
     if (onlineInfo) broadcastBankTrade({ playerId: player.id, give, receive, rate })
   }
 
+  // Cities & Knights Trade level 3 — trade 2 of any one commodity for 1 of
+  // any other commodity or resource, any time on your own turn. Mirrors
+  // EVERY guard bankTrade (just above) has, in the same order — this is a
+  // sibling trade action exposed from the same TradeModal, not a build/buy
+  // action like buyCityImprovement, so it follows bankTrade's gating shape
+  // (including the isMyTurn re-check reasoning below) rather than
+  // buyCityImprovement's canInteract()-based one.
+  const tradeCommodity = (give: CommodityType, receive: ResourceType | CommodityType) => {
+    if (!canPerformAction()) return
+    if (gamePhase !== 'playing') {
+      warn("You can't trade right now.")
+      return
+    }
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before trading.')
+      return
+    }
+    // Same reasoning as bankTrade's guard just above — the trade window can
+    // stay open across a turn change, so without this check a window left
+    // open from a past turn could mutate whoever's turn it currently is.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (give === receive) {
+      warn('Pick two different cards to trade.')
+      return
+    }
+
+    const player = players[currentPlayerIndex]
+    if (player.cityImprovements.trade < 3) {
+      warn('Reach Trade level 3 to trade commodities.')
+      return
+    }
+    if (player.commodities[give] < 2) {
+      warn(`Not enough ${COMMODITY_LABELS[give]} to trade.`)
+      return
+    }
+
+    applyCommodityTrade(player.id, give, receive)
+    const receiveLabel = (COMMODITY_ORDER as string[]).includes(receive)
+      ? COMMODITY_LABELS[receive as CommodityType]
+      : RESOURCE_LABELS[receive as ResourceType]
+    inform(`${player.name} traded 2 ${COMMODITY_LABELS[give]} for 1 ${receiveLabel}.`)
+    if (onlineInfo) broadcastCommodityTraded({ playerId: player.id, give, receive })
+  }
+
   const proposePlayerTrade = (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -2931,6 +3016,7 @@ function App() {
         canRestart={onlineInfo == null || isEffectiveHost}
         portRates={currentPlayerPortRates}
         onTrade={bankTrade}
+        onTradeCommodity={tradeCommodity}
         isRolling={isRolling}
         devDeckCount={devDeck.length}
         onBuyDevCard={buyDevCard}

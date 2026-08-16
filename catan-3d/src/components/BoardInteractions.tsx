@@ -3,7 +3,14 @@ import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { TILE_HEIGHT, STRUCTURE_ELEVATION } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
-import { PLAYER_COLORS, type Building, type Player, type PlayerColorToken } from '../game/types'
+import {
+  IMPROVEMENT_TRACK_ORDER,
+  PLAYER_COLORS,
+  type Building,
+  type ImprovementTrack,
+  type Player,
+  type PlayerColorToken,
+} from '../game/types'
 import { CityModel, RoadModel, SettlementModel } from './GamePieces'
 import type { HoverChangedPayload } from '../multiplayer/useRoomChannel'
 
@@ -74,6 +81,7 @@ const VertexSlot = memo(function VertexSlot({
   vertex,
   building,
   ownerColorToken,
+  isMetropolis,
   onBuild,
   locked,
   remoteHighlighted,
@@ -83,6 +91,7 @@ const VertexSlot = memo(function VertexSlot({
   vertex: BoardVertex
   building: Building | undefined
   ownerColorToken: PlayerColorToken | undefined
+  isMetropolis: boolean
   onBuild: (vertexId: string) => void
   locked: boolean
   remoteHighlighted: boolean
@@ -116,7 +125,7 @@ const VertexSlot = memo(function VertexSlot({
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
         {building.type === 'city' ? (
-          <CityModel colorToken={colorToken} />
+          <CityModel colorToken={colorToken} isMetropolis={isMetropolis} />
         ) : (
           <SettlementModel colorToken={colorToken} />
         )}
@@ -270,6 +279,10 @@ interface BoardInteractionsProps {
   settlements: Record<string, Building>
   roads: Record<string, number>
   players: Player[]
+  // Which specific city vertex (if any) is currently flying each track's
+  // Metropolis marker — Task 6's App.tsx state, threaded down one more hop
+  // so VertexSlot can render the visual on the exact right city.
+  metropolisVertexIds: Record<ImprovementTrack, string | null>
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
   locked?: boolean
@@ -285,6 +298,7 @@ export const BoardInteractions = memo(function BoardInteractions({
   settlements,
   roads,
   players,
+  metropolisVertexIds,
   onBuildSettlement,
   onBuildRoad,
   locked = false,
@@ -313,6 +327,7 @@ export const BoardInteractions = memo(function BoardInteractions({
               ? colorTokenByPlayerId.get(settlements[vertex.id].ownerId!)
               : undefined
           }
+          isMetropolis={IMPROVEMENT_TRACK_ORDER.some((track) => metropolisVertexIds[track] === vertex.id)}
           onBuild={onBuildSettlement}
           locked={locked}
           remoteHighlighted={remoteHover.vertexId === vertex.id}

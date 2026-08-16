@@ -101,15 +101,43 @@ export function SettlementModel({ colorToken }: { colorToken: PlayerColorToken }
 const CITY_SCALE = 0.284
 const CITY_HALF_HEIGHT = 1 * CITY_SCALE
 
-function CityMesh({ colorToken }: { colorToken: PlayerColorToken }) {
+// Placeholder-first policy (per this expansion's plan): a Metropolis has no
+// bespoke model yet, so it's differentiated from a plain city by scaling the
+// SAME pre-textured GLB up and floating a small marker above it. Can't use a
+// material tint instead — these GLBs are pre-textured per-color with no
+// runtime tinting step (see the file-level comment above).
+const METROPOLIS_SCALE_MULTIPLIER = 1.3
+const METROPOLIS_MARKER_COLOR = '#f4c430' // gold, matches this UI's existing gold accent elsewhere
+
+function CityMesh({ colorToken, isMetropolis }: { colorToken: PlayerColorToken; isMetropolis: boolean }) {
   const instance = useClonedModel(CITY_URLS[colorToken])
-  return <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={CITY_SCALE} />
+  const scale = isMetropolis ? CITY_SCALE * METROPOLIS_SCALE_MULTIPLIER : CITY_SCALE
+  return (
+    <group>
+      <primitive object={instance} position={[0, CITY_HALF_HEIGHT, 0]} scale={scale} />
+      {isMetropolis && (
+        // Placeholder marker — a simple floating gold cone, not final art.
+        // Swap for real Metropolis geometry in a later pass per this
+        // expansion's placeholder-first policy.
+        <mesh position={[0, CITY_HALF_HEIGHT * 2 + 0.15, 0]} rotation={[Math.PI, 0, 0]}>
+          <coneGeometry args={[0.08, 0.18, 4]} />
+          <meshStandardMaterial color={METROPOLIS_MARKER_COLOR} emissive={METROPOLIS_MARKER_COLOR} emissiveIntensity={0.4} />
+        </mesh>
+      )}
+    </group>
+  )
 }
 
-export function CityModel({ colorToken }: { colorToken: PlayerColorToken }) {
+export function CityModel({
+  colorToken,
+  isMetropolis = false,
+}: {
+  colorToken: PlayerColorToken
+  isMetropolis?: boolean
+}) {
   return (
     <ModelErrorBoundary label="city model">
-      <CityMesh colorToken={colorToken} />
+      <CityMesh colorToken={colorToken} isMetropolis={isMetropolis} />
     </ModelErrorBoundary>
   )
 }

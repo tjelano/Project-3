@@ -2833,6 +2833,7 @@ function App() {
             settlements={settlements}
             roads={roads}
             players={players}
+            metropolisVertexIds={metropolisVertexIds}
             onBuildSettlement={buildSettlement}
             onBuildRoad={buildRoad}
             // Building/road placement isn't broadcast to other clients in

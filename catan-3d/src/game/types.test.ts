@@ -6,6 +6,10 @@ import {
   STARTING_ROADS,
   STARTING_SETTLEMENTS,
   WINNING_SCORE,
+  IMPROVEMENT_TRACK_ORDER,
+  PROGRESS_CARD_ORDER,
+  PROGRESS_CARD_DECK_COMPOSITION,
+  PROGRESS_CARD_TRACK,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
@@ -20,6 +24,7 @@ import {
   type Building,
   type MetropolisHolders,
   type Player,
+  type ProgressCardType,
 } from './types'
 
 function playerWith(overrides: Partial<Player> = {}): Player {
@@ -230,5 +235,48 @@ describe('createInitialPlayers', () => {
       expect(player.roadsRemaining).toBe(STARTING_ROADS)
       expect(player.citiesRemaining).toBe(STARTING_CITIES)
     }
+  })
+})
+
+describe('progress card deck composition', () => {
+  it('each deck sums to exactly 18 physical cards', () => {
+    for (const track of IMPROVEMENT_TRACK_ORDER) {
+      const total = Object.values(PROGRESS_CARD_DECK_COMPOSITION[track]).reduce((sum, qty) => sum + (qty ?? 0), 0)
+      expect(total).toBe(18)
+    }
+  })
+
+  it('every ProgressCardType appears in exactly one deck', () => {
+    const seen = new Set<ProgressCardType>()
+    for (const track of IMPROVEMENT_TRACK_ORDER) {
+      for (const type of Object.keys(PROGRESS_CARD_DECK_COMPOSITION[track]) as ProgressCardType[]) {
+        expect(seen.has(type)).toBe(false)
+        expect(PROGRESS_CARD_TRACK[type]).toBe(track)
+        seen.add(type)
+      }
+    }
+    expect(seen.size).toBe(PROGRESS_CARD_ORDER.length)
+  })
+})
+
+describe('getScoreBreakdown progress card VP', () => {
+  it('counts printing and constitution as 1 VP each, other cards as 0', () => {
+    const player = { ...playerWith(), id: 1, progressCards: ['printing', 'constitution', 'crane'] as ProgressCardType[] }
+    const breakdown = getScoreBreakdown(player, {}, null, null, { science: null, trade: null, politics: null })
+    expect(breakdown.progressCardVP).toBe(2)
+  })
+})
+
+describe('getPublicScore does not hide progress card VP', () => {
+  it('includes progressCardVP in the public score, unlike hidden devCard VP', () => {
+    const player = playerWith({
+      id: 1,
+      devCards: ['victoryPoint'],
+      progressCards: ['printing'] as ProgressCardType[],
+    })
+    const holders = { science: null, trade: null, politics: null }
+    const publicScore = getPublicScore(player, {}, null, null, holders)
+    const trueScore = getPlayerScore(player, {}, null, null, holders)
+    expect(trueScore - publicScore).toBe(1) // only the hidden devCard VP is subtracted, not printing
   })
 })

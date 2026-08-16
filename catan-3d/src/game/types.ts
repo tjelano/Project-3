@@ -8,6 +8,87 @@ export type PlayerColorToken = 'player-1' | 'player-2' | 'player-3' | 'player-4'
 
 export type DevCardType = 'knight' | 'victoryPoint' | 'roadBuilding' | 'yearOfPlenty' | 'monopoly'
 
+// Deliberately separate from DevCardType — "Road Building" exists as both
+// a base-game dev card (roadBuilding) and a Cities & Knights progress
+// card with the identical effect but a different acquisition path
+// (purchased vs. drawn via the event die). Merging them would corrupt
+// devCardsBoughtThisTurn/spendDevCard's existing semantics. Hence
+// progressRoadBuilding, not roadBuilding.
+export type ProgressCardType =
+  | 'alchemy' | 'crane' | 'engineering' | 'invention' | 'irrigation'
+  | 'medicine' | 'mining' | 'progressRoadBuilding' | 'smithing' | 'printing'
+  | 'commercialHarbor' | 'guildDues' | 'merchant' | 'merchantFleet'
+  | 'resourceMonopoly' | 'tradeMonopoly'
+  | 'diplomacy' | 'encouragement' | 'espionage' | 'intrigue' | 'sabotage'
+  | 'taxation' | 'treason' | 'constitution' | 'wedding'
+
+export const PROGRESS_CARD_ORDER: ProgressCardType[] = [
+  'alchemy', 'crane', 'engineering', 'invention', 'irrigation',
+  'medicine', 'mining', 'progressRoadBuilding', 'smithing', 'printing',
+  'commercialHarbor', 'guildDues', 'merchant', 'merchantFleet',
+  'resourceMonopoly', 'tradeMonopoly',
+  'diplomacy', 'encouragement', 'espionage', 'intrigue', 'sabotage',
+  'taxation', 'treason', 'constitution', 'wedding',
+]
+
+export const PROGRESS_CARD_LABELS: Record<ProgressCardType, string> = {
+  alchemy: 'Alchemy', crane: 'Crane', engineering: 'Engineering',
+  invention: 'Invention', irrigation: 'Irrigation', medicine: 'Medicine',
+  mining: 'Mining', progressRoadBuilding: 'Road Building', smithing: 'Smithing',
+  printing: 'Printing',
+  commercialHarbor: 'Commercial Harbor', guildDues: 'Guild Dues',
+  merchant: 'Merchant', merchantFleet: 'Merchant Fleet',
+  resourceMonopoly: 'Resource Monopoly', tradeMonopoly: 'Trade Monopoly',
+  diplomacy: 'Diplomacy', encouragement: 'Encouragement', espionage: 'Espionage',
+  intrigue: 'Intrigue', sabotage: 'Sabotage', taxation: 'Taxation',
+  treason: 'Treason', constitution: 'Constitution', wedding: 'Wedding',
+}
+
+// Which of the 3 decks each card belongs to — drives which deck a Play
+// draws from and which HUD section lists it.
+export const PROGRESS_CARD_TRACK: Record<ProgressCardType, ImprovementTrack> = {
+  alchemy: 'science', crane: 'science', engineering: 'science',
+  invention: 'science', irrigation: 'science', medicine: 'science',
+  mining: 'science', progressRoadBuilding: 'science', smithing: 'science',
+  printing: 'science',
+  commercialHarbor: 'trade', guildDues: 'trade', merchant: 'trade',
+  merchantFleet: 'trade', resourceMonopoly: 'trade', tradeMonopoly: 'trade',
+  diplomacy: 'politics', encouragement: 'politics', espionage: 'politics',
+  intrigue: 'politics', sabotage: 'politics', taxation: 'politics',
+  treason: 'politics', constitution: 'politics', wedding: 'politics',
+}
+
+// Printing (science) and Constitution (politics) — played immediately
+// into a player's public area on draw, worth 1 VP each. UNLIKE the base
+// game's hidden victoryPoint dev card, these are NOT secret: CN3087's own
+// text is "play immediately into your player area" (not "hand"), so they
+// stay OUT of the 4-card hand limit, can't be discarded/stolen/targeted
+// by Espionage, and (see getPublicScore below) are never subtracted from
+// the live public score the way hidden dev-card VP is.
+export const PROGRESS_CARD_VP_TYPES: ReadonlySet<ProgressCardType> = new Set(['printing', 'constitution'])
+
+// Exact physical deck composition, CN3087 pp.13-16 (also
+// docs/superpowers/specs/references/cities-knights-progress-cards.md).
+// Each of the 3 decks totals 18 physical cards. Deliberately NOT scaled
+// by victoryPointTarget the way buildDevCardDeck is — the official
+// rulebook gives no guidance on scaling these for a longer game, and
+// only 2 of the 25 types are VP cards (1 copy each), so scaling isn't
+// the load-bearing "race to N points" lever it is for the base dev deck.
+export const PROGRESS_CARD_DECK_COMPOSITION: Record<ImprovementTrack, Partial<Record<ProgressCardType, number>>> = {
+  science: {
+    alchemy: 2, crane: 2, engineering: 1, invention: 2, irrigation: 2,
+    medicine: 2, mining: 2, progressRoadBuilding: 2, smithing: 2, printing: 1,
+  },
+  trade: {
+    commercialHarbor: 2, guildDues: 2, merchant: 6, merchantFleet: 2,
+    resourceMonopoly: 4, tradeMonopoly: 2,
+  },
+  politics: {
+    diplomacy: 2, encouragement: 2, espionage: 3, intrigue: 2, sabotage: 2,
+    taxation: 2, treason: 2, constitution: 1, wedding: 2,
+  },
+}
+
 export interface Player {
   id: number
   name: string
@@ -15,6 +96,7 @@ export interface Player {
   resources: Resources
   commodities: Commodities
   cityImprovements: CityImprovements
+  progressCards: ProgressCardType[]
   settlementsRemaining: number
   roadsRemaining: number
   citiesRemaining: number
@@ -218,6 +300,14 @@ export interface GameRules {
   // commodity; players spend commodities climbing 3 city improvement
   // tracks. See docs/superpowers/specs/2026-08-15-cities-knights-commodities-design.md.
   citiesAndKnightsCommodities: boolean
+  // Draw progress cards via a 3rd "event" die rolled alongside the 2
+  // production dice. See
+  // docs/superpowers/specs/2026-08-16-cities-knights-progress-cards-design.md.
+  // Naturally inert without citiesAndKnightsCommodities also on (no
+  // cityImprovements track ever exceeds 0, so the draw check never
+  // passes) — no UI-level dependency enforced, verified no existing
+  // pattern for that in HouseRulesDropdown.tsx to reuse.
+  citiesAndKnightsProgressCards: boolean
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -229,6 +319,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
   doublesRerollRule: false,
   hiddenTiles: 'off',
   citiesAndKnightsCommodities: false,
+  citiesAndKnightsProgressCards: false,
 }
 
 // A victoryPointTarget set above WINNING_SCORE needs proportionally more of
@@ -315,6 +406,7 @@ export function createInitialPlayers(
     resources: emptyResources(),
     commodities: emptyCommodities(),
     cityImprovements: emptyCityImprovements(),
+    progressCards: [],
     settlementsRemaining,
     roadsRemaining,
     citiesRemaining,
@@ -344,6 +436,7 @@ export interface ScoreBreakdown {
   longestRoad: number
   largestArmy: number
   metropolis: number
+  progressCardVP: number
   total: number
 }
 
@@ -372,6 +465,7 @@ export function getScoreBreakdown(
     else settlementCount += 1
   }
   const victoryPointCards = player.devCards.filter((card) => card === 'victoryPoint').length
+  const progressCardVP = player.progressCards.filter((card) => PROGRESS_CARD_VP_TYPES.has(card)).length
   const longestRoad = player.id === longestRoadHolderId ? LONGEST_ROAD_VP : 0
   const largestArmy = player.id === largestArmyHolderId ? LARGEST_ARMY_VP : 0
   const metropolis = IMPROVEMENT_TRACK_ORDER.filter((track) => metropolisHolders[track] === player.id).length * 2
@@ -382,7 +476,8 @@ export function getScoreBreakdown(
     longestRoad,
     largestArmy,
     metropolis,
-    total: settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis,
+    progressCardVP,
+    total: settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis + progressCardVP,
   }
 }
 

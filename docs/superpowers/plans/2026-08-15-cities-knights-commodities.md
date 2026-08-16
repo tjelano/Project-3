@@ -1523,3 +1523,196 @@ Run: `cd catan-3d && npx tsc -b && npx eslint . && npx vitest run`
 git add catan-3d/src/components/hud/TradeModal.tsx catan-3d/src/App.tsx catan-3d/src/multiplayer/useRoomChannel.ts
 git commit -m "feat: add Trade level 3's 2:1 commodity trading ability"
 ```
+
+---
+
+### Task 10: Commodity cards in the hand + discard selection
+
+**Files:**
+- Modify: `catan-3d/src/components/PlayerHand3D.tsx`
+- Modify: `catan-3d/src/App.tsx` (wherever `<PlayerHand3D>` is rendered, and `buildCardSlots`'s caller if the count needs to be sourced from `player.commodities`)
+- Placeholder art already created (not this task's job): `catan-3d/src/assets/cards/Paper_commodity.png`, `Cloth_commodity.png`, `Coin_commodity.png` — 432×578 RGBA, content fills nearly the entire rounded-rect canvas (verified alpha bbox `(0,0,432,578)` on all 3, i.e. essentially no transparent margin).
+
+**Found during Task 3's review, not in the original spec:** Task 3 made the
+discard-required-count commodity-aware, but the actual card-picker
+(`PlayerHand3D`) only ever builds selectable cards from `Resources` — a
+commodity-heavy over-limit player has no way to select enough cards to
+satisfy the requirement, and the auto-discard timeout (which also only
+pulls from `Resources`) can leave them permanently stuck over the limit.
+This task closes that gap.
+
+**Interfaces:**
+- Consumes: `Commodities`, `CommodityType`, `COMMODITY_ORDER` (Task 1).
+- Produces: nothing consumed by later tasks (leaf).
+
+- [ ] **Step 1: Verify the placeholder art's actual crop needs before writing any code**
+
+Run the same check this plan's own controller already ran (don't trust
+the existing `CARD_ART_CROP_X`/`CARD_ART_CROP_Y`/`CARD_ART_OFFSET_X`/
+`CARD_ART_OFFSET_Y` constants' documented comment — it claims ~47-48px
+margins on resource art, but direct measurement of the actual shipped
+files during planning found near-zero margins on every card checked,
+e.g. `Brick_resource.png`'s alpha bbox is `(0,0,427,573)` on a 432×578
+canvas, not offset by ~47px). Confirm this yourself:
+
+```python
+from PIL import Image
+img = Image.open('catan-3d/src/assets/cards/Brick_resource.png')
+print(img.split()[-1].getbbox(), img.size)
+```
+
+If the existing crop constants don't actually match the resource art's
+real margins (they don't, per the above), do NOT apply
+`CARD_ART_CROP_X`/`CARD_ART_CROP_Y`/offsets to the 3 new commodity
+textures — the new placeholder files already have content filling the
+full canvas (verified bbox `(0,0,432,578)`), so they need a plain 1:1 UV
+mapping (repeat `(1,1)`, offset `(0,0)`), not the resource-art-specific
+crop. Whether to also fix the existing crop application for resource
+cards is OUT OF SCOPE for this task — leave `CARD_ART_CROP_X` etc. and
+their application to resource/dev cards exactly as they are; only give
+the 3 new commodity textures their own (no-op) treatment.
+
+- [ ] **Step 2: Extend `CardKey` and `CARD_ART`**
+
+In `PlayerHand3D.tsx`:
+
+```ts
+import paperArt from '../assets/cards/Paper_commodity.png'
+import clothArt from '../assets/cards/Cloth_commodity.png'
+import coinArt from '../assets/cards/Coin_commodity.png'
+import { COMMODITY_ORDER, type CommodityType, type Commodities } from '../game/types'
+```
+
+Change `type CardKey = ResourceType | DevCardType` to
+`type CardKey = ResourceType | DevCardType | CommodityType`, and add to
+`CARD_ART`:
+
+```ts
+paper: paperArt,
+cloth: clothArt,
+coin: coinArt,
+```
+
+`loadCardTexture`'s crop/offset application (currently unconditional on
+every call) needs to skip the crop for these 3 specifically — the
+simplest correct fix per Step 1's finding: give `loadCardTexture` a
+second parameter, `applyLegacyCrop: boolean`, defaulting to `true` at
+existing call sites (so resource/dev cards keep their current behavior
+byte-for-byte unchanged) and pass `false` for the 3 new commodity
+textures specifically. Do not change the crop behavior for any existing
+card type.
+
+- [ ] **Step 3: Extend `buildCardSlots` to include commodities**
+
+Currently (verify against the live file, this plan's earlier read may be
+stale after Tasks 3/4/5/9's edits):
+
+```ts
+function buildCardSlots(resources: Resources, devCards: DevCardType[]): CardSlot[] {
+  const out: CardSlot[] = []
+  for (const resource of RESOURCE_ORDER) {
+    for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
+  }
+  for (const dev of DEV_CARD_ORDER) {
+    const count = devCards.filter((card) => card === dev).length
+    for (let i = 0; i < count; i++) out.push({ id: `${dev}-${i}`, key: dev })
+  }
+  return out
+}
+```
+
+Add a `commodities: Commodities` parameter and a loop over
+`COMMODITY_ORDER` inserted BETWEEN the resource loop and the dev-card
+loop (matching the file's own stated ordering principle: "Resources
+first in fixed order, then development cards, so a hand doesn't reshuffle
+as counts change" — commodities slot into that same stable-order
+convention, resources → commodities → dev cards):
+
+```ts
+function buildCardSlots(resources: Resources, commodities: Commodities, devCards: DevCardType[]): CardSlot[] {
+  const out: CardSlot[] = []
+  for (const resource of RESOURCE_ORDER) {
+    for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
+  }
+  for (const commodity of COMMODITY_ORDER) {
+    for (let i = 0; i < commodities[commodity]; i++) out.push({ id: `${commodity}-${i}`, key: commodity })
+  }
+  for (const dev of DEV_CARD_ORDER) {
+    const count = devCards.filter((card) => card === dev).length
+    for (let i = 0; i < count; i++) out.push({ id: `${dev}-${i}`, key: dev })
+  }
+  return out
+}
+```
+
+- [ ] **Step 4: Extend `PlayerHand3D`'s props and discard-selection gate**
+
+Add `commodities: Commodities` to `PlayerHand3DProps` (the inline props
+type at the `PlayerHand3D` function signature). Update the
+`buildCardSlots` call to pass it through.
+
+Find the discard-selection gate (search for `isResourceCard` in this
+file — it currently reads
+`const isResourceCard = (RESOURCE_ORDER as readonly CardKey[]).includes(card.key)`
+and is used as `onToggleSelect={discardActive && isResourceCard ? ... : undefined}`).
+Extend it to also allow commodity cards:
+
+```ts
+const isDiscardableCard =
+  (RESOURCE_ORDER as readonly CardKey[]).includes(card.key) ||
+  (COMMODITY_ORDER as readonly CardKey[]).includes(card.key)
+```
+
+and use `isDiscardableCard` in place of `isResourceCard` at the
+`onToggleSelect` site. Dev cards remain never-discardable (unchanged).
+
+- [ ] **Step 5: Wire `commodities` through from `App.tsx`**
+
+Find where `<PlayerHand3D>` is rendered in `App.tsx` (it receives
+`resources={...}` from the local/viewing player already) and add
+`commodities={viewer.commodities}` (or whatever the existing variable
+name is for "the player whose hand this is" — match the exact identifier
+already used for the adjacent `resources` prop, don't introduce a new
+one).
+
+- [ ] **Step 6: Fix the auto-discard timeout to also draw from commodities**
+
+Find the disconnected-player auto-discard timeout logic in `App.tsx`
+(same area Task 3 touched for its `required` calculation — search for
+`autoDiscardCounts` or the timeout effect that force-discards on a
+player's behalf). It currently builds its forced discard selection only
+from `Resources`. Extend it so that once a player's resource cards are
+exhausted, it continues pulling from `Commodities` (same "pick cards
+until the required count is met" logic, just not stopping at resources
+alone) — this is the fix that actually prevents a commodity-heavy
+disconnected player from getting stuck: previously the timeout could
+empty their resources and still leave them over the limit forever.
+
+- [ ] **Step 7: Manual verification**
+
+Run: `cd catan-3d && npm run dev`
+
+1. With the house rule on, get a player to a mix of resources and
+   commodities totaling over 7 (e.g. 3 resources + 5 commodities = 8).
+2. Roll a 7 (or trigger discard some other way this codebase supports for
+   testing).
+3. Confirm the hand shows the 3 placeholder commodity cards as physical,
+   selectable cards alongside the resource cards.
+4. Select a mix of resource AND commodity cards to satisfy the discard
+   requirement, confirm it completes correctly.
+5. Confirm dev cards remain non-selectable during discard (unchanged
+   behavior).
+6. If practical to test: let the auto-discard timeout fire on a
+   commodity-heavy hand with too few resources, confirm it doesn't get
+   stuck (pulls from commodities once resources run out).
+
+- [ ] **Step 8: Run typecheck/lint/tests**
+
+Run: `cd catan-3d && npx tsc -b && npx eslint . && npx vitest run`
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add catan-3d/src/components/PlayerHand3D.tsx catan-3d/src/App.tsx catan-3d/src/assets/cards/Paper_commodity.png catan-3d/src/assets/cards/Cloth_commodity.png catan-3d/src/assets/cards/Coin_commodity.png
+git commit -m "feat: add commodity cards to the hand and make them discardable"
+```

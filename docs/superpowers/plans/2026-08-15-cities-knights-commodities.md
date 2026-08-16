@@ -710,7 +710,16 @@ returns `doublesCount`), add:
     const eligiblePlayerIds = players
       .filter((p) => p.cityImprovements.science >= 3 && !playersWithProduction.has(p.id))
       .map((p) => p.id)
-    if (eligiblePlayerIds.length > 0) setScienceFreeResourcePlayerIds(eligiblePlayerIds)
+    if (eligiblePlayerIds.length > 0) {
+      // Merge, not replace: a player already queued from an earlier
+      // unresolved roll must not be silently dropped just because a LATER
+      // roll's eligible set doesn't happen to include them again (e.g. they
+      // did receive production this time, or simply weren't picked up in
+      // this particular filter pass). Reachable in online play whenever a
+      // qualifying player doesn't resolve their pick before the next
+      // qualifying roll happens to someone else.
+      setScienceFreeResourcePlayerIds((prev) => [...new Set([...prev, ...eligiblePlayerIds])])
+    }
   }
 ```
 

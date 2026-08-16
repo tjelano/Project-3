@@ -270,6 +270,15 @@ function App() {
   // discarding player has flagged in their 3D hand. Local UI state, reset
   // whenever the active discarder changes.
   const [discardSelection, setDiscardSelection] = useState<string[]>([])
+  // Player IDs owed a Science level 3 free-resource pick after the most
+  // recent non-7 roll (production resolved, but they got nothing from it).
+  // Deliberately its OWN queue, not the single-current-player devCardPicker
+  // state below — this can trigger for ANY player, not just whoever's turn
+  // it is, and possibly several players from the same roll. Mirrors
+  // discardPlayerIds' shape (see applyRollResult and
+  // activeScienceFreeResourcePlayerId below). The two queues never overlap:
+  // discard only triggers on a 7, this explicitly excludes a 7.
+  const [scienceFreeResourcePlayerIds, setScienceFreeResourcePlayerIds] = useState<number[]>([])
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -671,6 +680,17 @@ function App() {
     if (remaining.length === 0) setGamePhase('moveRobber')
   }
 
+  // Trusted state mutation for one player's Science level 3 free-resource
+  // pick — shared by the local actor (resolveScienceFreeResource, below,
+  // which also broadcasts) and receiving clients (onScienceFreeResourcePicked),
+  // same trusted-apply split as applyDiscard above.
+  const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + 1 } } : p)),
+    )
+    setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
+  }
+
   // A player's own color never changes once the match starts, so this is
   // kept as its own value (not read inline from `players` below) — `players`
   // itself churns on nearly every game action (resources, dice, builds),
@@ -718,6 +738,7 @@ function App() {
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastScienceFreeResourcePicked,
     broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,
@@ -772,6 +793,7 @@ function App() {
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
+    onScienceFreeResourcePicked: (payload) => applyScienceFreeResourcePick(payload.playerId, payload.resource),
     // Trusted-apply from the effective host's own broadcast — see the
     // render-time trophy computation below, which only runs locally for
     // !onlineInfo || isEffectiveHost. Every other client just takes
@@ -934,6 +956,17 @@ function App() {
           2,
       )
     : 0
+
+  // Who's actively resolving a Science level 3 free-resource pick on THIS
+  // screen right now — same "sequential locally, parallel online" split as
+  // activeDiscarderId above, and deliberately its own queue rather than
+  // reusing devCardPicker (see scienceFreeResourcePlayerIds' declaration):
+  // this can be true for a DIFFERENT player than currentPlayerIndex.
+  const activeScienceFreeResourcePlayerId = onlineInfo
+    ? scienceFreeResourcePlayerIds.includes(onlineInfo.localPlayerId)
+      ? onlineInfo.localPlayerId
+      : null
+    : (scienceFreeResourcePlayerIds[0] ?? null)
 
   // The personal camera-anchored hand shows YOUR OWN cards in an online
   // match — not whoever's turn it currently is, which is what
@@ -1489,6 +1522,24 @@ function App() {
 
       return next
     })
+
+    // Science level 3: a player who received nothing this roll gets 1 free
+    // resource of their choice — never on a 7 (a 7 doesn't produce at all,
+    // and separately triggers discard, not this). Reads players/settlements/
+    // graph from the enclosing closure, same as the production loop above —
+    // players' cityImprovements aren't touched by that loop, so the
+    // pre-update snapshot is still accurate for the science-level check.
+    if (gameRules.citiesAndKnightsCommodities && total !== 7) {
+      const producedTileIds = tiles.filter((t) => t.number === total && t.id !== robberTileId).map((t) => t.id)
+      const producingVertexIds = new Set(producedTileIds.flatMap((id) => graph.tileVertexIds.get(id) ?? []))
+      const playersWithProduction = new Set(
+        [...producingVertexIds].map((vertexId) => settlements[vertexId]?.ownerId).filter((id): id is number => id != null),
+      )
+      const eligiblePlayerIds = players
+        .filter((p) => p.cityImprovements.science >= 3 && !playersWithProduction.has(p.id))
+        .map((p) => p.id)
+      if (eligiblePlayerIds.length > 0) setScienceFreeResourcePlayerIds(eligiblePlayerIds)
+    }
 
     if (messages.length > 0) {
       inform(messages.join(' '))
@@ -2056,6 +2107,20 @@ function App() {
     if (onlineInfo) broadcastMonopolyPlayed({ playerId: player.id, resource })
   }
 
+  // Resolves the active Science level 3 free-resource pick with the
+  // resource the player chose in the modal. Only ever reachable by the
+  // local actor whose id matches activeScienceFreeResourcePlayerId — see
+  // that derivation above for why this can be a different player than
+  // currentPlayerIndex.
+  const resolveScienceFreeResource = (resource: ResourceType) => {
+    const playerId = activeScienceFreeResourcePlayerId
+    if (playerId == null) return
+    const player = playerById.get(playerId)
+    applyScienceFreeResourcePick(playerId, resource)
+    if (player) inform(`${player.name} took 1 ${RESOURCE_LABELS[resource]} from the bank (Science level 3).`)
+    if (onlineInfo) broadcastScienceFreeResourcePicked({ playerId, resource })
+  }
+
   const currentPlayerPortRates = Object.fromEntries(
     RESOURCE_ORDER.map((resource) => [resource, getPortRate(players[currentPlayerIndex].id, resource)]),
   ) as Record<ResourceType, number>
@@ -2196,6 +2261,7 @@ function App() {
     setHasRolledThisTurn(false)
     setDiscardPlayerIds([])
     setDiscardSelection([])
+    setScienceFreeResourcePlayerIds([])
     setBoardInstance((n) => n + 1)
     setLongestRoadHolderId(null)
     setLargestArmyHolderId(null)
@@ -2264,6 +2330,12 @@ function App() {
     setDiceRoll(null)
     setIsRolling(false)
     setDiscardSelection([])
+    // Unlike discardPlayerIds (recomputed below from restored resource
+    // counts), Science level 3's queue isn't derivable after the fact — it
+    // depends on THIS PARTICULAR roll's production, not any persistent
+    // condition of current state. A pending free-resource pick from before
+    // a disconnect is simply dropped on reconnect rather than reconstructed.
+    setScienceFreeResourcePlayerIds([])
     // discardPlayerIds isn't persisted (fully derivable from resource
     // counts) — if the snapshot was saved mid-discard, recompute who still
     // owes one from the restored players rather than trusting a stale list.
@@ -2597,6 +2669,8 @@ function App() {
         onPlayDevCard={playDevCard}
         devCardPicker={devCardPicker}
         onResolveDevCardPicker={resolveDevCardPicker}
+        scienceFreeResourceActive={activeScienceFreeResourcePlayerId != null}
+        onResolveScienceFreeResource={resolveScienceFreeResource}
         devCardPlayedThisTurn={devCardPlayedThisTurn}
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}

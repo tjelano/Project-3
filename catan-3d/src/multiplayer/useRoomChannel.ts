@@ -187,6 +187,15 @@ export interface DiscardConfirmedPayload {
   counts: Partial<Record<ResourceType | CommodityType, number>>
 }
 
+// Science level 3's per-roll bonus: a player who received zero production
+// on a non-7 roll gets to pick 1 free resource. Unlike DiscardConfirmedPayload,
+// this can fire for ANY player regardless of whose turn it is — see the
+// scienceFreeResourcePlayerIds queue in App.tsx.
+export interface ScienceFreeResourcePickedPayload {
+  playerId: number
+  resource: ResourceType
+}
+
 interface GameStartedPayload {
   names: string[]
   // Carried explicitly rather than inferred (e.g. "names[0]") so every
@@ -271,6 +280,9 @@ export interface RoomChannelHandlers {
   // over-limit player discards independently on their own screen — this
   // fires once per player, not once for the whole table.
   onDiscardConfirmed?: (payload: DiscardConfirmedPayload) => void
+  // Science level 3's free-resource queue — fires once per eligible player
+  // per roll, same "independent per-player queue" shape as discard above.
+  onScienceFreeResourcePicked?: (payload: ScienceFreeResourcePickedPayload) => void
   // Longest Road / Largest Army are sticky on ties (see pickTrophyHolder in
   // game/trophies.ts) — inherently path-dependent, not just a function of
   // the CURRENT board, so every client computing this independently risks
@@ -461,6 +473,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
       handlersRef.current.onDiscardConfirmed?.(payload)
     })
+    channel.on<ScienceFreeResourcePickedPayload>('broadcast', { event: 'SCIENCE_FREE_RESOURCE_PICKED' }, ({ payload }) => {
+      handlersRef.current.onScienceFreeResourcePicked?.(payload)
+    })
     channel.on<TrophyUpdatedPayload>('broadcast', { event: 'TROPHY_UPDATED' }, ({ payload }) => {
       handlersRef.current.onTrophyUpdated?.(payload)
     })
@@ -645,6 +660,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       ?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
       .then((result) => debugLog('broadcastDiscardConfirmed result', { result, payload }))
   }
+  const broadcastScienceFreeResourcePicked = (payload: ScienceFreeResourcePickedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'SCIENCE_FREE_RESOURCE_PICKED', payload })
+  }
   const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TROPHY_UPDATED', payload })
   }
@@ -688,6 +706,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastScienceFreeResourcePicked,
     broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,

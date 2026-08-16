@@ -17,9 +17,17 @@ import { RankingsPanel } from './RankingsPanel'
 import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
 
-const DEV_CARD_PICKER_COPY: Record<DevCardPickerMode, { title: string; subtitle: string; pickCount: number }> = {
+// 'scienceFreeResource' isn't a DevCardPickerMode (App.tsx keeps it as a
+// separate queue, not devCardPicker — see the design note on
+// scienceFreeResourcePlayerIds in App.tsx) but shares the exact same
+// "click N resource icons" modal, so it gets a case in this same copy map
+// rather than a second hardcoded picker render below.
+type PickerMode = DevCardPickerMode | 'scienceFreeResource'
+
+const DEV_CARD_PICKER_COPY: Record<PickerMode, { title: string; subtitle: string; pickCount: number }> = {
   yearOfPlenty: { title: 'Year of Plenty', subtitle: 'Choose 2 resources to take from the bank.', pickCount: 2 },
   monopoly: { title: 'Monopoly', subtitle: 'Choose 1 resource type to seize from every opponent.', pickCount: 1 },
+  scienceFreeResource: { title: 'Free Resource', subtitle: 'Science level 3: choose 1 resource.', pickCount: 1 },
 }
 
 interface GameHudProps {
@@ -61,6 +69,14 @@ interface GameHudProps {
   onPlayDevCard: (type: DevCardType) => void
   devCardPicker: DevCardPickerMode | null
   onResolveDevCardPicker: (picks: ResourceType[]) => void
+  // Science level 3's per-roll bonus: a player who received zero production
+  // this roll gets to pick 1 free resource. Modeled as its own flag/handler
+  // pair (not folded into devCardPicker) because it can be true for a
+  // DIFFERENT player than currentPlayerIndex — see scienceFreeResourcePlayerIds
+  // in App.tsx. Mutually exclusive with devCardPicker in practice (dev cards
+  // are played during the Action phase, this only opens right after a roll).
+  scienceFreeResourceActive: boolean
+  onResolveScienceFreeResource: (resource: ResourceType) => void
   devCardPlayedThisTurn: boolean
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
@@ -122,6 +138,8 @@ export function GameHud({
   onPlayDevCard,
   devCardPicker,
   onResolveDevCardPicker,
+  scienceFreeResourceActive,
+  onResolveScienceFreeResource,
   devCardPlayedThisTurn,
   longestRoadHolderId,
   longestRoadLengths,
@@ -139,12 +157,21 @@ export function GameHud({
   onSendChatMessage,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
+  // devCardPicker takes priority — the two are mutually exclusive in
+  // practice (see scienceFreeResourceActive's prop comment), but this
+  // ordering also doubles as the "guard against stacking" the two modals
+  // that every other picker/modal in this file already applies.
+  const activePickerMode: PickerMode | null = devCardPicker ?? (scienceFreeResourceActive ? 'scienceFreeResource' : null)
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
-  const pickerBlocked = !!devCardPicker
+  // Covers BOTH forced-choice pickers (devCardPicker and the Science
+  // level-3 free-resource pick) — same reasoning as the canRestart guard
+  // further down: the modal overlay alone stops mouse hit-testing, not
+  // keyboard Tab/Enter reaching an action button still marked enabled.
+  const pickerBlocked = !!activePickerMode
   const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
     gamePhase === 'playing' &&
@@ -254,12 +281,14 @@ export function GameHud({
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
-      {devCardPicker && (
+      {activePickerMode && (
         <DevCardResourcePicker
-          title={DEV_CARD_PICKER_COPY[devCardPicker].title}
-          subtitle={DEV_CARD_PICKER_COPY[devCardPicker].subtitle}
-          pickCount={DEV_CARD_PICKER_COPY[devCardPicker].pickCount}
-          onComplete={onResolveDevCardPicker}
+          title={DEV_CARD_PICKER_COPY[activePickerMode].title}
+          subtitle={DEV_CARD_PICKER_COPY[activePickerMode].subtitle}
+          pickCount={DEV_CARD_PICKER_COPY[activePickerMode].pickCount}
+          onComplete={(picks) =>
+            activePickerMode === 'scienceFreeResource' ? onResolveScienceFreeResource(picks[0]) : onResolveDevCardPicker(picks)
+          }
         />
       )}
       {pendingTrade && (localPlayerId == null || pendingTrade.toPlayerId === localPlayerId) && (

@@ -598,6 +598,15 @@ const [progressCardDecks, setProgressCardDecks] = useState<Record<ImprovementTra
 const [progressCardOverLimitPlayerIds, setProgressCardOverLimitPlayerIds] = useState<number[]>([])
 ```
 
+**Correction found during Task 3's review:** the existing New Game reset
+path (`App.tsx`, the same handler that already does
+`setDevDeck(shuffle(buildDevCardDeck(...)))`) must ALSO reset
+`progressCardDecks` (to 3 fresh shuffled decks) and
+`progressCardOverLimitPlayerIds` (to `[]`) — this task's own state, not
+deferred to Task 16 (which only covers snapshot RESTORE, a different code
+path from New Game). Add both resets alongside the existing `setDevDeck`
+call in this same task.
+
 - [ ] **Step 2: Roll the event die and thread it through the existing dice broadcast**
 
 In `handlePhysicsSettled` (`App.tsx:1570-1613`), immediately after
@@ -611,6 +620,27 @@ inside this same function, not hoisted above it):
 const EVENT_DIE_FACES: EventDieFace[] = ['ship', 'ship', 'ship', 'science', 'trade', 'politics']
 const eventDie = EVENT_DIE_FACES[Math.floor(Math.random() * 6)]
 ```
+
+**Correction found during Task 3's review:** `diceRoll` (`DiceRollTarget`)
+is only ever written by `beginDiceAnimation`, which only runs on
+RECEIVING clients (via `onDiceRolled`) — the roller's own client never
+calls it, so `diceRoll?.eventDie` on the roller's own screen would hold
+the PREVIOUS mirrored roll's face, and stays `null` forever in local
+Pass & Play (where `onDiceRolled` never fires at all). Add a separate
+piece of state written by BOTH paths, not a reuse of `diceRoll` itself
+(reusing it risks a second `applyRollResult` call if `diceDisplayMode`
+is ever `'remote'` when the roller's own path runs):
+
+```ts
+const [lastEventDie, setLastEventDie] = useState<EventDieFace | null>(null)
+```
+
+Set it in `handlePhysicsSettled` right after computing `eventDie` above,
+and in `beginDiceAnimation` alongside its existing `setDiceRoll` call
+(passing through the `eventDie` argument `beginDiceAnimation` already
+gains in this same step). Task 4's `EventDieIndicator` reads
+`lastEventDie`, not `diceRoll?.eventDie` — corrected in Task 4's own text
+below.
 
 Update the `broadcastDiceRolled` call to carry it:
 
@@ -834,14 +864,14 @@ Render next to the existing dice display (`App.tsx:2992-2996` area),
 reading the current roll's event die:
 
 ```tsx
-<EventDieIndicator face={diceRoll?.eventDie ?? null} />
+<EventDieIndicator face={lastEventDie} />
 ```
 
 Import `EventDieIndicator` from `./components/hud/EventDieIndicator`.
-Note this reads `diceRoll` (the MIRRORED-roll state, already holds
-`eventDie` after Task 3), which is `null` between rolls and set by both
-`handlePhysicsSettled` and `beginDiceAnimation` — same lifetime as the
-existing `lastRoll` display, so no new state needed.
+Reads `lastEventDie` (Task 3's dedicated state, written by BOTH the
+roller's own path and the receiving-client mirror path — see Task 3's
+review-correction note above; `diceRoll?.eventDie` alone only reflects
+mirrored rolls, never the roller's own), `null` between rolls.
 
 - [ ] **Step 3: Typecheck**
 

@@ -18,11 +18,18 @@ research, already captured in
 
 Every subsystem across all 5 phases is its own independent house rule.
 This spec's piece is `citiesAndKnightsProgressCards: boolean`, default
-`false`, meaningful only when `citiesAndKnightsCommodities` is also on
-(progress cards are earned via city improvement levels, which don't exist
-otherwise) — gated in the House Rules UI accordingly, not enforced at the
-data layer, matching this project's existing dependent-checkbox
-conventions elsewhere in that panel.
+`false`. Checked, verified against `HouseRulesDropdown.tsx`: **no
+existing checkbox in that panel disables/gates on another one today** —
+the only existing cross-rule behavior is `citiesAndKnightsCommodities`'s
+one-time VP-target pre-fill side effect, not a general dependency
+pattern. Rather than inventing new UI-disabling machinery for a case that
+doesn't need it, this rule stays a plain, independent checkbox: if turned
+on while `citiesAndKnightsCommodities` is off, the draw trigger's own
+`cityImprovements[track] >= 1` check is never true (no track ever
+advances without commodities), so the feature is naturally inert —
+harmless-but-pointless, not broken, the same "provably inert when its
+dependency is off" bar every Phase A feature already had to clear. No
+data-layer or UI-layer enforcement needed.
 
 ## Global Constraints
 
@@ -61,10 +68,13 @@ dice.
 
 **The "red die."** One specific physical die's value is used for the
 draw check — not the sum, not "whichever is higher." This codebase's
-existing `DiceRollTarget` already tracks `d1`/`d2` independently (used
-today only for the doubles check); Phase B fixes `d1` as "the red die"
-consistently across the whole codebase and UI (shown in a distinct color
-in the dice display, matching the physical game).
+existing `DiceRollTarget` (`components/Dice3D.tsx`) already tracks
+`d1`/`d2` independently (used today only for the doubles check, both dice
+otherwise visually identical); Phase B fixes `d1` as "the red die" in
+logic. Verified: **the 2 existing dice have no color distinction today**
+— giving one of them a distinct red material/texture is new 3D work this
+plan needs to account for, not a relabeling of something that already
+exists.
 
 **Eligibility, exact rule (p.6, verbatim):** *"If the event die shows one
 of the city improvement icons, each player checks to see if they draw a
@@ -120,10 +130,13 @@ collision called out above.)
 - `player.progressCards: ProgressCardType[]` — mirrors `player.devCards`
   exactly. VP cards (`printing`, `constitution`) live in this same array
   (mirroring how `victoryPoint` already sits inside `devCards`) but are
-  excluded from the 4-card hand limit and can't be discarded/stolen, same
-  special-casing `devCards` already needs for its own `victoryPoint`
-  entries in a few places (search `victoryPoint` in `App.tsx` for the
-  existing precedent to match).
+  excluded from the 4-card hand limit and can't be discarded/stolen.
+  Exact precedent to match: `game/types.ts`'s `DEV_CARD_PLAY_LABELS` is a
+  `Partial<Record<DevCardType, string>>` that deliberately omits
+  `victoryPoint` ("held silently for score — there's no 'play' action for
+  them, so they have no entry here") — the equivalent
+  `PROGRESS_CARD_PLAY_LABELS` should omit `printing`/`constitution` the
+  same way.
 - `progressCardDecks: Record<ImprovementTrack, ProgressCardType[]>` at
   App level — 3 independent shuffled draw piles, each client shuffles its
   own copy unseeded, same trust model as the existing `devDeck`: a draw
@@ -187,8 +200,11 @@ silently decided.
 
 ## Card Effects — Categorized
 
-The 17 self-contained cards (no knight/barbarian dependency) split into 4
-reusable shapes rather than 17 bespoke flows:
+All 25 cards, accounted for exactly once (checked against the reference
+doc's full list — an earlier draft of this section silently dropped 2
+cards, corrected here): **19 self-contained** (no knight/barbarian
+dependency) split into 5 reusable shapes rather than 19 bespoke flows,
+plus **6 documented no-ops**.
 
 **Auto/self-resolve** (no other player involved): Alchemy (preset
 production dice pre-roll — special timing, playable only before rolling,
@@ -197,7 +213,12 @@ less, 1 use), Irrigation (2 wheat per field hex adjacent to your
 buildings), Mining (2 ore per mountain hex adjacent), Medicine (settlement
 → city for 1 wheat + 2 ore instead of normal cost), Invention (swap 2
 board number tokens, excluding 2/6/8/12), Printing (VP, auto-play on
-draw).
+draw), Constitution (VP, auto-play on draw).
+
+**Bank-trade modifier** (temporary rate change for the rest of the
+current turn, no other player involved): Merchant Fleet (name 1 resource
+or commodity, make any number of 2:1 trades with the bank for that type
+for the rest of this turn).
 
 **All-players-respond** (broadcast to every player, same shape as the
 existing base-game Monopoly dev card and the existing discard-queue
@@ -217,16 +238,25 @@ its own group of plan tasks.
 `progressRoadBuilding` reuses the existing dev-card road-building UI/logic
 if directly compatible (2 free roads); confirm during planning.
 
+Tally: Auto/self-resolve 8 (Alchemy, Crane, Irrigation, Mining, Medicine,
+Invention, Printing, Constitution) + Bank-trade modifier 1 (Merchant
+Fleet) + All-players-respond 4 + Single-target 4 (incl. Diplomacy) +
+Merchant 1 + progressRoadBuilding 1 = **19 self-contained**, matching the
+header count above.
+
 **Out of scope this phase — documented no-ops** (need knight pieces or
-the barbarian track, neither of which exist yet): Engineering (city
-walls), Smithing (promote knight), Encouragement (activate knights),
-Intrigue (displace knight), Treason (remove/place knight), Taxation
-(requires the robber to be "active," which only happens after the first
-barbarian attack). These 8 cards remain drawable (full official deck
-odds, per this session's explicit choice) but their Play action shows a
-"not yet implemented" message and returns the card to the player's hand
-unchanged, matching the existing Politics-level-3 no-op precedent from
-Phase A.
+the barbarian track, neither of which exist yet — exactly 6 cards, not
+the "~8" estimated earlier in conversation before this section was
+actually enumerated): Engineering (city wall), Smithing (promote knight),
+Encouragement (activate knights), Intrigue (displace knight), Treason
+(remove/place knight), Taxation (requires the robber to be "active,"
+which only happens after the first barbarian attack). These 6 cards
+remain drawable (full official deck odds, per this session's explicit
+choice) but their Play action shows a "not yet implemented" message and
+returns the card to the player's hand unchanged, matching the existing
+Politics-level-3 no-op precedent from Phase A.
+
+19 + 6 = 25, matching the full card count.
 
 ## Scoring
 

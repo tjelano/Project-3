@@ -59,6 +59,7 @@ import {
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
+  PROGRESS_CARD_ORDER,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   ROAD_COST,
@@ -280,6 +281,12 @@ function App() {
   // itself changes, so it never blocks a genuinely NEW trade.
   const isResolvingTradeRef = useRef(false)
   const [freeRoadsRemaining, setFreeRoadsRemaining] = useState(0)
+  // Cities & Knights Alchemy — set by playAlchemy (before rolling), consumed
+  // once by handlePhysicsSettled to override the GAME-LOGIC d1/d2 for that
+  // one roll (physics still tumbles and visually shows its own real result —
+  // see handlePhysicsSettled's own comment for why that mismatch is
+  // deliberate). null the rest of the time.
+  const [alchemyPreset, setAlchemyPreset] = useState<[number, number] | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
   const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
@@ -927,6 +934,7 @@ function App() {
     broadcastCommodityTraded,
     broadcastMetropolisClaimed,
     broadcastProgressCardsDrawn,
+    broadcastProgressCardPlayed,
     broadcastProgressDiscardConfirmed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
@@ -1058,6 +1066,23 @@ function App() {
         ...prev,
         [payload.track]: prev[payload.track].slice(payload.draws.length),
       }))
+    },
+    // Generic receiver for every self-only, no-picker progress card play
+    // (Irrigation/Mining here; Task 14's Merchant Fleet reuses this same
+    // shape). Validated against PROGRESS_CARD_ORDER before ever being used
+    // to pick which applyXEffect to dispatch to — same malformed-payload
+    // guard shape as onCityImprovementPurchased/onProgressCardsDrawn above.
+    // Every one of these effects is deterministic from public state, so the
+    // receiver only needs to know who/which card; it never re-spends
+    // separately since applyIrrigationEffect/applyMiningEffect already
+    // remove the card as part of the effect (see their own comments).
+    onProgressCardPlayed: (payload) => {
+      if (!PROGRESS_CARD_ORDER.includes(payload.card)) {
+        console.error('[Catan] Ignoring malformed progress-card-played payload:', payload)
+        return
+      }
+      if (payload.card === 'irrigation') applyIrrigationEffect(payload.playerId)
+      else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
     },
     onProgressDiscardConfirmed: (payload) => applyProgressDiscard(payload.playerId, payload.indices),
     // Trusted-apply — the purchasing client already resolved which player
@@ -1674,7 +1699,19 @@ function App() {
   // decided the real result. Broadcast it (so every other online client can
   // mirror it via their own closed-form Dice3D) and apply it exactly like a
   // predetermined roll used to be applied.
-  const handlePhysicsSettled = (d1: number, d2: number) => {
+  const handlePhysicsSettled = (physicsD1: number, physicsD2: number) => {
+    // Cities & Knights Alchemy — overrides the GAME-LOGIC dice only; the
+    // physics tumble that just settled still VISUALLY shows physicsD1/
+    // physicsD2 on the table (PhysicsDice3D already rendered that outcome
+    // before this callback ever fires), a deliberate visual/logic mismatch
+    // rather than building a predetermined-physics mode. Consumed
+    // unconditionally the instant a roll attempt lands here — even one the
+    // no-sevens-first-two-rolls check below goes on to void and reroll —
+    // so a preset that itself sums to 7 doesn't loop the reroll forever
+    // reapplying the same fixed total; a voided Alchemy roll just falls
+    // back to ordinary physics on the reroll.
+    const [d1, d2] = alchemyPreset ?? [physicsD1, physicsD2]
+    if (alchemyPreset) setAlchemyPreset(null)
     const total = d1 + d2
     const isDouble = d1 === d2
     // The event die is rolled unconditionally, every attempt — even a
@@ -2669,6 +2706,108 @@ function App() {
     if (type === 'monopoly') return playMonopoly()
   }
 
+  // Cities & Knights Alchemy — playable only pre-roll (same gate every
+  // other pre-roll-only action uses), so unlike playIrrigation/playMining
+  // below it isn't wired into progressCardPlayHandlers at all: it has its
+  // own 2-number picker UI rendered near the Roll Dice button instead of
+  // ProgressCardsPanel's generic click-to-play (see GameHud.tsx), and
+  // simply having no entry in progressCardPlayHandlers already makes
+  // ProgressCardsPanel render its card as disabled, so it can't be
+  // reached via a plain click either. No broadcast here — alchemyPreset
+  // only matters on the roller's own client, consumed by
+  // handlePhysicsSettled before that client ever calls
+  // broadcastDiceRolled, so every other client already receives the
+  // final, overridden dice/total with no separate signal needed.
+  const playAlchemy = (d1: number, d2: number) => {
+    if (hasRolledThisTurn) {
+      warn('Alchemy can only be played before rolling.')
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('alchemy')) return
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'alchemy') } : p)),
+    )
+    setAlchemyPreset([d1, d2])
+    inform(`${player.name} played Alchemy — the next roll's production dice are fixed.`)
+  }
+
+  // Shared by Irrigation (fields -> grain) and Mining (mountains -> ore) —
+  // same "count unique tiles of one biome touching any of my buildings"
+  // shape, just a different biome/resource pair. Counts each qualifying
+  // tile once even if 2+ of the player's buildings touch it (a tileIds
+  // Set, not a running total over every building).
+  const countAdjacentBiomeHexes = (playerId: number, biome: Biome): number => {
+    const ownedVertexIds = Object.entries(settlements)
+      .filter(([, b]) => b.ownerId === playerId)
+      .map(([vertexId]) => vertexId)
+    const tileIds = new Set<string>()
+    for (const vertexId of ownedVertexIds) {
+      for (const tileId of graph.vertexTileIds.get(vertexId) ?? []) tileIds.add(tileId)
+    }
+    let count = 0
+    for (const tileId of tileIds) {
+      const tile = tiles.find((t) => t.id === tileId)
+      if (tile?.biome === biome) count += 1
+    }
+    return count
+  }
+
+  // Trusted-apply for Irrigation — shared by the local play handler
+  // (playIrrigation, below, which also spends via this same call and
+  // broadcasts) and the receiving client (onProgressCardPlayed), which
+  // calls this and only this: both clients compute the identical hexCount
+  // from the same public board state, and removeOne here converges to an
+  // equivalent hand on every client even independently (see
+  // ProgressCardPlayedPayload's own comment in useRoomChannel.ts for why
+  // that's safe).
+  const applyIrrigationEffect = (playerId: number) => {
+    const player = playerById.get(playerId)
+    if (!player) return
+    const hexCount = countAdjacentBiomeHexes(playerId, 'fields')
+    const amount = hexCount * 2
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId
+          ? { ...p, resources: { ...p.resources, grain: p.resources.grain + amount }, progressCards: removeOne(p.progressCards, 'irrigation') }
+          : p,
+      ),
+    )
+    inform(`${player.name} played Irrigation — gained ${amount} Grain (${hexCount} field hexes).`)
+  }
+
+  const playIrrigation = () => {
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('irrigation')) return
+    applyIrrigationEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'irrigation' })
+  }
+
+  // Mining mirrors Irrigation exactly: biome 'mountains', resource 'ore',
+  // card 'mining' — see applyIrrigationEffect's own comment for the trust
+  // reasoning, identical here.
+  const applyMiningEffect = (playerId: number) => {
+    const player = playerById.get(playerId)
+    if (!player) return
+    const hexCount = countAdjacentBiomeHexes(playerId, 'mountains')
+    const amount = hexCount * 2
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id === playerId
+          ? { ...p, resources: { ...p.resources, ore: p.resources.ore + amount }, progressCards: removeOne(p.progressCards, 'mining') }
+          : p,
+      ),
+    )
+    inform(`${player.name} played Mining — gained ${amount} Ore (${hexCount} mountain hexes).`)
+  }
+
+  const playMining = () => {
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('mining')) return
+    applyMiningEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'mining' })
+  }
+
   // Resolves whichever picker is currently open (Year of Plenty or
   // Monopoly) with the resource(s) the player picked in the modal. Only
   // ever reachable by the local actor — devCardPicker is pure local UI
@@ -3170,10 +3309,18 @@ function App() {
     )
   }
 
-  // Empty until Tasks 8-16 each wire in one progress-card type's Play
-  // action — ProgressCardsPanel treats a missing key as "no handler yet"
-  // (disabled button), not a crash, so this is safe to ship key-less.
-  const progressCardPlayHandlers: ProgressCardPlayHandlers = {}
+  // Tasks 8-16 each wire in one more progress-card type's Play action —
+  // ProgressCardsPanel treats a missing key as "no handler yet" (disabled
+  // button), not a crash, so shipping this partial is safe. Alchemy is
+  // deliberately absent: it has its own 2-number picker UI next to the Roll
+  // Dice button (playAlchemy, wired directly to GameHud) rather than the
+  // generic click-to-play this object drives — leaving it keyless here
+  // means its card in the panel renders disabled, so it can't ALSO be
+  // reached via a plain click that would skip the picker.
+  const progressCardPlayHandlers: ProgressCardPlayHandlers = {
+    irrigation: playIrrigation,
+    mining: playMining,
+  }
 
   return (
     <div className="relative h-screen w-screen bg-board-navy">
@@ -3350,6 +3497,7 @@ function App() {
           politics: progressCardDecks.politics.length,
         }}
         progressCardPlayHandlers={progressCardPlayHandlers}
+        onPlayAlchemy={playAlchemy}
         activeProgressDiscarderId={activeProgressDiscarderId}
         progressDiscardSelection={progressDiscardSelection}
         onToggleProgressDiscard={toggleProgressDiscardSelection}

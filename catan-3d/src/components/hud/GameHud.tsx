@@ -147,6 +147,12 @@ interface GameHudProps {
   // card with no wired-in Play action yet renders disabled instead of
   // crashing on a missing handler.
   progressCardPlayHandlers: ProgressCardPlayHandlers
+  // Cities & Knights Alchemy — deliberately NOT part of
+  // progressCardPlayHandlers above (see that prop's own comment): this
+  // fires straight from the small 2-number picker rendered near the Roll
+  // Dice button below, only reachable pre-roll on the current player's own
+  // turn.
+  onPlayAlchemy: (d1: number, d2: number) => void
   // Cities & Knights progress-card hand limit (4 cards). Unlike
   // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
   // this is the raw front-of-queue player id — GameHud derives its OWN
@@ -238,6 +244,7 @@ export function GameHud({
   citiesAndKnightsProgressCards,
   progressCardDeckCounts,
   progressCardPlayHandlers,
+  onPlayAlchemy,
   activeProgressDiscarderId,
   progressDiscardSelection,
   onToggleProgressDiscard,
@@ -256,6 +263,11 @@ export function GameHud({
   onSendChatMessage,
 }: GameHudProps) {
   const [isTradeOpen, setIsTradeOpen] = useState(false)
+  // Cities & Knights Alchemy's own 2-number picker (Set Dice button near
+  // Roll Dice, below) — plain local UI state, never broadcast, same
+  // treatment devCardPicker's OWN resource choices get before submission.
+  const [alchemyD1, setAlchemyD1] = useState(1)
+  const [alchemyD2, setAlchemyD2] = useState(1)
   // devCardPicker takes priority — the two are mutually exclusive in
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
@@ -496,6 +508,52 @@ export function GameHud({
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
+      {/* Cities & Knights Alchemy — a 2-number picker, NOT a click-to-play
+          card (see progressCardPlayHandlers' own comment): gated on the
+          exact same pre-roll/own-turn conditions as RollDiceButton right
+          above it, so it only ever appears for the player who could
+          actually use it right now. Anchored to the LEFT of Roll Dice
+          (right-44 clears that button's own right-8/w-32 footprint) rather
+          than sharing EventDieIndicator's slot above it, since lastEventDie
+          stays populated into later turns too (set once per roll, never
+          cleared) and would otherwise sit right on top of this once a game
+          is a few rolls in. */}
+      {citiesAndKnightsProgressCards && isMyTurn && !hasRolledThisTurn && currentPlayer.progressCards.includes('alchemy') && (
+        <div className="pointer-events-auto absolute right-44 bottom-10 flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+          <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={alchemyD1}
+              onChange={(e) => setAlchemyD1(Number(e.target.value))}
+              className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <select
+              value={alchemyD2}
+              onChange={(e) => setAlchemyD2(Number(e.target.value))}
+              className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => onPlayAlchemy(alchemyD1, alchemyD2)}
+            className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+          >
+            Play
+          </button>
+        </div>
+      )}
       {lastEventDie && (
         <div className="pointer-events-none absolute right-8 bottom-40">
           <EventDieIndicator face={lastEventDie} />

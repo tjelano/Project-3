@@ -165,6 +165,17 @@ export interface ProgressCardsDrawnPayload {
   draws: { playerId: number; card: ProgressCardType }[]
 }
 
+// Shared, generic payload for every "no-target, no-picker, self-only
+// effect" progress card (Irrigation, Mining here; Task 14's Merchant Fleet
+// reuses this same shape) — unlike ProgressCardsDrawnPayload above, no
+// card-identity trust issue exists here: both clients compute the SAME
+// deterministic effect from the SAME public board state, so the payload
+// only has to say WHO played WHICH card, not what the effect resolved to.
+export interface ProgressCardPlayedPayload {
+  playerId: number
+  card: ProgressCardType
+}
+
 // Cities & Knights Metropolis — sent once a player's city-selection click
 // (App.tsx's buildSettlementRaw, pendingMetropolisTrack branch) resolves
 // which of their cities gets the marker. Every OTHER client trusts this
@@ -368,6 +379,10 @@ export interface RoomChannelHandlers {
   onDevCardBought?: (payload: DevCardBoughtPayload) => void
   onCityImprovementPurchased?: (payload: CityImprovementPurchasedPayload) => void
   onProgressCardsDrawn?: (payload: ProgressCardsDrawnPayload) => void
+  // Generic receiver for every self-only, no-picker progress card play (see
+  // ProgressCardPlayedPayload above) — App.tsx dispatches on payload.card to
+  // the matching applyXEffect(playerId) function.
+  onProgressCardPlayed?: (payload: ProgressCardPlayedPayload) => void
   // Trusted-apply — see MetropolisClaimedPayload's own comment above for why
   // receivers apply payload.playerId directly instead of re-resolving it.
   onMetropolisClaimed?: (payload: MetropolisClaimedPayload) => void
@@ -571,6 +586,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<ProgressCardsDrawnPayload>('broadcast', { event: 'PROGRESS_CARDS_DRAWN' }, ({ payload }) => {
       handlersRef.current.onProgressCardsDrawn?.(payload)
     })
+    channel.on<ProgressCardPlayedPayload>('broadcast', { event: 'PROGRESS_CARD_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onProgressCardPlayed?.(payload)
+    })
     channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, ({ payload }) => {
       handlersRef.current.onMetropolisClaimed?.(payload)
     })
@@ -773,6 +791,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastProgressCardsDrawn = (payload: ProgressCardsDrawnPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_CARDS_DRAWN', payload })
   }
+  const broadcastProgressCardPlayed = (payload: ProgressCardPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_CARD_PLAYED', payload })
+  }
   const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'METROPOLIS_CLAIMED', payload })
   }
@@ -820,6 +841,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastDevCardBought,
     broadcastCityImprovementPurchased,
     broadcastProgressCardsDrawn,
+    broadcastProgressCardPlayed,
     broadcastMetropolisClaimed,
     broadcastBankTrade,
     broadcastCommodityTraded,

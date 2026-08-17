@@ -7,9 +7,12 @@ import { WINNING_SCORE, type GameRules } from '../../game/types'
 const VP_TARGET_MIN = 3
 const VP_TARGET_MAX = 50
 
-// The 5 checkbox rules fill 5 of a 2x3 grid's 6 cells, leaving one open —
-// add a 6th checkbox rule here and it drops straight into that last cell.
-// A 7th+ rule extends the grid to 2x4 (bump GRID_ROW_COUNT accordingly).
+// 7 checkbox rules, laid out in a 2-column grid that grows its own rows —
+// currently 4 rows, the last holding a single rule with an empty cell beside
+// it. Nothing here is hardcoded to a row count: add or remove a rule and the
+// grid (and the divider logic in the render below, which suppresses the
+// hairline under the LAST ROW rather than under the last entry) adjusts on
+// its own.
 const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards'; label: string }[] = [
   { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
   { key: 'friendlyRobber', label: 'Friendly robber' },
@@ -40,6 +43,20 @@ const ROW_RING_SIZE_PX = 32
 const ROW_RING_GAP_PX = 10
 const GRID_GAP_X_PX = 40
 const GRID_DIVIDER_COLOR = 'rgba(200, 169, 62, 0.25)'
+// Keep in sync with the `grid-cols-2` class on the grid container below.
+const GRID_COLUMN_COUNT = 2
+
+// Every rule EXCEPT the ones in the final grid row draws a hairline beneath
+// itself — the last row must not, or its divider collides with the borderTop
+// of the hidden-tiles row that follows the grid. The old `index < length - 1`
+// form only got that right for an ODD rule count (where the last row holds
+// exactly one entry, which happens to be the last index): at 7 rules today it
+// renders identically to this, but adding an 8th would have left a dangling
+// half-width hairline under the second-to-last entry only, since that entry
+// shares the final row with the last one. Derived from the count instead of
+// hardcoded so it stays correct either way.
+const FIRST_INDEX_IN_LAST_GRID_ROW =
+  CHECKBOX_RULES.length - (CHECKBOX_RULES.length % GRID_COLUMN_COUNT || GRID_COLUMN_COUNT)
 
 // Outer frame padding — hr-panel-bg.png's own border needs room between
 // itself and the content sitting on top of it.
@@ -151,7 +168,7 @@ export function HouseRulesDropdown({
               label={rule.label}
               checked={rules[rule.key]}
               onToggle={(checked) => setRule(rule.key, checked)}
-              showDivider={index < CHECKBOX_RULES.length - 1}
+              showDivider={index < FIRST_INDEX_IN_LAST_GRID_ROW}
               animationDelay={`${index * STAGGER_STEP_MS}ms`}
             />
           ))}

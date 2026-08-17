@@ -1,11 +1,58 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildProgressCardDeck,
   isEligibleToDraw,
   resolveEventDieDraws,
   progressCardHandExcess,
+  rollEventDie,
 } from './progressCards'
+import type { EventDieFace } from '../components/Dice3D'
 import type { ImprovementTrack, ProgressCardType } from './types'
+
+describe('rollEventDie', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('only ever returns one of the 4 valid event-die faces', () => {
+    const valid: EventDieFace[] = ['ship', 'science', 'trade', 'politics']
+    for (let i = 0; i < 500; i++) expect(valid).toContain(rollEventDie())
+  })
+
+  it('is a 6-face die distributed 3 ship : 1 science : 1 trade : 1 politics', () => {
+    // Math.random values chosen so Math.floor(value * 6) sweeps 0,1,2,3,4,5
+    // exactly once each — i/6 can't be used directly, since 1/6 * 6 lands on
+    // 0.9999999999999999 and would floor back to index 0.
+    const sweep = [0.01, 0.2, 0.35, 0.51, 0.7, 0.9]
+    const randomSpy = vi.spyOn(Math, 'random')
+    for (const value of sweep) randomSpy.mockReturnValueOnce(value)
+
+    const counts: Record<string, number> = {}
+    for (let i = 0; i < sweep.length; i++) {
+      const face = rollEventDie()
+      counts[face] = (counts[face] ?? 0) + 1
+    }
+
+    expect(counts).toEqual({ ship: 3, science: 1, trade: 1, politics: 1 })
+  })
+
+  it('holds that 3:1:1:1 ratio over a large unmocked sample', () => {
+    const samples = 60_000
+    const counts: Record<string, number> = { ship: 0, science: 0, trade: 0, politics: 0 }
+    for (let i = 0; i < samples; i++) counts[rollEventDie()] += 1
+
+    // Half of all rolls should be ship (3 of 6 faces), a sixth each for the
+    // three tracks. A generous tolerance keeps this from flaking while still
+    // failing loudly on any actually-different distribution (e.g. a uniform
+    // 1:1:1:1 would put ship at 25%, far outside this band).
+    expect(counts.ship / samples).toBeGreaterThan(0.46)
+    expect(counts.ship / samples).toBeLessThan(0.54)
+    for (const track of ['science', 'trade', 'politics'] as const) {
+      expect(counts[track] / samples).toBeGreaterThan(0.14)
+      expect(counts[track] / samples).toBeLessThan(0.19)
+    }
+  })
+})
 
 describe('buildProgressCardDeck', () => {
   it('builds exactly 18 cards per track, matching PROGRESS_CARD_DECK_COMPOSITION', () => {

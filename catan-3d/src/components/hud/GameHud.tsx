@@ -226,6 +226,12 @@ interface GameHudProps {
   // (hides the Play button / shows a hint, same shape as inventionSwapActive).
   onPlayDiplomacy: () => void
   diplomacyPickerActive: boolean
+  // Backs out of an armed road-picker without spending anything. Required,
+  // not optional: End Turn refuses to advance while the picker is armed, so
+  // with no cancel path an armed picker with nothing pickable is a hard
+  // deadlock — and the flag survived into the next match before this fix
+  // round, taking the deadlock with it.
+  onCancelDiplomacy: () => void
   // Cities & Knights Guild Dues — null until the viewer's own OWN play
   // spends the card (App.tsx's playGuildDues), local-only like
   // pendingInventionSwap/merchantFleetType above (only ever set on the
@@ -260,10 +266,11 @@ interface GameHudProps {
   // only reads it while discardActive is true.
   progressDiscardSelection: number[]
   onToggleProgressDiscard: (index: number) => void
-  // How many cards the active discarder still needs to pick — 0 is
-  // possible (progressCardOverLimitPlayerIds is deliberately over-
-  // inclusive per Task 3), in which case the confirm button is immediately
-  // enabled.
+  // How many cards the active discarder still needs to pick — 0 is still
+  // possible (App.tsx only queues players actually over the limit now, but
+  // a queued player can drop back under it before confirming, and a
+  // restored snapshot rehydrates the queue as-saved), in which case the
+  // confirm button is immediately enabled.
   progressDiscardRequiredCount: number
   onConfirmProgressDiscard: () => void
   // Named for the small "waiting for X" indicator, same role as
@@ -348,6 +355,7 @@ export function GameHud({
   onPlayCommercialHarbor,
   onPlayDiplomacy,
   diplomacyPickerActive,
+  onCancelDiplomacy,
   pendingGuildDues,
   guildDuesEligibleTargets,
   onSelectGuildDuesTarget,
@@ -816,13 +824,31 @@ export function GameHud({
             </button>
           </div>
         )}
+        {/* Unlike Invention's own hint block above, this one carries a
+            Cancel button. Diplomacy's card isn't spent until a road is
+            actually chosen, and End Turn refuses to advance while the picker
+            is armed — so without a way out, arming it with nothing pickable
+            (or simply changing your mind) deadlocked the match outright.
+            App.tsx's activateDiplomacy now also refuses to arm when no open
+            road exists, which is the root fix; this is the escape hatch for
+            the case where the board changes underneath an armed picker. */}
         {citiesAndKnightsProgressCards && isMyTurn && diplomacyPickerActive && (
-          <div className="pointer-events-auto animate-gold-pulse rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-center font-body text-[10px] text-gold uppercase">
-            Pick an open road on the board
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-gold/60 bg-gold/10 p-2.5 text-center">
+            <span className="animate-gold-pulse font-body text-[10px] text-gold uppercase">Pick an open road on the board</span>
+            <button
+              type="button"
+              onClick={onCancelDiplomacy}
+              className="w-full rounded-lg border border-glass-border bg-white/5 px-3 py-1.5 font-display text-xs font-semibold text-white/80 transition-colors hover:bg-white/10"
+            >
+              Cancel
+            </button>
           </div>
         )}
       </div>
-      {lastEventDie && (
+      {/* Same house-rule gate as every other Cities & Knights affordance
+          above — the event die only exists when progress cards are on, so a
+          base-game player (all rules off) must never see its badge. */}
+      {citiesAndKnightsProgressCards && lastEventDie && (
         <div className="pointer-events-none absolute right-8 bottom-40">
           <EventDieIndicator face={lastEventDie} />
         </div>

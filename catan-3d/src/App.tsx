@@ -120,6 +120,22 @@ function findPlayerIndexByName(names: string[], name: string): number {
   return names.findIndex((candidate) => normalizePlayerName(candidate) === normalized)
 }
 
+// Cities & Knights Medicine — CityBuiltPayload.costOverride arrives over the
+// wire and flows straight into deductCost, which does no clamping and no key
+// validation of its own (see game/types.ts): a negative amount would ADD
+// resources instead of deducting them, and an unrecognized key would write
+// NaN into a real player's resource record permanently. Same
+// validate-before-mutating convention as onBankTrade/onCommodityTraded's own
+// payload guards, hoisted to module scope because it needs no component
+// state.
+function isValidCostOverride(costOverride: Partial<Resources>): boolean {
+  if (typeof costOverride !== 'object' || costOverride === null) return false
+  return Object.entries(costOverride).every(
+    ([resource, amount]) =>
+      RESOURCE_ORDER.includes(resource as ResourceType) && typeof amount === 'number' && Number.isFinite(amount) && amount >= 0,
+  )
+}
+
 // Position (px from the bottom-left corner) of the "F — Free camera" hint —
 // nudge if it ever collides with GameHud's own bottom-left panels (event
 // log, etc.).
@@ -513,6 +529,35 @@ function App() {
     }
     if (activeScienceFreeResourcePlayerId != null) {
       warn('Resolve the free resource pick first.')
+      return false
+    }
+    return true
+  }
+
+  // The progress-card equivalent of canPlayDevCardNow (further down, next to
+  // the dev-card play handlers), minus the two parts that don't apply:
+  // progress cards aren't purchased, so there's no once-per-turn limit and no
+  // "bought this turn" exclusion, and each handler already checks its own
+  // specific card is in hand. What's left is exactly the shared phase gate
+  // every dev-card play has always had and no progress-card handler had at
+  // all (only isMyTurn, from Task 7's correction) — so progress cards were
+  // playable during gamePhase 'discard', mid-roll, and during 'moveRobber'.
+  // The discard case is the one buyCityImprovement's own comment already
+  // warns about: an action taken mid-discard changes the very hand the
+  // player's own REQUIRED discard was sized against. isMyTurn stays in the
+  // individual handlers (they each need players[currentPlayerIndex] anyway)
+  // and is checked immediately after this call, mirroring canPlayDevCardNow's
+  // own ordering: canPerformAction, then phase/rolling, then whose turn it is.
+  //
+  // Declared up here rather than beside canPlayDevCardNow for the reason
+  // applyCommercialHarborEffect's own comment spells out: a plain top-level
+  // const in this component referencing another declared LATER trips this
+  // project's react-hooks lint config, and the earliest caller
+  // (playCommercialHarbor) sits well above canPlayDevCardNow.
+  const canPlayProgressCardNow = (): boolean => {
+    if (!canPerformAction()) return false
+    if (gamePhase !== 'playing' || isRolling) {
+      warn("You can't play a progress card right now.")
       return false
     }
     return true
@@ -1003,10 +1048,36 @@ function App() {
     // rather than overwrites, same reasoning as scienceFreeResourcePlayerIds
     // above: a second draw before the first discard resolves must not
     // silently drop the earlier over-limit player.
-    const overLimitIds = draws
-      .map((d) => d.playerId)
-      .filter((id, i, arr) => arr.indexOf(id) === i) // de-dupe multiple draws to the same player
+    //
+    // Only players who are ACTUALLY over the limit are queued. This used to
+    // enqueue every player who drew anything (Task 3's over-inclusive
+    // design, filtered down later by the consumer's own
+    // progressCardHandExcess call) — but the queue itself only clears on an
+    // explicit Confirm click or the timeout, so a player who drew a 2nd card
+    // still got the "Over the 4-Card Limit" prompt, had their Play buttons
+    // repurposed into discard-selection toggles, and (since the queue
+    // resolves front-only) made everyone else wait on them.
+    //
+    // The excess is computed from the hand AS IT WILL BE after this batch —
+    // `players` here is still the pre-update snapshot, so the drawn cards
+    // have to be appended explicitly. Computed outside the setPlayers
+    // updater above rather than inside it, the same StrictMode-safety
+    // reasoning applyWeddingEffect's own comment gives: an updater that a
+    // dev-mode double-invocation runs twice must stay free of side effects.
+    const overLimitIds = players
+      .filter((p) => {
+        const drawn = draws.filter((d) => d.playerId === p.id).map((d) => d.card)
+        if (drawn.length === 0) return false
+        return progressCardHandExcess([...p.progressCards, ...drawn]) > 0
+      })
+      .map((p) => p.id)
     debugLog('applyProgressCardDraws', { draws, overLimitIdsBefore: progressCardOverLimitPlayerIds, overLimitIds })
+    // Nobody over the limit is now the COMMON case, not the exception, so
+    // keep the previous array's identity in that case — the hand-limit
+    // timeout effect below keys on this state's identity, and handing it a
+    // fresh (still empty) array every roll would restart that timer for no
+    // reason.
+    if (overLimitIds.length === 0) return
     setProgressCardOverLimitPlayerIds((prev) => {
       const next = [...new Set([...prev, ...overLimitIds])]
       return next
@@ -1118,8 +1189,20 @@ function App() {
     // Cities & Knights Medicine — costOverride carries the discounted price
     // the acting client actually charged (see CityBuiltPayload's own
     // comment); undefined here just means "normal CITY_COST," same as any
-    // ordinary city upgrade.
-    onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId, payload.costOverride),
+    // ordinary city upgrade. A PRESENT one is broadcast-sourced arithmetic
+    // input, so it's validated first (isValidCostOverride, module scope
+    // above) — the whole broadcast is rejected rather than just dropping the
+    // override, matching every other malformed-payload guard in this object:
+    // silently charging full price for a city another client charged a
+    // discount for would desync the builder's resources permanently, which
+    // is exactly what these guards exist to prevent.
+    onCityBuilt: (payload) => {
+      if (payload.costOverride !== undefined && !isValidCostOverride(payload.costOverride)) {
+        console.error('[Catan] Ignoring malformed city-built payload:', payload)
+        return
+      }
+      applyCityPlacement(payload.vertexId, payload.playerId, payload.costOverride)
+    },
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
@@ -1280,7 +1363,24 @@ function App() {
       // Broadcast-sourced — same validation shape as onCityImprovementPurchased:
       // payload.track goes straight into progressCardDecks[track] indexing, so
       // a bogus value must be rejected before use.
-      if (!IMPROVEMENT_TRACK_ORDER.includes(payload.track)) {
+      //
+      // The draws array needs the same treatment its sibling
+      // onProgressCardPlayed already gives its single `card` field: every
+      // drawn card lands in a real player's hand and later keys
+      // PROGRESS_CARD_ART/PROGRESS_CARD_LABELS lookups, where an unrecognized
+      // value renders a broken image and an undefined label. playerId is
+      // checked too — applyProgressCardDraws would ignore an unknown id for
+      // the hand update but still enqueue it for a hand-limit discard, and
+      // neither the Confirm button nor the timeout can ever clear a queue
+      // entry for a player who doesn't exist (both bail on the playerById
+      // lookup), stalling the queue behind it forever. One draw per player
+      // per event die is the hard maximum, hence the length bound.
+      if (
+        !IMPROVEMENT_TRACK_ORDER.includes(payload.track) ||
+        !Array.isArray(payload.draws) ||
+        payload.draws.length > players.length ||
+        !payload.draws.every((draw) => PROGRESS_CARD_ORDER.includes(draw.card) && players.some((p) => p.id === draw.playerId))
+      ) {
         console.error('[Catan] Ignoring malformed progress-card-draw payload:', payload)
         return
       }
@@ -1355,7 +1455,31 @@ function App() {
       }
     },
     onInventionSwapped: (payload) => applyInventionSwap(payload.tileAId, payload.tileBId),
-    onProgressDiscardConfirmed: (payload) => applyProgressDiscard(payload.playerId, payload.indices),
+    // Broadcast-sourced — applyProgressDiscard sorts descending and splices,
+    // which is only safe for in-range, non-duplicated indices: a NEGATIVE
+    // index splices from the END of the array (removing a card the sender
+    // never named), and a duplicate-heavy or oversized array over-splices,
+    // silently destroying cards the hand limit never required. Validated
+    // against THIS client's own copy of the target hand — which is already
+    // guaranteed identical, since applyProgressCardDraws synced it before
+    // any discard could be owed — rather than trusting the sender's view of
+    // it. The count bound is progressCardHandExcess, the same number
+    // confirmProgressDiscard requires of the local actor.
+    onProgressDiscardConfirmed: (payload) => {
+      const target = players.find((p) => p.id === payload.playerId)
+      const indices = payload.indices
+      const valid =
+        target != null &&
+        Array.isArray(indices) &&
+        indices.length <= progressCardHandExcess(target.progressCards) &&
+        new Set(indices).size === indices.length &&
+        indices.every((index) => Number.isInteger(index) && index >= 0 && index < target.progressCards.length)
+      if (!valid) {
+        console.error('[Catan] Ignoring malformed progress-discard payload:', payload)
+        return
+      }
+      applyProgressDiscard(payload.playerId, indices)
+    },
     // Trusted-apply — the purchasing client already resolved which player
     // controls the track AND which of their cities carries the marker (see
     // buildSettlementRaw's pendingMetropolisClaim branch); every other
@@ -2029,6 +2153,7 @@ function App() {
   }
 
   const playCommercialHarbor = (resource: ResourceType) => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -2134,6 +2259,7 @@ function App() {
   // needs a dedicated affordance for this rather than the generic
   // click-to-play ProgressCardsPanel drives for no-picker cards.
   const activateDiplomacy = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -2147,9 +2273,31 @@ function App() {
       warn('Finish choosing a road first.')
       return
     }
+    // Arming with nothing to pick was the root of a hard deadlock: the
+    // picker would be armed forever (handleEndTurn refuses to advance while
+    // it's set, and playDiplomacy — the only clear — can never succeed with
+    // no eligible road on the board). Checked BEFORE arming rather than
+    // relying on the Cancel affordance alone, since a player who can't
+    // possibly complete the action should never be put into it in the first
+    // place. Nothing is spent here either way (the card is only removed
+    // inside applyDiplomacyRemoval, once a road is actually chosen), so
+    // refusing costs the player nothing.
+    if (!Object.keys(roads).some((edgeId) => isOpenRoad(edgeId))) {
+      warn('No open roads available for Diplomacy.')
+      return
+    }
     setPendingDiplomacyRemoval({ playerId: player.id })
     inform(`${player.name} played Diplomacy — choose an open road to remove.`)
   }
+
+  // Cancel affordance for the armed road-picker — same shape as
+  // cancelGuildDues/cancelEspionage below. Diplomacy's card isn't spent
+  // until a road is actually chosen (see applyDiplomacyRemoval), so backing
+  // out is a clean no-op that returns the player exactly where they were,
+  // and it's the escape hatch if the board state changes underneath an
+  // already-armed picker (a road they were about to remove gets built next
+  // to a fresh settlement, say) leaving nothing pickable.
+  const cancelDiplomacy = () => setPendingDiplomacyRemoval(null)
 
   const buildRoadRaw = (edgeId: string) => {
     // Cities & Knights Diplomacy — check special mode FIRST, same shape as
@@ -2346,7 +2494,21 @@ function App() {
     // client — roller and receivers alike — runs identically; card draws
     // must not become part of that path since only the roller can resolve
     // them.
-    if (eventDie !== 'ship') {
+    //
+    // Gated EXPLICITLY on the house rule (the plan's Global Constraints
+    // correction): the draw logic is NOT naturally inert when the rule is
+    // off. Commodities ON + progress cards OFF — the configuration every
+    // existing Phase A game is already in — has real cityImprovements
+    // levels, so without this check every roll silently dealt hidden cards
+    // and a drawn Printing/Constitution silently added +1 VP (getScoreBreakdown
+    // counts progressCards unconditionally) to a game that never opted in.
+    // This is the ONLY path that ever adds a card to a hand locally, so
+    // gating it here is what makes the whole feature genuinely inert:
+    // nothing broadcasts PROGRESS_CARDS_DRAWN either (that call lives inside
+    // this block), and progressCardOverLimitPlayerIds' only enqueue site is
+    // applyProgressCardDraws, so the discard prompt/timeout can never fire
+    // in a rule-off game either.
+    if (gameRules.citiesAndKnightsProgressCards && eventDie !== 'ship') {
       const track = eventDie // 'science' | 'trade' | 'politics'
       const turnOrderIds = [
         ...players.slice(currentPlayerIndex).map((p) => p.id),
@@ -2627,11 +2789,14 @@ function App() {
   // turn in local Pass & Play.
   const activeProgressDiscarderId = progressCardOverLimitPlayerIds[0] ?? null
   const progressDiscardingPlayer = activeProgressDiscarderId != null ? playerById.get(activeProgressDiscarderId) : null
-  // progressCardOverLimitPlayerIds is deliberately over-inclusive (Task 3
-  // queues everyone who drew ANYTHING, not just those actually over the
-  // limit) — this is what actually filters it down to a real requirement,
-  // which can legitimately be 0 for a queued player who wasn't really over
-  // the limit.
+  // applyProgressCardDraws now only enqueues players actually over the limit
+  // (it used to enqueue everyone who drew anything and leave the filtering
+  // to this line, which meant a prompt-and-Confirm click chain for players
+  // who owed nothing — see that function's own comment). This is still
+  // computed live rather than frozen at enqueue time, and can still
+  // legitimately read 0: a queued player can be brought back under the limit
+  // by something else before they confirm (Espionage taking one of their
+  // cards, say), and a snapshot restore rehydrates the queue as-saved.
   const progressDiscardRequiredCount = progressDiscardingPlayer
     ? progressCardHandExcess(progressDiscardingPlayer.progressCards)
     : 0
@@ -2840,6 +3005,19 @@ function App() {
     // finish it before ending your turn" precedent.
     if (pendingDiplomacyRemoval && pendingDiplomacyRemoval.playerId === players[currentPlayerIndex]?.id) {
       warn('Choose a road to remove with Diplomacy first.')
+      return
+    }
+    // Cities & Knights Merchant — identical reasoning to the Invention guard
+    // above, and identical failure modes without it: the card is already
+    // spent the instant pendingMerchantPlacement is set (playMerchant), so
+    // ending the turn stranded a spent card. Online it was worse than
+    // stranding — the picker stayed live into the opponent's turn (see
+    // handleMerchantTileSelect's own guard, the other half of this fix).
+    // Locally, MerchantLayer's placingPlayerId compares against localPlayer.id,
+    // which TRACKS the current player on a shared device, so the picker
+    // silently vanished on turn advance instead.
+    if (pendingMerchantPlacement != null && pendingMerchantPlacement === players[currentPlayerIndex]?.id) {
+      warn('Place the Merchant on a hex first.')
       return
     }
     endTurn()
@@ -3391,6 +3569,7 @@ function App() {
   // and the panel-level gate alone isn't enough to stop a stale click from
   // reaching it.
   const playResourceMonopoly = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3411,6 +3590,7 @@ function App() {
   // (via resolveDevCardCommodityPicker) instead, since it announces a
   // CommodityType. Same isMyTurn guard reasoning as playResourceMonopoly.
   const playTradeMonopoly = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3439,6 +3619,7 @@ function App() {
   // broadcastDiceRolled, so every other client already receives the
   // final, overridden dice/total with no separate signal needed.
   const playAlchemy = (d1: number, d2: number) => {
+    if (!canPlayProgressCardNow()) return
     // Not currently reachable through the UI — the picker that calls this
     // is itself gated on isMyTurn (GameHud.tsx) — but every sibling
     // pre-roll/dev-card handler in this file (rollDice, buyDevCard,
@@ -3509,6 +3690,7 @@ function App() {
   }
 
   const playIrrigation = () => {
+    if (!canPlayProgressCardNow()) return
     // playIrrigation/playMining always act on players[currentPlayerIndex] —
     // without this guard, a non-turn player clicking their OWN Irrigation
     // card (ProgressCardsPanel shows viewer.progressCards regardless of
@@ -3550,6 +3732,7 @@ function App() {
   }
 
   const playMining = () => {
+    if (!canPlayProgressCardNow()) return
     // See playIrrigation's own comment just above — identical reasoning.
     if (!isMyTurn) {
       warn("It's not your turn.")
@@ -3586,6 +3769,7 @@ function App() {
   }
 
   const playCrane = () => {
+    if (!canPlayProgressCardNow()) return
     // Reachable through ProgressCardsPanel's generic click-to-play (the
     // panel already disables Play buttons when !isMyTurn), but every sibling
     // handler in this file guards directly too rather than relying solely on
@@ -3621,6 +3805,7 @@ function App() {
   }
 
   const playMedicine = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3635,6 +3820,7 @@ function App() {
   }
 
   const playProgressRoadBuilding = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3700,6 +3886,7 @@ function App() {
   // so it can't ALSO be reached via a plain click that would skip the
   // picker.
   const playInvention = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3734,6 +3921,7 @@ function App() {
   // receiving end), so every other client already ends up with the correct
   // result with no need to separately learn WHY that rate applied.
   const playMerchantFleet = (type: ResourceType | CommodityType) => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3762,6 +3950,7 @@ function App() {
   // handleMerchantTileSelect below, entirely outside this function, same
   // split playInvention/handleInventionTileSelect already use.
   const playMerchant = () => {
+    if (!canPlayProgressCardNow()) return
     // Binding correction from Task 7's review (applies plan-wide): must be
     // checked BEFORE reading players[currentPlayerIndex], not after.
     if (!isMyTurn) {
@@ -3788,6 +3977,20 @@ function App() {
   // same reasoning RobberMovedPayload/MetropolisClaimedPayload already use
   // for their own board-piece moves.
   const handleMerchantTileSelect = (tileId: string) => {
+    // Unlike handleInventionTileSelect (whose picker can only ever be armed
+    // and resolved inside one turn, because handleEndTurn refuses to advance
+    // past it), this handler was reachable during an OPPONENT's turn: End
+    // Turn used to allow advancing with pendingMerchantPlacement still set,
+    // leaving this client's tile picker live so the Merchant (1 VP + a 2:1
+    // rate) could be placed mid-opponent-turn. Guarded first, exactly like
+    // every playX handler in this file. handleEndTurn now also refuses to
+    // advance while a placement is pending, so the legitimate flow — play
+    // Merchant, place it, then end your turn — is unaffected: isMyTurn is
+    // true for the whole of it.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     if (pendingMerchantPlacement == null) return
     const playerId = pendingMerchantPlacement
     setMerchantTileId(tileId)
@@ -3856,6 +4059,7 @@ function App() {
   }
 
   const playSabotage = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3918,6 +4122,7 @@ function App() {
   }
 
   const playWedding = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -3969,6 +4174,7 @@ function App() {
   }
 
   const playGuildDues = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -4047,6 +4253,7 @@ function App() {
   }
 
   const playEspionage = () => {
+    if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -4341,6 +4548,19 @@ function App() {
     setMerchantFleetRate(null)
     setPendingGuildDues(null)
     setPendingEspionage(null)
+    // Diplomacy's armed road-picker was the ONE sibling flag missing from
+    // this block, and the most damaging one to leave behind: buildRoadRaw
+    // checks pendingDiplomacyRemoval BEFORE its setup/canInteract checks, so
+    // a stranded flag turned every road click in the NEXT game — including
+    // the two free SETUP roads — into a Diplomacy removal attempt.
+    setPendingDiplomacyRemoval(null)
+    // Same one-shot-flag reasoning: a leftover Alchemy preset would override
+    // the FIRST roll of the next game with the previous game's fixed dice.
+    setAlchemyPreset(null)
+    // Purely cosmetic (EventDieIndicator's badge), but a stale face from the
+    // previous match would otherwise show over a brand-new board before
+    // anyone has rolled.
+    setLastEventDie(null)
     // Cities & Knights Merchant (Task 13) — same reasoning as
     // metropolisHolders/metropolisVertexIds above: a leftover holder/tile
     // from a PREVIOUS match would silently keep granting 2:1 trades and +1
@@ -4477,6 +4697,14 @@ function App() {
     setPendingGuildDues(null)
     setPendingEspionage(null)
     setPendingMerchantPlacement(null)
+    // Same "always reset on restore" treatment as the flags just above — see
+    // resetGame's own comments for why each of these three matters. A
+    // stranded pendingDiplomacyRemoval is the worst of them: buildRoadRaw
+    // resolves it ahead of every ordinary build check, so it would hijack
+    // road placement for the rest of the reconnected session.
+    setPendingDiplomacyRemoval(null)
+    setAlchemyPreset(null)
+    setLastEventDie(null)
     setDiscardSelection([])
     // Progress-card hand-limit queue — unlike discardPlayerIds (recomputed
     // below from restored resource counts) this genuinely IS a persisted
@@ -4982,6 +5210,7 @@ function App() {
         onPlayCommercialHarbor={playCommercialHarbor}
         onPlayDiplomacy={activateDiplomacy}
         diplomacyPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
+        onCancelDiplomacy={cancelDiplomacy}
         pendingGuildDues={pendingGuildDues}
         guildDuesEligibleTargets={guildDuesEligibleTargets}
         onSelectGuildDuesTarget={selectGuildDuesTarget}

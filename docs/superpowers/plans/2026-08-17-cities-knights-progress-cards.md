@@ -1875,16 +1875,43 @@ const playResourceMonopoly = () => {
 }
 ```
 
+**Correction found during Task 10's review (self-caught by the
+implementer, then verified against the reference doc):** the text below
+originally claimed base-game Monopoly's effect and this card's effect
+are "IDENTICAL" — they are NOT. Base-game Monopoly (`applyMonopolyEffect`)
+takes EVERY unit of the announced resource from every other player.
+Resource Monopoly's actual card text (confirmed against
+`docs/superpowers/specs/references/cities-knights-progress-cards.md:36`)
+is: "Announce one resource type. Each player must give you **2** of that
+resource if they have them (**or their last one if they only have 1**)."
+These are different amounts — reusing `applyMonopolyEffect` verbatim
+would over-collect (take-all instead of take-2-or-fewer), a real rules
+bug, not a cosmetic naming difference.
+
 `DevCardPickerMode` (`App.tsx:89`) gains `'resourceMonopolyProgress'`;
-`resolveDevCardPicker` (`App.tsx:2451-2467`) gains a branch calling the
-SAME `applyMonopolyEffect(player.id, resource)` the base dev card already
-uses — the effect (steal an announced resource from everyone) is
-IDENTICAL, only the card that triggered it differs, so no new effect
-function is needed, only a new dispatch branch and a new broadcast event
-name (`ResourceMonopolyProgressPlayedPayload`, mirroring
-`MonopolyPlayedPayload` exactly) so the event log / receiving clients can
-tell which card was played (cosmetic — the resource-steal math itself is
-identical either way).
+`resolveDevCardPicker` (`App.tsx:2451-2467`) gains a branch calling a NEW
+function, `applyResourceMonopolyProgressEffect(playerId, resource)`,
+sibling to (NOT reusing) `applyMonopolyEffect`:
+
+```ts
+const applyResourceMonopolyProgressEffect = (playerId: number, resource: ResourceType) => {
+  setPlayers((prev) => {
+    let collected = 0
+    const next = prev.map((p) => {
+      if (p.id === playerId || p.resources[resource] <= 0) return p
+      const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
+      collected += take
+      return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - take } }
+    })
+    return next.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + collected } } : p))
+  })
+}
+```
+
+A new broadcast event name (`ResourceMonopolyProgressPlayedPayload`,
+mirroring `MonopolyPlayedPayload`'s shape) still applies, so receiving
+clients can tell which card triggered it and call the correct effect
+function.
 
 - [ ] **Step 2: Trade Monopoly — new commodity-announce picker**
 

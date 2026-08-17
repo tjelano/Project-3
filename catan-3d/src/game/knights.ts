@@ -1,0 +1,174 @@
+import type { BoardGraph } from '../data/boardGraph'
+import {
+  KNIGHT_STRENGTH_ORDER,
+  KNIGHT_STRENGTH_VALUE,
+  KNIGHT_RECRUIT_COST,
+  KNIGHT_ACTIVATE_COST,
+  KNIGHT_PROMOTE_COST,
+  CITY_WALL_COST,
+  MAX_CITY_WALLS_BOARD_WIDE,
+  MIGHTY_KNIGHT_POLITICS_LEVEL,
+  canAfford,
+  type Building,
+  type KnightPiece,
+  type KnightStrength,
+  type Player,
+} from './types'
+
+// basic -> strong -> mighty -> null (already at the top).
+export function nextKnightStrength(strength: KnightStrength): KnightStrength | null {
+  const index = KNIGHT_STRENGTH_ORDER.indexOf(strength)
+  return KNIGHT_STRENGTH_ORDER[index + 1] ?? null
+}
+
+export function canRecruitKnight(player: Player): boolean {
+  return player.knightSupply.basic > 0 && canAfford(player.resources, KNIGHT_RECRUIT_COST)
+}
+
+export function canActivateKnight(player: Player, knight: KnightPiece): boolean {
+  return !knight.active && canAfford(player.resources, KNIGHT_ACTIVATE_COST)
+}
+
+// Cost/supply/track checks only — does NOT check "already promoted this
+// turn" (that's per-knight turn-state App.tsx tracks separately, since this
+// module has no notion of "this turn").
+export function canPromoteKnight(player: Player, knight: KnightPiece): boolean {
+  const next = nextKnightStrength(knight.strength)
+  if (!next) return false
+  if (player.knightSupply[next] <= 0) return false
+  if (next === 'mighty' && player.cityImprovements.politics < MIGHTY_KNIGHT_POLITICS_LEVEL) return false
+  return canAfford(player.resources, KNIGHT_PROMOTE_COST)
+}
+
+export function canBuildCityWall(
+  player: Player,
+  vertexId: string,
+  settlements: Record<string, Building>,
+  totalWallsOnBoard: number,
+): boolean {
+  const building = settlements[vertexId]
+  if (!building || building.ownerId !== player.id || building.type !== 'city') return false
+  if (player.cityWalls.includes(vertexId)) return false
+  if (totalWallsOnBoard >= MAX_CITY_WALLS_BOARD_WIDE) return false
+  return canAfford(player.resources, CITY_WALL_COST)
+}
+
+// Builds a vertex adjacency map restricted to edges owned by playerId — the
+// same technique game/trophies.ts's calculateLongestRoad already uses for
+// its own DFS adjacency.
+function ownRoadAdjacency(playerId: number, graph: BoardGraph, roads: Record<string, number>): Map<string, string[]> {
+  const adjacency = new Map<string, string[]>()
+  const addNeighbor = (from: string, to: string) => {
+    const list = adjacency.get(from)
+    if (list) list.push(to)
+    else adjacency.set(from, [to])
+  }
+  for (const edge of graph.edges) {
+    if (roads[edge.id] !== playerId) continue
+    addNeighbor(edge.a, edge.b)
+    addNeighbor(edge.b, edge.a)
+  }
+  return adjacency
+}
+
+// Every vertex touching AT LEAST ONE of playerId's own road edges, that is
+// currently empty (no building, no knight of any owner) — CN3087 p.9:
+// "Knights must connect to one of your existing roads... do not need to
+// follow the Distance Rule." Unlike knightMoveTargets below, this is NOT a
+// continuous-route reachability search — recruiting has no "origin" to walk
+// from, just "touches any of my roads."
+export function recruitableVertices(
+  playerId: number,
+  graph: BoardGraph,
+  roads: Record<string, number>,
+  settlements: Record<string, Building>,
+  knightsByVertex: ReadonlyMap<string, KnightPiece>,
+): Set<string> {
+  const result = new Set<string>()
+  for (const edge of graph.edges) {
+    if (roads[edge.id] !== playerId) continue
+    for (const vertexId of [edge.a, edge.b]) {
+      if (settlements[vertexId]) continue
+      if (knightsByVertex.has(vertexId)) continue
+      result.add(vertexId)
+    }
+  }
+  return result
+}
+
+// BFS from originVertexId along playerId's own road network. Can pass
+// through (not stop at) vertices holding playerId's OWN building/knight;
+// stops at (can arrive at, cannot continue past) any other player's
+// building or knight — same asymmetric rule game/trophies.ts's
+// isBlockedByOpponent already applies for longest-road counting, applied
+// here to reachability instead of path length.
+function reachableVertices(
+  originVertexId: string,
+  playerId: number,
+  graph: BoardGraph,
+  roads: Record<string, number>,
+  settlements: Record<string, Building>,
+  knightsByVertex: ReadonlyMap<string, KnightPiece>,
+): Set<string> {
+  const adjacency = ownRoadAdjacency(playerId, graph, roads)
+
+  const isPassable = (vertexId: string): boolean => {
+    const building = settlements[vertexId]
+    if (building != null && building.ownerId !== playerId) return false
+    const knight = knightsByVertex.get(vertexId)
+    if (knight != null && knight.ownerId !== playerId) return false
+    return true
+  }
+
+  const visited = new Set<string>([originVertexId])
+  const queue = [originVertexId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (current !== originVertexId && !isPassable(current)) continue
+    for (const next of adjacency.get(current) ?? []) {
+      if (visited.has(next)) continue
+      visited.add(next)
+      queue.push(next)
+    }
+  }
+  visited.delete(originVertexId)
+  return visited
+}
+
+// Empty vertices an active knight can move to.
+export function knightMoveTargets(
+  knight: KnightPiece,
+  graph: BoardGraph,
+  roads: Record<string, number>,
+  settlements: Record<string, Building>,
+  knightsByVertex: ReadonlyMap<string, KnightPiece>,
+): Set<string> {
+  const reachable = reachableVertices(knight.vertexId, knight.ownerId, graph, roads, settlements, knightsByVertex)
+  const result = new Set<string>()
+  for (const vertexId of reachable) {
+    if (settlements[vertexId]) continue
+    if (knightsByVertex.has(vertexId)) continue
+    result.add(vertexId)
+  }
+  return result
+}
+
+// Reachable opponent knights strictly weaker than the mover — CN3087 p.10:
+// "Your knight must be stronger than the other player's knight."
+export function knightDisplaceTargets(
+  knight: KnightPiece,
+  graph: BoardGraph,
+  roads: Record<string, number>,
+  settlements: Record<string, Building>,
+  knightsByVertex: ReadonlyMap<string, KnightPiece>,
+): KnightPiece[] {
+  const reachable = reachableVertices(knight.vertexId, knight.ownerId, graph, roads, settlements, knightsByVertex)
+  const result: KnightPiece[] = []
+  for (const vertexId of reachable) {
+    const target = knightsByVertex.get(vertexId)
+    if (!target || target.ownerId === knight.ownerId) continue
+    if (KNIGHT_STRENGTH_VALUE[target.strength] >= KNIGHT_STRENGTH_VALUE[knight.strength]) continue
+    result.push(target)
+  }
+  return result
+}

@@ -4096,14 +4096,7 @@ function App() {
   // & Barbarians system (Phase C) to actually function. For now, they warn
   // and stay in hand unchanged — matching the design spec's "returns the
   // card to the player's hand unchanged" requirement and existing
-  // precedent. Defined for design clarity; not used in the actual wiring,
-  // which just references card names directly.
-  // @ts-expect-error Intentionally defined per spec but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const STUB_PROGRESS_CARDS: ReadonlySet<ProgressCardType> = new Set([
-    'engineering', 'smithing', 'encouragement', 'intrigue', 'treason', 'taxation',
-  ])
-
+  // precedent.
   const playStubProgressCard = (card: ProgressCardType) => {
     warn(`${PROGRESS_CARD_LABELS[card]} isn't implemented yet (needs Knights & Barbarians) — kept in hand.`)
   }

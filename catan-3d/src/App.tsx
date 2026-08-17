@@ -4092,6 +4092,22 @@ function App() {
 
   const cancelEspionage = () => setPendingEspionage(null)
 
+  // Cities & Knights — 6 knight-dependent stub cards that need the Knights
+  // & Barbarians system (Phase C) to actually function. For now, they warn
+  // and stay in hand unchanged — matching the design spec's "returns the
+  // card to the player's hand unchanged" requirement and existing
+  // precedent. Defined for design clarity; not used in the actual wiring,
+  // which just references card names directly.
+  // @ts-expect-error Intentionally defined per spec but not used
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const STUB_PROGRESS_CARDS: ReadonlySet<ProgressCardType> = new Set([
+    'engineering', 'smithing', 'encouragement', 'intrigue', 'treason', 'taxation',
+  ])
+
+  const playStubProgressCard = (card: ProgressCardType) => {
+    warn(`${PROGRESS_CARD_LABELS[card]} isn't implemented yet (needs Knights & Barbarians) — kept in hand.`)
+  }
+
   // Resolves whichever picker is currently open (Year of Plenty or
   // Monopoly) with the resource(s) the player picked in the modal. Only
   // ever reachable by the local actor — devCardPicker is pure local UI
@@ -4711,6 +4727,14 @@ function App() {
     // dedicated "own small argument-picker UI" the way Alchemy/Invention/
     // Merchant Fleet above do.
     merchant: playMerchant,
+    // Cities & Knights stub cards (Task 15) — knight-dependent cards that
+    // need Phase C implementation. For now they warn and stay in hand.
+    engineering: () => playStubProgressCard('engineering'),
+    smithing: () => playStubProgressCard('smithing'),
+    encouragement: () => playStubProgressCard('encouragement'),
+    intrigue: () => playStubProgressCard('intrigue'),
+    treason: () => playStubProgressCard('treason'),
+    taxation: () => playStubProgressCard('taxation'),
   }
 
   // Recomputed every render (cheap — one VP-comparison filter over

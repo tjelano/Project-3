@@ -10,13 +10,14 @@ const VP_TARGET_MAX = 50
 // The 5 checkbox rules fill 5 of a 2x3 grid's 6 cells, leaving one open —
 // add a 6th checkbox rule here and it drops straight into that last cell.
 // A 7th+ rule extends the grid to 2x4 (bump GRID_ROW_COUNT accordingly).
-const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities'; label: string }[] = [
+const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards'; label: string }[] = [
   { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
   { key: 'friendlyRobber', label: 'Friendly robber' },
   { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only' },
   { key: 'noSevensFirstTwoRolls', label: 'No 7s on first 2 rolls' },
   { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
   { key: 'citiesAndKnightsCommodities', label: 'Commodities & city improvements' },
+  { key: 'citiesAndKnightsProgressCards', label: 'Progress cards' },
 ]
 
 // hiddenTiles is 4-way, not a plain boolean — its own segmented-control row

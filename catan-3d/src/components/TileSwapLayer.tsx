@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
+import type { GameRules } from '../game/types'
 
 // Cities & Knights Invention — "Swap 2 number discs of your choice (except
 // 2, 6, 8, or 12)." Copies RobberLayer.tsx's per-tile invisible-hitbox
@@ -95,22 +96,49 @@ export interface TileSwapLayerProps {
   active: boolean
   firstTileId: string | null
   onSelectTile: (tileId: string) => void
+  // Same 2 props RobberLayer already takes, for the same reason: whether a
+  // tile currently shows a real hitbox leaks information the moment it
+  // differs from tile to tile. CodeRabbit caught that this layer used to
+  // omit hitboxes for 2/6/8/12/numberless tiles unconditionally — under
+  // the Hidden Tiles house rule (an earlier phase's feature), an
+  // unrevealed tile's real number/desert-ness isn't supposed to be visible
+  // at all, so "this tile has no hitbox" was itself a tell.
+  hiddenTilesMode: GameRules['hiddenTiles']
+  revealedTileIds: ReadonlySet<string>
 }
 
-export function TileSwapLayer({ tiles, active, firstTileId, onSelectTile }: TileSwapLayerProps) {
+export function TileSwapLayer({
+  tiles, active, firstTileId, onSelectTile, hiddenTilesMode, revealedTileIds,
+}: TileSwapLayerProps) {
   if (!active) return null
+
+  // 'numbers' and 'both' both hide the number chit (CatanBoard.tsx computes
+  // this exact same check inline for the same reason — no shared helper
+  // exists for it the way hidesResourceMesh is shared, since it's a single
+  // comparison duplicated safely rather than multi-part logic 2 files need
+  // to agree on).
+  const hidesNumber = hiddenTilesMode === 'numbers' || hiddenTilesMode === 'both'
 
   return (
     <group>
       {tiles.map((tile) => {
-        // Desert (and any other numberless tile) and 2/6/8/12 are never
-        // swappable — no hitbox at all, matching RobberTileTarget's own
-        // "only render targets for the tiles this mode actually allows"
-        // shape (there, every tile qualifies; here, most do but not all).
-        if (tile.number == null || EXCLUDED_NUMBERS.includes(tile.number)) return null
+        // While a tile's number is still hidden from the player, its real
+        // eligibility can't be shown either way without leaking which
+        // tiles are secretly 2/6/8/12/desert — render a uniform target and
+        // let handleInventionTileSelect's own validation reject an
+        // ineligible pick with a warn() after the fact (same "click first,
+        // validate after" shape Diplomacy's open-road check already uses).
+        // Once revealed — or if hiddenTiles doesn't hide numbers at all —
+        // fall back to the real exclusion so players aren't shown a target
+        // for a tile that can never actually be picked.
+        const numberHidden = hidesNumber && !revealedTileIds.has(tile.id)
+        if (!numberHidden && (tile.number == null || EXCLUDED_NUMBERS.includes(tile.number))) return null
         // The tile already picked first is excluded from the SECOND click's
         // eligible set (no self-swap, and prevents re-picking the same tile)
         // — rendered as a persistent selected-glow instead of a click target.
+        // Always safe to check regardless of numberHidden: it's the
+        // player's OWN prior selection, not information about an unclicked
+        // tile.
         if (tile.id === firstTileId) return <TileSwapSelectedGlow key={tile.id} tile={tile} />
         return <TileSwapTarget key={tile.id} tile={tile} onSelect={() => onSelectTile(tile.id)} />
       })}

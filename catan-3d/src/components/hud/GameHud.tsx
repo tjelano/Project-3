@@ -481,6 +481,26 @@ export function GameHud({
     !pickerBlocked &&
     isMyTurn &&
     hasRolledThisTurn
+  // Same derivation as canPlayDevCards above (minus its once-per-turn
+  // devCardPlayedThisTurn check, which doesn't apply to progress cards —
+  // they're drawn, not purchased) — progress cards are also only playable
+  // during the viewer's own action phase, with no forced overlay or
+  // pending trade in the way. CodeRabbit caught that the play widgets
+  // below previously checked only citiesAndKnightsProgressCards && isMyTurn,
+  // missing every other lock canPlayDevCards already enforces. Also folds
+  // in viewer.id === currentPlayer.id: during a local Pass & Play discard
+  // hand-off, viewerPlayerId is the discarding player while isMyTurn still
+  // tracks the roller, so without this a stacked control could offer cards
+  // from a hand the screen doesn't even display.
+  const canPlayProgressCards =
+    citiesAndKnightsProgressCards &&
+    gamePhase === 'playing' &&
+    !isRolling &&
+    gameActive &&
+    !tradeBlocked &&
+    !pickerBlocked &&
+    isMyTurn &&
+    viewer.id === currentPlayer.id
   const statusLabel = pickerBlocked
     ? 'Choose your resources…'
     : tradeBlocked
@@ -560,7 +580,7 @@ export function GameHud({
               progressCards={viewer.progressCards}
               deckCounts={progressCardDeckCounts}
               playHandlers={progressCardPlayHandlers}
-              isMyTurn={isMyTurn}
+              isMyTurn={canPlayProgressCards}
               discardActive={isMyProgressDiscardTurn}
               discardSelection={progressDiscardSelection}
               onToggleDiscard={onToggleProgressDiscard}
@@ -679,7 +699,7 @@ export function GameHud({
             same pre-roll/own-turn conditions as RollDiceButton right next to
             it, so it only ever appears for the player who could actually use
             it right now. */}
-        {citiesAndKnightsProgressCards && isMyTurn && !hasRolledThisTurn && currentPlayer.progressCards.includes('alchemy') && (
+        {canPlayProgressCards && !hasRolledThisTurn && viewer.progressCards.includes('alchemy') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
             <div className="flex items-center gap-1.5">
@@ -722,7 +742,7 @@ export function GameHud({
             mid-pick from here (App.tsx's playInvention guards this too); a
             "pick tiles" hint takes its place instead. No pre-roll
             restriction, unlike Alchemy — Invention has no such rule. */}
-        {citiesAndKnightsProgressCards && isMyTurn && !inventionSwapActive && currentPlayer.progressCards.includes('invention') && (
+        {canPlayProgressCards && !inventionSwapActive && viewer.progressCards.includes('invention') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
             <button
@@ -742,7 +762,7 @@ export function GameHud({
         {/* Cities & Knights Merchant Fleet — a 1-type picker (resource or
             commodity), same shape as Alchemy's 2-number picker. No pre-roll
             restriction either. */}
-        {citiesAndKnightsProgressCards && isMyTurn && currentPlayer.progressCards.includes('merchantFleet') && (
+        {canPlayProgressCards && viewer.progressCards.includes('merchantFleet') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Merchant Fleet: Name a Type</span>
             <select
@@ -782,7 +802,7 @@ export function GameHud({
             picker, same shape as Merchant Fleet's own picker just above but
             resource-only (this card only ever gives resources, never
             commodities). No pre-roll restriction. */}
-        {citiesAndKnightsProgressCards && isMyTurn && currentPlayer.progressCards.includes('commercialHarbor') && (
+        {canPlayProgressCards && viewer.progressCards.includes('commercialHarbor') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Commercial Harbor: Offer a Resource</span>
             <select
@@ -812,7 +832,7 @@ export function GameHud({
             Diplomacy can't be spent mid-pick from here (App.tsx's
             activateDiplomacy guards this too), a "pick a road" hint taking
             its place instead. */}
-        {citiesAndKnightsProgressCards && isMyTurn && !diplomacyPickerActive && currentPlayer.progressCards.includes('diplomacy') && (
+        {canPlayProgressCards && !diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
             <button

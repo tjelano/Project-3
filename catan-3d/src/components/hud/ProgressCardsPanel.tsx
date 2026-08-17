@@ -65,10 +65,23 @@ export function ProgressCardsPanel({
   progressCards, deckCounts, playHandlers, isMyTurn, discardActive, discardSelection, onToggleDiscard,
 }: ProgressCardsPanelProps) {
   if (progressCards.length === 0) return null
+  // Distinct 4-card hand-limit indicator, called for in the design spec
+  // (docs/superpowers/specs/2026-08-16-cities-knights-progress-cards-design.md,
+  // "Hand Limit") but never actually surfaced here — before this, a player
+  // couldn't see how close their hand was to the limit until the discard
+  // prompt (App.tsx's progressCardOverLimitPlayerIds queue) already fired.
+  // Same "non-VP cards only" rule as progressCardHandExcess (game/discard.ts
+  // — this component doesn't need the excess math, just the raw count).
+  const nonVpCount = progressCards.filter((card) => !PROGRESS_CARD_VP_TYPES.has(card)).length
   return (
     <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       <div className="flex items-center justify-between">
         <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">Progress Cards</span>
+        <span className={`font-body text-[10px] ${nonVpCount > 4 ? 'text-red-400' : 'text-white/40'}`}>
+          {nonVpCount}/4
+        </span>
+      </div>
+      <div className="flex items-center justify-end">
         <span className="font-body text-[10px] text-white/40">
           Sci {deckCounts.science} · Trd {deckCounts.trade} · Pol {deckCounts.politics}
         </span>

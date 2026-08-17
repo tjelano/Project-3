@@ -279,7 +279,7 @@ the exact pattern Phase A used for `metropolis`. `getScoreBreakdown` /
 
 ## Out of Scope for v1 (this spec)
 
-- The 8 knight-dependent card effects' real implementation — Phase C.
+- The 6 knight-dependent card effects' real implementation — Phase C.
 - City walls, barbarian ship/attack resolution, knight pieces themselves
   — Phase C.
 - The official "may discard down to 4 by end of your own Action phase"

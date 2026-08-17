@@ -5068,6 +5068,8 @@ function App() {
             active={pendingInventionSwap?.playerId === localPlayer.id}
             firstTileId={pendingInventionSwap?.firstTileId ?? null}
             onSelectTile={handleInventionTileSelect}
+            hiddenTilesMode={gameRules.hiddenTiles}
+            revealedTileIds={revealedTileIds}
           />
           {/* Cities & Knights Merchant (Task 13) — sibling to RobberLayer/
               TileSwapLayer, same Canvas. placingPlayerId is scoped to the

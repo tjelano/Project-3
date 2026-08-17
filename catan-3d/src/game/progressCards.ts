@@ -78,7 +78,9 @@ export function resolveEventDieDraws(
 // CN3087 p.10: 4-card hand limit, VP cards excluded (they're never held in
 // hand — see PROGRESS_CARD_VP_TYPES in types.ts). Returns how many cards
 // over the limit the hand currently is (0 if at or under).
+export const PROGRESS_CARD_HAND_LIMIT = 4
+
 export function progressCardHandExcess(progressCards: ProgressCardType[]): number {
   const nonVpCount = progressCards.filter((card) => !PROGRESS_CARD_VP_TYPES.has(card)).length
-  return Math.max(0, nonVpCount - 4)
+  return Math.max(0, nonVpCount - PROGRESS_CARD_HAND_LIMIT)
 }

@@ -1,4 +1,5 @@
 import { PROGRESS_CARD_LABELS, PROGRESS_CARD_VP_TYPES, type ProgressCardType } from '../../game/types'
+import { PROGRESS_CARD_HAND_LIMIT } from '../../game/progressCards'
 
 // Card art: catan-3d/src/assets/cards/<Name>_progress.png, one per
 // ProgressCardType, keyed by the same PascalCase name PROGRESS_CARD_LABELS
@@ -70,15 +71,17 @@ export function ProgressCardsPanel({
   // "Hand Limit") but never actually surfaced here — before this, a player
   // couldn't see how close their hand was to the limit until the discard
   // prompt (App.tsx's progressCardOverLimitPlayerIds queue) already fired.
-  // Same "non-VP cards only" rule as progressCardHandExcess (game/discard.ts
-  // — this component doesn't need the excess math, just the raw count).
+  // Same "non-VP cards only" rule and the same PROGRESS_CARD_HAND_LIMIT
+  // progressCardHandExcess uses (game/progressCards.ts) — this component
+  // doesn't need the excess math itself, just the raw count against the
+  // shared limit, so the two never drift apart.
   const nonVpCount = progressCards.filter((card) => !PROGRESS_CARD_VP_TYPES.has(card)).length
   return (
     <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       <div className="flex items-center justify-between">
         <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">Progress Cards</span>
-        <span className={`font-body text-[10px] ${nonVpCount > 4 ? 'text-red-400' : 'text-white/40'}`}>
-          {nonVpCount}/4
+        <span className={`font-body text-[10px] ${nonVpCount > PROGRESS_CARD_HAND_LIMIT ? 'text-red-400' : 'text-white/40'}`}>
+          {nonVpCount}/{PROGRESS_CARD_HAND_LIMIT}
         </span>
       </div>
       <div className="flex items-center justify-end">

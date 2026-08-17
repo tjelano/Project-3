@@ -147,6 +147,29 @@ interface GameHudProps {
   // card with no wired-in Play action yet renders disabled instead of
   // crashing on a missing handler.
   progressCardPlayHandlers: ProgressCardPlayHandlers
+  // Cities & Knights progress-card hand limit (4 cards). Unlike
+  // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
+  // this is the raw front-of-queue player id — GameHud derives its OWN
+  // isMyProgressDiscardTurn from it (activeProgressDiscarderId === viewer.id)
+  // since `viewer` (this screen's own player) is a GameHud-local concept
+  // App.tsx doesn't have a matching hand-off for outside the resource-
+  // discard flow. null when nobody currently owes a progress-card discard.
+  activeProgressDiscarderId: number | null
+  // Indices into the ACTIVE discarder's progressCards array (see
+  // ProgressCardsPanel's own discardSelection prop) — not meaningful for
+  // any other player, but harmless to pass down regardless since the panel
+  // only reads it while discardActive is true.
+  progressDiscardSelection: number[]
+  onToggleProgressDiscard: (index: number) => void
+  // How many cards the active discarder still needs to pick — 0 is
+  // possible (progressCardOverLimitPlayerIds is deliberately over-
+  // inclusive per Task 3), in which case the confirm button is immediately
+  // enabled.
+  progressDiscardRequiredCount: number
+  onConfirmProgressDiscard: () => void
+  // Named for the small "waiting for X" indicator, same role as
+  // discardingPlayerName below but for the progress-card queue.
+  progressDiscardingPlayerName: string
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -215,6 +238,12 @@ export function GameHud({
   citiesAndKnightsProgressCards,
   progressCardDeckCounts,
   progressCardPlayHandlers,
+  activeProgressDiscarderId,
+  progressDiscardSelection,
+  onToggleProgressDiscard,
+  progressDiscardRequiredCount,
+  onConfirmProgressDiscard,
+  progressDiscardingPlayerName,
   isMyDiscardTurn,
   discardingPlayerName,
   discardRequiredCount,
@@ -235,6 +264,12 @@ export function GameHud({
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
+  // Cities & Knights progress-card hand-limit discard — mirrors
+  // isMyDiscardTurn's role, but computed HERE (not in App.tsx) since it
+  // needs THIS screen's own viewer, which online is always this browser's
+  // own player regardless of turn order, and locally is whoever the shared
+  // device is currently showing.
+  const isMyProgressDiscardTurn = activeProgressDiscarderId === viewer.id
   // Per track: does buying the viewer's NEXT level require (and lack) a spare
   // city? This is the EXACT same call App.tsx's buyCityImprovement makes, with
   // the same inputs — the helper derives the current holder's level and the
@@ -367,11 +402,54 @@ export function GameHud({
           />
         )}
         {citiesAndKnightsProgressCards && (
-          <ProgressCardsPanel
-            progressCards={viewer.progressCards}
-            deckCounts={progressCardDeckCounts}
-            playHandlers={progressCardPlayHandlers}
-          />
+          <>
+            <ProgressCardsPanel
+              progressCards={viewer.progressCards}
+              deckCounts={progressCardDeckCounts}
+              playHandlers={progressCardPlayHandlers}
+              discardActive={isMyProgressDiscardTurn}
+              discardSelection={progressDiscardSelection}
+              onToggleDiscard={onToggleProgressDiscard}
+            />
+            {/* Small confirm/count indicator for the 4-card hand-limit
+                discard — deliberately NOT a full-screen DiscardPanel-style
+                modal like the 7-roll resource discard: a progress-card draw
+                can land on the SAME roll as a natural 7 (event die and
+                production dice are independent — see handlePhysicsSettled),
+                so both discard flows can be active at once, and two
+                centered full-screen overlays would fight over the same
+                screen space. This stays compact and in-flow, right below
+                the panel it belongs to, same "stacked, not overlapping"
+                treatment the rest of this left column already uses. */}
+            {activeProgressDiscarderId != null && (
+              <div className="pointer-events-auto rounded-2xl border border-glass-border bg-glass p-3 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                {isMyProgressDiscardTurn ? (
+                  <>
+                    <p className="font-body text-[10px] tracking-[0.2em] text-player-1/80 uppercase">
+                      Over the 4-Card Limit
+                    </p>
+                    <p className="mt-1 font-display text-sm text-white">
+                      {progressDiscardRequiredCount - progressDiscardSelection.length > 0
+                        ? `Select ${progressDiscardRequiredCount - progressDiscardSelection.length} more card${
+                            progressDiscardRequiredCount - progressDiscardSelection.length === 1 ? '' : 's'
+                          }`
+                        : 'Ready to discard'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={progressDiscardSelection.length !== progressDiscardRequiredCount}
+                      onClick={onConfirmProgressDiscard}
+                      className="mt-2 w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2 font-display text-xs font-semibold text-board-navy transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      Confirm Discard
+                    </button>
+                  </>
+                ) : (
+                  <p className="font-body text-xs text-white/70">Waiting for {progressDiscardingPlayerName} to discard…</p>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
       <EventLogPanel events={eventLog} />

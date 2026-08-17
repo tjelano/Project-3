@@ -243,6 +243,17 @@ export interface DiscardConfirmedPayload {
   counts: Partial<Record<ResourceType | CommodityType, number>>
 }
 
+// Cities & Knights progress-card hand limit (4 cards) — mirrors
+// DiscardConfirmedPayload above, but indices into the discarding player's
+// progressCards array rather than a type -> quantity tally, since progress
+// cards aren't fungible the same way resources are (a hand can hold 2
+// copies of the same type). See applyProgressDiscard (App.tsx) for why
+// sorting descending before splicing on the receiving end is safe.
+export interface ProgressDiscardConfirmedPayload {
+  playerId: number
+  indices: number[]
+}
+
 // Science level 3's per-roll bonus: a player who received zero production
 // on a non-7 roll gets to pick 1 free resource. Unlike DiscardConfirmedPayload,
 // this can fire for ANY player regardless of whose turn it is — see the
@@ -336,6 +347,10 @@ export interface RoomChannelHandlers {
   // over-limit player discards independently on their own screen — this
   // fires once per player, not once for the whole table.
   onDiscardConfirmed?: (payload: DiscardConfirmedPayload) => void
+  // Cities & Knights progress-card hand-limit discard — same "fires once
+  // per over-limit player, not once for the whole table" shape as
+  // onDiscardConfirmed above.
+  onProgressDiscardConfirmed?: (payload: ProgressDiscardConfirmedPayload) => void
   // Science level 3's free-resource queue — fires once per eligible player
   // per roll, same "independent per-player queue" shape as discard above.
   onScienceFreeResourcePicked?: (payload: ScienceFreeResourcePickedPayload) => void
@@ -534,6 +549,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     })
     channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
       handlersRef.current.onDiscardConfirmed?.(payload)
+    })
+    channel.on<ProgressDiscardConfirmedPayload>('broadcast', { event: 'PROGRESS_DISCARD_CONFIRMED' }, ({ payload }) => {
+      handlersRef.current.onProgressDiscardConfirmed?.(payload)
     })
     channel.on<ScienceFreeResourcePickedPayload>('broadcast', { event: 'SCIENCE_FREE_RESOURCE_PICKED' }, ({ payload }) => {
       handlersRef.current.onScienceFreeResourcePicked?.(payload)
@@ -734,6 +752,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       ?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
       .then((result) => debugLog('broadcastDiscardConfirmed result', { result, payload }))
   }
+  const broadcastProgressDiscardConfirmed = (payload: ProgressDiscardConfirmedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_DISCARD_CONFIRMED', payload })
+  }
   const broadcastScienceFreeResourcePicked = (payload: ScienceFreeResourcePickedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'SCIENCE_FREE_RESOURCE_PICKED', payload })
   }
@@ -792,6 +813,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastTradeResolved,
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
+    broadcastProgressDiscardConfirmed,
     broadcastScienceFreeResourcePicked,
     broadcastTrophyUpdated,
     broadcastNewGame,

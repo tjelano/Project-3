@@ -43,8 +43,12 @@ export interface ProgressCardsPanelProps {
   deckCounts: Record<'science' | 'trade' | 'politics', number>
   playHandlers: ProgressCardPlayHandlers
   discardActive?: boolean
-  discardSelection?: ProgressCardType[]
-  onToggleDiscard?: (card: ProgressCardType, index: number) => void
+  // Indices into `progressCards`, not card types — a hand can hold 2 copies
+  // of the same type (crane: 2 in the deck composition, etc.), so selection
+  // has to identify a specific ARRAY INDEX to let either instance be
+  // selected/discarded independently (Task 6).
+  discardSelection?: number[]
+  onToggleDiscard?: (index: number) => void
 }
 
 export function ProgressCardsPanel({
@@ -62,13 +66,13 @@ export function ProgressCardsPanel({
       <div className="grid grid-cols-3 gap-2">
         {progressCards.map((card, index) => {
           const isVp = PROGRESS_CARD_VP_TYPES.has(card)
-          const selected = discardSelection?.includes(card) // see Task 6 note below on index-vs-value selection
+          const selected = discardSelection?.includes(index)
           return (
             <button
               key={`${card}-${index}`}
               type="button"
               disabled={isVp || (!discardActive && !playHandlers[card])}
-              onClick={() => (discardActive ? onToggleDiscard?.(card, index) : playHandlers[card]?.())}
+              onClick={() => (discardActive ? onToggleDiscard?.(index) : playHandlers[card]?.())}
               className={`relative overflow-hidden rounded-lg border transition ${
                 selected ? 'border-red-400 ring-2 ring-red-400/60' : 'border-white/20'
               } ${isVp ? 'opacity-70' : 'hover:border-white/50'}`}

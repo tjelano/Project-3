@@ -33,7 +33,7 @@ import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './game/discard'
-import { buildProgressCardDeck, resolveEventDieDraws, rollEventDie } from './game/progressCards'
+import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
   buyImprovementLevel,
@@ -343,6 +343,12 @@ function App() {
   // discarding player has flagged in their 3D hand. Local UI state, reset
   // whenever the active discarder changes.
   const [discardSelection, setDiscardSelection] = useState<string[]>([])
+  // Indices into the OVER-LIMIT player's progressCards array, not card
+  // identities — mirrors discardSelection's own composite-id approach to
+  // the same "which specific instance of a possibly-duplicated card"
+  // problem, just index-based since progress cards have no natural id
+  // string the way resources do.
+  const [progressDiscardSelection, setProgressDiscardSelection] = useState<number[]>([])
   // Player IDs owed a Science level 3 free-resource pick after the most
   // recent non-7 roll (production resolved, but they got nothing from it).
   // Deliberately its OWN queue, not the single-current-player devCardPicker
@@ -758,6 +764,26 @@ function App() {
     if (remaining.length === 0) setGamePhase('moveRobber')
   }
 
+  // Trusted state mutation for one player's progress-card hand-limit
+  // discard — shared by the local actor (confirmProgressDiscard, below,
+  // which also broadcasts) and receiving clients (onProgressDiscardConfirmed).
+  // indices are into the player's progressCards array on the CONFIRMING
+  // client — every other client must already have the identical array
+  // (this only ever runs after applyProgressCardDraws already synced every
+  // client's copy of that player's hand), so sorting descending and
+  // splicing is safe: it can't skip/misalign entries.
+  const applyProgressDiscard = (playerId: number, indices: number[]) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== playerId) return p
+        const next = [...p.progressCards]
+        for (const index of [...indices].sort((a, b) => b - a)) next.splice(index, 1)
+        return { ...p, progressCards: next }
+      }),
+    )
+    setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
+  }
+
   // Trusted state mutation for one player's Science level 3 free-resource
   // pick — shared by the local actor (resolveScienceFreeResource, below,
   // which also broadcasts) and receiving clients (onScienceFreeResourcePicked),
@@ -901,6 +927,7 @@ function App() {
     broadcastCommodityTraded,
     broadcastMetropolisClaimed,
     broadcastProgressCardsDrawn,
+    broadcastProgressDiscardConfirmed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1032,6 +1059,7 @@ function App() {
         [payload.track]: prev[payload.track].slice(payload.draws.length),
       }))
     },
+    onProgressDiscardConfirmed: (payload) => applyProgressDiscard(payload.playerId, payload.indices),
     // Trusted-apply — the purchasing client already resolved which player
     // controls the track AND which of their cities carries the marker (see
     // buildSettlementRaw's pendingMetropolisClaim branch); every other
@@ -1957,6 +1985,54 @@ function App() {
     if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }
 
+  // Cities & Knights progress-card hand limit (4 cards, VP cards excluded —
+  // see progressCardHandExcess). Deliberately the front of the queue only —
+  // unlike activeDiscarderId above (which branches on onlineInfo for
+  // parallel per-player resolution), this is always progressCardOverLimitPlayerIds[0],
+  // online or local: only one player resolves a progress-card discard at a
+  // time. Combined with GameHud computing its own isMyProgressDiscardTurn as
+  // activeProgressDiscarderId === viewer.id, this still resolves correctly
+  // per-screen online (each screen's viewer is already that browser's own
+  // player), and simply waits for the queue to reach a given player's own
+  // turn in local Pass & Play.
+  const activeProgressDiscarderId = progressCardOverLimitPlayerIds[0] ?? null
+  const progressDiscardingPlayer = activeProgressDiscarderId != null ? playerById.get(activeProgressDiscarderId) : null
+  // progressCardOverLimitPlayerIds is deliberately over-inclusive (Task 3
+  // queues everyone who drew ANYTHING, not just those actually over the
+  // limit) — this is what actually filters it down to a real requirement,
+  // which can legitimately be 0 for a queued player who wasn't really over
+  // the limit.
+  const progressDiscardRequiredCount = progressDiscardingPlayer
+    ? progressCardHandExcess(progressDiscardingPlayer.progressCards)
+    : 0
+
+  const toggleProgressDiscardSelection = (index: number) => {
+    if (activeProgressDiscarderId == null) return
+    const player = playerById.get(activeProgressDiscarderId)
+    if (!player) return
+    const required = progressCardHandExcess(player.progressCards)
+    setProgressDiscardSelection((prev) => {
+      if (prev.includes(index)) return prev.filter((i) => i !== index)
+      if (prev.length >= required) return prev
+      return [...prev, index]
+    })
+  }
+
+  const confirmProgressDiscard = () => {
+    if (activeProgressDiscarderId == null) return
+    const player = playerById.get(activeProgressDiscarderId)
+    if (!player) return
+    const required = progressCardHandExcess(player.progressCards)
+    if (progressDiscardSelection.length !== required) {
+      warn(`Choose exactly ${required} progress card${required === 1 ? '' : 's'} to discard.`)
+      return
+    }
+    applyProgressDiscard(activeProgressDiscarderId, progressDiscardSelection)
+    setProgressDiscardSelection([])
+    inform(`${player.name} discarded ${required} progress card${required === 1 ? '' : 's'} (hand limit).`)
+    if (onlineInfo) broadcastProgressDiscardConfirmed({ playerId: activeProgressDiscarderId, indices: progressDiscardSelection })
+  }
+
   // A disconnected (or simply slow) over-limit player used to stall the
   // whole table forever after any 7-roll — gamePhase can't leave 'discard'
   // until every over-limit player has confirmed their OWN discard, and
@@ -1985,6 +2061,31 @@ function App() {
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- playerById/onlineInfo/inform/applyDiscard/broadcastDiscardConfirmed are read fresh via closure; only gamePhase/validDiscardPlayerIds/isEffectiveHost identity should restart the timer.
   }, [gamePhase, validDiscardPlayerIds, isEffectiveHost])
+
+  // Mirrors the DISCARD_TIMEOUT_MS effect above for the progress-card
+  // hand-limit queue instead of the resource-discard one — keyed on
+  // progressCardOverLimitPlayerIds instead of validDiscardPlayerIds, and
+  // greedily discards from the START of the array (index 0 upward) rather
+  // than reusing autoDiscardCounts (that function is resource/commodity-
+  // typed, not applicable here; this fallback doesn't need "spread the
+  // loss" sophistication, arbitrary order is fine for an unresponsive
+  // player).
+  useEffect(() => {
+    if (progressCardOverLimitPlayerIds.length === 0 || !isEffectiveHost) return
+    const timer = setTimeout(() => {
+      for (const playerId of progressCardOverLimitPlayerIds) {
+        const player = playerById.get(playerId)
+        if (!player) continue
+        const required = progressCardHandExcess(player.progressCards)
+        const indices = Array.from({ length: required }, (_, i) => i)
+        applyProgressDiscard(playerId, indices)
+        inform(`${player.name}'s progress card discard timed out — ${required} discarded automatically.`)
+        if (onlineInfo) broadcastProgressDiscardConfirmed({ playerId, indices })
+      }
+    }, DISCARD_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the resource-discard timeout effect above (App.tsx:1856): playerById/onlineInfo/inform/applyProgressDiscard/broadcastProgressDiscardConfirmed read fresh via closure.
+  }, [progressCardOverLimitPlayerIds, isEffectiveHost])
 
   const moveRobber = (tileId: string) => {
     if (winner) return
@@ -2744,6 +2845,7 @@ function App() {
     setHasRolledThisTurn(false)
     setDiscardPlayerIds([])
     setDiscardSelection([])
+    setProgressDiscardSelection([])
     setScienceFreeResourcePlayerIds([])
     setBoardInstance((n) => n + 1)
     setLongestRoadHolderId(null)
@@ -2862,6 +2964,16 @@ function App() {
     setDiceRoll(null)
     setIsRolling(false)
     setDiscardSelection([])
+    // Progress-card hand-limit queue — unlike discardPlayerIds (recomputed
+    // below from restored resource counts) this genuinely IS a persisted
+    // MatchSnapshot field, so it's restored directly rather than re-derived.
+    // `?? []` covers any snapshot saved before this feature existed.
+    // progressDiscardSelection is local UI state, same "always reset on
+    // restore" treatment as discardSelection just above — a stale set of
+    // indices could otherwise point at the wrong cards in a freshly
+    // restored progressCards array.
+    setProgressCardOverLimitPlayerIds(snapshot.progressCardOverLimitPlayerIds ?? [])
+    setProgressDiscardSelection([])
     // Unlike discardPlayerIds (recomputed below from restored resource
     // counts), Science level 3's queue isn't derivable after the fact — it
     // depends on THIS PARTICULAR roll's production, not any persistent
@@ -3006,6 +3118,7 @@ function App() {
       devCardPlayedThisTurn,
       freeRoadsRemaining,
       hasRolledThisTurn,
+      progressCardOverLimitPlayerIds,
     }
     saveMatchSnapshot(onlineInfo.roomCode, snapshot)
   }, [
@@ -3040,6 +3153,7 @@ function App() {
     devCardPlayedThisTurn,
     freeRoadsRemaining,
     hasRolledThisTurn,
+    progressCardOverLimitPlayerIds,
   ])
 
   if (!gameStarted) {
@@ -3230,6 +3344,12 @@ function App() {
           politics: progressCardDecks.politics.length,
         }}
         progressCardPlayHandlers={progressCardPlayHandlers}
+        activeProgressDiscarderId={activeProgressDiscarderId}
+        progressDiscardSelection={progressDiscardSelection}
+        onToggleProgressDiscard={toggleProgressDiscardSelection}
+        progressDiscardRequiredCount={progressDiscardRequiredCount}
+        onConfirmProgressDiscard={confirmProgressDiscard}
+        progressDiscardingPlayerName={progressDiscardingPlayer?.name ?? ''}
         isMyDiscardTurn={isMyDiscardTurn}
         discardingPlayerName={discardingPlayer?.name ?? ''}
         discardRequiredCount={discardRequiredCount}

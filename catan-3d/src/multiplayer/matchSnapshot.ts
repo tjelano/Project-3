@@ -77,6 +77,15 @@ export interface MatchSnapshot {
   // reconnect mid-turn can't be tricked into rolling (and generating
   // resources) a second time via the Roll Dice button.
   hasRolledThisTurn: boolean
+  // Cities & Knights progress-card hand-limit (4-card) queue — same
+  // transient turn-flow category as discardPlayerIds/scienceFreeResourcePlayerIds
+  // in App.tsx, but unlike discardPlayerIds (fully re-derivable from
+  // restored resource counts, so never persisted at all) this one IS
+  // carried here directly and restored as-is. Optional — absent on any
+  // snapshot saved before this feature existed; restoreFromSnapshot falls
+  // back to [] (do not repeat Phase A's Critical-1 gap of a required-but-
+  // unnormalized field).
+  progressCardOverLimitPlayerIds?: number[]
 }
 
 // Serializes the actual network writes so a reordered/slow response can

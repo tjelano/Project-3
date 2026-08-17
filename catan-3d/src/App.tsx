@@ -1383,12 +1383,36 @@ function App() {
     // Cities & Knights Guild Dues — validated against RESOURCE_ORDER/
     // COMMODITY_ORDER membership before ever reaching applyGuildDuesTake's
     // resources[]/commodities[] arithmetic, same malformed-payload guard
-    // shape as onBankTrade/onCommodityTraded above.
+    // shape as onBankTrade/onCommodityTraded above. Quantities are ALSO
+    // bounded against this client's own already-synced copy of the
+    // target's hand (not just type membership): applyGuildDuesTake floors
+    // the target's subtraction at 0 per entry, but the taker's addition is
+    // unconditional per entry, so a malformed/stale payload with more
+    // picks than the target actually holds (of a type, or in total) would
+    // otherwise manufacture cards for the taker on every receiving client
+    // — the same "re-derive/bound against already-synced state, don't
+    // trust wire quantities" principle applyEspionageTake already applies
+    // by re-deriving its card from an index rather than trusting an
+    // identity field.
     onGuildDuesTaken: (payload) => {
-      const valid = payload.picks.every(
+      const validTypes = payload.picks.every(
         (pick) => (RESOURCE_ORDER as readonly string[]).includes(pick) || (COMMODITY_ORDER as readonly string[]).includes(pick),
       )
-      if (!valid) {
+      if (!validTypes) {
+        console.error('[Catan] Ignoring malformed guild-dues payload:', payload)
+        return
+      }
+      const target = playerById.get(payload.targetId)
+      const countsByType = new Map<ResourceType | CommodityType, number>()
+      for (const pick of payload.picks) countsByType.set(pick, (countsByType.get(pick) ?? 0) + 1)
+      const withinTargetHoldings = Array.from(countsByType.entries()).every(([type, count]) => {
+        if (!target) return false
+        const held = (RESOURCE_ORDER as readonly string[]).includes(type)
+          ? target.resources[type as ResourceType]
+          : target.commodities[type as CommodityType]
+        return count <= held
+      })
+      if (!target || payload.picks.length > 2 || !withinTargetHoldings) {
         console.error('[Catan] Ignoring malformed guild-dues payload:', payload)
         return
       }

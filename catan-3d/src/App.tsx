@@ -11,6 +11,7 @@ import { Ocean } from './components/Ocean'
 import { computeFrameInnerSize, computeFrameOuterSize } from './three/layout'
 import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
+import { TileSwapLayer } from './components/TileSwapLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
@@ -37,6 +38,8 @@ import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, ro
 import {
   canAffordImprovement,
   buyImprovementLevel,
+  improvementLevelCost,
+  MAX_IMPROVEMENT_LEVEL,
   evaluateMetropolisPurchase,
   metropolisHolderAfterPurchase,
   metropolisHolderLevel,
@@ -48,6 +51,7 @@ import {
   BIOME_TO_RESOURCE,
   CITY_COST,
   COMMODITY_FOR_BIOME,
+  COMMODITY_FOR_TRACK,
   COMMODITY_LABELS,
   COMMODITY_ORDER,
   DEFAULT_GAME_RULES,
@@ -86,6 +90,7 @@ import {
   type PlayerColorToken,
   type ProgressCardType,
   type ResourceType,
+  type Resources,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 
@@ -287,6 +292,31 @@ function App() {
   // see handlePhysicsSettled's own comment for why that mismatch is
   // deliberate). null the rest of the time.
   const [alchemyPreset, setAlchemyPreset] = useState<[number, number] | null>(null)
+  // Cities & Knights Crane — set by playCrane, cleared by the refund step
+  // inside buyCityImprovement once the discount is actually consumed by a
+  // purchase. Names a PLAYER (not a track): the card discounts whichever
+  // improvement track that player buys next, not one specific track.
+  const [craneDiscountPlayerId, setCraneDiscountPlayerId] = useState<number | null>(null)
+  // Cities & Knights Medicine — set by playMedicine, cleared the instant the
+  // discounted city placement actually resolves (buildSettlementRaw's
+  // existing occupied-vertex/city-upgrade branch). Names a player, same
+  // shape as craneDiscountPlayerId, for the same reason.
+  const [pendingMedicineUse, setPendingMedicineUse] = useState<number | null>(null)
+  // Cities & Knights Invention — set by playInvention, then filled in by 2
+  // board-tile clicks (TileSwapLayer -> handleInventionTileSelect). null
+  // once both tiles are chosen and the swap resolves.
+  const [pendingInventionSwap, setPendingInventionSwap] = useState<{
+    playerId: number
+    firstTileId: string | null
+  } | null>(null)
+  // Cities & Knights Merchant Fleet — set by playMerchantFleet, consumed by
+  // getPortRate (bank resource trades) and tradeCommodity (bank commodity
+  // trades). Cleared on every turn advance (applyTurnAdvance) — the card
+  // text is explicit that this only lasts "for the rest of this turn."
+  const [merchantFleetRate, setMerchantFleetRate] = useState<{
+    playerId: number
+    type: ResourceType | CommodityType
+  } | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
   const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
@@ -462,6 +492,10 @@ function App() {
     setDevCardPlayedThisTurn(false)
     setHasRolledThisTurn(false)
     setConsecutiveDoublesThisTurn(0)
+    // Cities & Knights Merchant Fleet — "for the rest of this turn," so any
+    // active rate expires the instant the turn actually passes, regardless
+    // of who it passes to.
+    setMerchantFleetRate(null)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
@@ -531,14 +565,18 @@ function App() {
     playSfx('placement')
   }
 
-  const applyCityPlacement = (vertexId: string, playerId: number) => {
+  // costOverride — Cities & Knights Medicine's discounted 1 Wheat + 2 Ore
+  // price, in place of the normal CITY_COST deduction. Defaults to CITY_COST
+  // when absent, so every non-Medicine caller (setup, an ordinary city
+  // upgrade, the broadcast receiver for those) is unaffected.
+  const applyCityPlacement = (vertexId: string, playerId: number, costOverride?: Partial<Resources>) => {
     setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'city' } }))
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
           ? {
               ...p,
-              resources: deductCost(p.resources, CITY_COST),
+              resources: deductCost(p.resources, costOverride ?? CITY_COST),
               settlementsRemaining: p.settlementsRemaining + 1,
               citiesRemaining: p.citiesRemaining - 1,
             }
@@ -933,6 +971,7 @@ function App() {
     broadcastCityImprovementPurchased,
     broadcastCommodityTraded,
     broadcastMetropolisClaimed,
+    broadcastInventionSwapped,
     broadcastProgressCardsDrawn,
     broadcastProgressCardPlayed,
     broadcastProgressDiscardConfirmed,
@@ -947,7 +986,11 @@ function App() {
     },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
     onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
-    onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId),
+    // Cities & Knights Medicine — costOverride carries the discounted price
+    // the acting client actually charged (see CityBuiltPayload's own
+    // comment); undefined here just means "normal CITY_COST," same as any
+    // ordinary city upgrade.
+    onCityBuilt: (payload) => applyCityPlacement(payload.vertexId, payload.playerId, payload.costOverride),
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
@@ -1049,6 +1092,26 @@ function App() {
         return
       }
       applyCityImprovementPurchase(payload.playerId, payload.track)
+      // Cities & Knights Crane — mirrors the acting client's own
+      // pay-full-then-refund-1 discount (see buyCityImprovement's own
+      // comment) so this client's copy of the buyer's commodities ends up
+      // at the exact same final count, without ever needing to know
+      // anything about THIS client's own (irrelevant) craneDiscountPlayerId.
+      if (payload.craneDiscount) {
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === payload.playerId
+              ? {
+                  ...p,
+                  commodities: {
+                    ...p.commodities,
+                    [COMMODITY_FOR_TRACK[payload.track]]: p.commodities[COMMODITY_FOR_TRACK[payload.track]] + 1,
+                  },
+                }
+              : p,
+          ),
+        )
+      }
     },
     onProgressCardsDrawn: (payload) => {
       // Broadcast-sourced — same validation shape as onCityImprovementPurchased:
@@ -1083,7 +1146,34 @@ function App() {
       }
       if (payload.card === 'irrigation') applyIrrigationEffect(payload.playerId)
       else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
+      else if (payload.card === 'crane') applyCraneEffect(payload.playerId)
+      else if (payload.card === 'medicine') applyMedicineEffect(payload.playerId)
+      else if (payload.card === 'invention') {
+        // Unlike Irrigation/Mining/Crane/Medicine, Invention's effect isn't
+        // "spend the card and immediately apply a deterministic result" —
+        // the acting client still has to pick 2 board tiles AFTER this
+        // broadcast lands. A receiver only needs to remove the card from
+        // that player's hand here; the actual swap arrives separately via
+        // onInventionSwapped once the actor finishes picking (applyInventionSwap
+        // is safely reused verbatim for that, no player-specific state).
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p,
+          ),
+        )
+      } else if (payload.card === 'merchantFleet') {
+        // Same reasoning as Invention just above — the named type stays
+        // local to the acting client (see playMerchantFleet's own comment),
+        // so a receiver only needs to remove the card from that player's
+        // hand; merchantFleetRate itself is never set on this client.
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p,
+          ),
+        )
+      }
     },
+    onInventionSwapped: (payload) => applyInventionSwap(payload.tileAId, payload.tileBId),
     onProgressDiscardConfirmed: (payload) => applyProgressDiscard(payload.playerId, payload.indices),
     // Trusted-apply — the purchasing client already resolved which player
     // controls the track AND which of their cities carries the marker (see
@@ -1400,6 +1490,11 @@ function App() {
   // player owns that resource's specific port, else 3:1 if they own any
   // generic port, else the standard 4:1.
   const getPortRate = (playerId: number, resource: ResourceType): number => {
+    // Cities & Knights Merchant Fleet — checked first: its 2:1 is at least
+    // as good as any port, and unlike a port, it isn't derived from
+    // settlement ownership at all, so it has to short-circuit before the
+    // ports loop below rather than fold into it.
+    if (merchantFleetRate?.playerId === playerId && merchantFleetRate.type === resource) return 2
     let hasGenericPort = false
     for (const port of ports) {
       const ownsPort = port.vertexIds.some((vertexId) => settlements[vertexId]?.ownerId === playerId)
@@ -1534,13 +1629,33 @@ function App() {
         warn('You have no cities left to place.')
         return
       }
-      if (!canAfford(player.resources, CITY_COST)) {
+      // Cities & Knights Medicine — "Upgrade one settlement to a city for 1
+      // wheat + 2 ore (instead of the normal city cost)." No new vertex-
+      // highlight machinery needed: this reuses the exact SAME onBuild
+      // click every ordinary city upgrade already goes through (Metropolis
+      // claiming doesn't have its own highlight either — see this branch's
+      // sibling above) — an ineligible click just gets warn()'d, matching
+      // this codebase's established UX.
+      const usingMedicine = pendingMedicineUse === player.id
+      if (usingMedicine) {
+        if (player.resources.grain < 1 || player.resources.ore < 2) {
+          warn('Not enough resources for Medicine (needs 1 Wheat + 2 Ore).')
+          return
+        }
+      } else if (!canAfford(player.resources, CITY_COST)) {
         warn('Not enough resources for a city.')
         return
       }
 
-      applyCityPlacement(vertexId, player.id)
-      if (onlineInfo) broadcastCityBuilt({ vertexId, playerId: player.id })
+      const medicineCost = { grain: 1, ore: 2 }
+      applyCityPlacement(vertexId, player.id, usingMedicine ? medicineCost : undefined)
+      // Consumed exactly once, on the actual placement — not on playMedicine
+      // (which only arms the flag) and not on an earlier click, since an
+      // ineligible click above returns before ever reaching here.
+      if (usingMedicine) setPendingMedicineUse(null)
+      if (onlineInfo) {
+        broadcastCityBuilt({ vertexId, playerId: player.id, costOverride: usingMedicine ? medicineCost : undefined })
+      }
       return
     }
 
@@ -2222,6 +2337,19 @@ function App() {
       warn('Choose a city for the new Metropolis first.')
       return
     }
+    // Cities & Knights Invention — same defense-in-depth as the Metropolis
+    // claim guard just above: the card is already spent the instant
+    // pendingInventionSwap is set (playInvention), so letting the turn
+    // advance past an unresolved pick would strand it. Locally (Pass & Play)
+    // that's worse than just "annoying": TileSwapLayer's `active` prop
+    // compares pendingInventionSwap.playerId against localPlayer.id, which
+    // TRACKS the current player on a shared device — the instant the turn
+    // passed, the picker would silently vanish for the new current player,
+    // permanently losing the swap's second tile with no way to resume it.
+    if (pendingInventionSwap && pendingInventionSwap.playerId === players[currentPlayerIndex]?.id) {
+      warn('Finish your Invention tile swap first.')
+      return
+    }
     endTurn()
   }
 
@@ -2304,7 +2432,14 @@ function App() {
     }
 
     const player = players[currentPlayerIndex]
-    if (player.cityImprovements.trade < 3) {
+    // Cities & Knights Merchant Fleet — the SAME merchantFleetRate check
+    // getPortRate applies to resource bank-trades, applied here too for
+    // commodity bank-trades (this ability names EITHER a resource or a
+    // commodity, so naming one has to cover both trade tabs consistently).
+    // Only unlocks the ONE named commodity below Trade level 3 — every OTHER
+    // commodity still requires the real level.
+    const hasMerchantFleetRate = merchantFleetRate?.playerId === player.id && merchantFleetRate.type === give
+    if (!hasMerchantFleetRate && player.cityImprovements.trade < 3) {
       warn('Reach Trade level 3 to trade commodities.')
       return
     }
@@ -2578,11 +2713,29 @@ function App() {
       warn('Roll the dice before buying a city improvement.')
       return
     }
-    if (!canAffordImprovement(player.commodities, track, player.cityImprovements[track])) {
+    // Cities & Knights Crane — "Build 1 city improvement for 1 commodity
+    // less than normal." Deliberately does NOT touch cityImprovements.ts's
+    // pure canAffordImprovement/buyImprovementLevel (other call sites depend
+    // on their exact signatures) — implemented as a pay-full-then-refund-1
+    // wrapper here instead, scoped entirely to this function. The
+    // affordability check must ALSO account for the discount:
+    // canAffordImprovement's FULL-cost check would wrongly block a player
+    // who can only afford the DISCOUNTED price. Mirrors canAffordImprovement's
+    // own max-level ceiling (MAX_IMPROVEMENT_LEVEL) so an already-maxed track
+    // can't misread as "affordable," which would let the post-purchase
+    // refund below hand out a free commodity once buyImprovementLevel's own
+    // ceiling guard silently no-ops the purchase.
+    const hasCraneDiscount = craneDiscountPlayerId === player.id
+    const currentLevel = player.cityImprovements[track]
+    const affordable = hasCraneDiscount
+      ? currentLevel < MAX_IMPROVEMENT_LEVEL &&
+        player.commodities[COMMODITY_FOR_TRACK[track]] >= Math.max(0, improvementLevelCost(currentLevel + 1) - 1)
+      : canAffordImprovement(player.commodities, track, currentLevel)
+    if (!affordable) {
       warn('Not enough commodities for that improvement.')
       return
     }
-    const newLevel = player.cityImprovements[track] + 1
+    const newLevel = currentLevel + 1
     // One shared verdict for BOTH this gate and GameHud's disabled-button
     // state — see evaluateMetropolisPurchase's own comment on why neither
     // side re-derives currentHolderLevel or the own-city filter itself.
@@ -2611,8 +2764,32 @@ function App() {
     }
 
     applyCityImprovementPurchase(player.id, track)
+    // Refund step of Crane's pay-full-then-refund-1 discount — applyCityImprovementPurchase
+    // just deducted the FULL cost via buyImprovementLevel, so 1 of the
+    // matching commodity comes back here, and the 1-time flag is cleared so
+    // it can't be reused by a later purchase. craneDiscount is carried on
+    // the broadcast below so every OTHER client applies the identical
+    // refund — without it, a receiver's own applyCityImprovementPurchase
+    // would deduct the full cost with no refund, permanently desyncing this
+    // player's commodity count between clients.
+    if (hasCraneDiscount) {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === player.id
+            ? {
+                ...p,
+                commodities: {
+                  ...p.commodities,
+                  [COMMODITY_FOR_TRACK[track]]: p.commodities[COMMODITY_FOR_TRACK[track]] + 1,
+                },
+              }
+            : p,
+        ),
+      )
+      setCraneDiscountPlayerId(null)
+    }
     inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
-    if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel })
+    if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel, craneDiscount: hasCraneDiscount })
     if (claimsMetropolis) {
       setPendingMetropolisClaim({ track, playerId: player.id })
       // Selection is resolved by clicking one of the player's own eligible
@@ -2844,6 +3021,183 @@ function App() {
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'mining' })
   }
 
+  // Cities & Knights Crane — spends the card and arms a 1-time "next city
+  // improvement purchase costs 1 less" discount, consumed inside
+  // buyCityImprovement (pay-full-then-refund-1, see that function's own
+  // comment for why it's implemented as a wrapper there rather than
+  // touching cityImprovements.ts's pure functions). Shared by the local
+  // actor (playCrane, below) and the receiving client (onProgressCardPlayed)
+  // so both remove the card from the SAME hand array — unlike Irrigation/
+  // Mining's effect, craneDiscountPlayerId itself is only ever READ on the
+  // acting client (buyCityImprovement only ever runs for players[currentPlayerIndex]
+  // on THIS client), but setting it here too keeps this function's shape
+  // identical for both callers regardless, matching the established pattern.
+  const applyCraneEffect = (playerId: number) => {
+    const player = playerById.get(playerId)
+    if (!player) return
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p)),
+    )
+    setCraneDiscountPlayerId(playerId)
+    inform(`${player.name} played Crane — next city improvement purchase costs 1 less.`)
+  }
+
+  const playCrane = () => {
+    // Reachable through ProgressCardsPanel's generic click-to-play (the
+    // panel already disables Play buttons when !isMyTurn), but every sibling
+    // handler in this file guards directly too rather than relying solely on
+    // the UI gate — same "guard even when the UI already blocks it"
+    // convention buyDevCard/playIrrigation established.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('crane')) {
+      warn('No Crane card to play.')
+      return
+    }
+    applyCraneEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'crane' })
+  }
+
+  // Cities & Knights Medicine — spends the card and arms a 1-time discounted
+  // settlement->city upgrade, consumed inside buildSettlementRaw's existing
+  // occupied-vertex/city-upgrade branch. Mirrors applyCraneEffect/playCrane
+  // exactly (no picker of its own — the "picker" is just clicking one of the
+  // player's own settlements, the same click every ordinary city upgrade
+  // already uses).
+  const applyMedicineEffect = (playerId: number) => {
+    const player = playerById.get(playerId)
+    if (!player) return
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p)),
+    )
+    setPendingMedicineUse(playerId)
+    inform(`${player.name} played Medicine — next settlement upgraded to a city costs 1 Wheat + 2 Ore.`)
+  }
+
+  const playMedicine = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('medicine')) {
+      warn('No Medicine card to play.')
+      return
+    }
+    applyMedicineEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'medicine' })
+  }
+
+  // Cities & Knights Invention — trusted-apply for the actual tile swap.
+  // Deterministic given only the 2 tile ids (no player-specific state
+  // involved at all — the board itself is the only thing that changes), so
+  // this is safely reused VERBATIM by both the local actor
+  // (handleInventionTileSelect, below) and the broadcast receiver
+  // (onInventionSwapped) with no separate payload-shape decision to make.
+  const applyInventionSwap = (tileAId: string, tileBId: string) => {
+    setTiles((prev) =>
+      prev.map((t) => {
+        if (t.id === tileAId) return { ...t, number: prev.find((x) => x.id === tileBId)?.number ?? t.number }
+        if (t.id === tileBId) return { ...t, number: prev.find((x) => x.id === tileAId)?.number ?? t.number }
+        return t
+      }),
+    )
+  }
+
+  // Resolves each of the 2 board-tile clicks TileSwapLayer forwards while a
+  // swap is pending. Only ever reachable by the local actor — pendingInventionSwap
+  // is pure local UI state, never broadcast, so TileSwapLayer never renders
+  // active on another client (see its own `active` prop derivation below).
+  const handleInventionTileSelect = (tileId: string) => {
+    if (!pendingInventionSwap) return
+    const tile = tiles.find((t) => t.id === tileId)
+    if (!tile || tile.number == null || [2, 6, 8, 12].includes(tile.number)) {
+      warn("That number can't be swapped.")
+      return
+    }
+    if (!pendingInventionSwap.firstTileId) {
+      setPendingInventionSwap({ ...pendingInventionSwap, firstTileId: tileId })
+      return
+    }
+    // TileSwapLayer already excludes the first-picked tile from its own
+    // clickable set, but this is the actual state-mutating call site, so it
+    // guards independently too rather than trusting the UI alone.
+    if (tileId === pendingInventionSwap.firstTileId) return
+    const firstTile = tiles.find((t) => t.id === pendingInventionSwap.firstTileId)
+    const actor = playerById.get(pendingInventionSwap.playerId)
+    applyInventionSwap(pendingInventionSwap.firstTileId, tileId)
+    if (actor && firstTile) {
+      inform(`${actor.name} played Invention — swapped the ${firstTile.number} and ${tile.number} tiles.`)
+    }
+    setPendingInventionSwap(null)
+    if (onlineInfo) broadcastInventionSwapped({ tileAId: pendingInventionSwap.firstTileId, tileBId: tileId })
+  }
+
+  // Only spends the card and opens the picker (2 board-tile clicks, handled
+  // above) — needs its own small UI (a Play button near Roll Dice, see
+  // GameHud) rather than ProgressCardsPanel's generic click-to-play, same
+  // exception as Alchemy in Task 7: leaving it keyless in
+  // progressCardPlayHandlers means its card in the panel renders disabled,
+  // so it can't ALSO be reached via a plain click that would skip the
+  // picker.
+  const playInvention = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('invention')) {
+      warn('No Invention card to play.')
+      return
+    }
+    // A second Invention played before the first swap resolves would spend
+    // a second card just to silently reset firstTileId back to null — same
+    // "refuse outright rather than clobber an in-progress pick" reasoning
+    // buyCityImprovement's own pendingMetropolisClaim guard uses.
+    if (pendingInventionSwap) {
+      warn('Finish the current tile swap first.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p)),
+    )
+    setPendingInventionSwap({ playerId: player.id, firstTileId: null })
+    inform(`${player.name} played Invention — choose 2 number tiles to swap.`)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'invention' })
+  }
+
+  // Cities & Knights Merchant Fleet — names 1 resource/commodity type for a
+  // 2:1 bank rate, consumed inside getPortRate (resource trades) and
+  // tradeCommodity (commodity trades). The named type deliberately stays
+  // LOCAL (never broadcast) — bank trades are already a "resolve locally,
+  // then broadcast the OUTCOME" action (BankTradePayload/CommodityTradedPayload
+  // both carry the rate/amount actually applied, trusted-apply on the
+  // receiving end), so every other client already ends up with the correct
+  // result with no need to separately learn WHY that rate applied.
+  const playMerchantFleet = (type: ResourceType | CommodityType) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('merchantFleet')) {
+      warn('No Merchant Fleet card to play.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p)),
+    )
+    setMerchantFleetRate({ playerId: player.id, type })
+    const label = (COMMODITY_ORDER as string[]).includes(type)
+      ? COMMODITY_LABELS[type as CommodityType]
+      : RESOURCE_LABELS[type as ResourceType]
+    inform(`${player.name} played Merchant Fleet — 2:1 trades with the bank for ${label} this turn.`)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'merchantFleet' })
+  }
+
   // Resolves whichever picker is currently open (Year of Plenty or
   // Monopoly) with the resource(s) the player picked in the modal. Only
   // ever reachable by the local actor — devCardPicker is pure local UI
@@ -3040,6 +3394,15 @@ function App() {
     setMetropolisHolders({ science: null, trade: null, politics: null })
     setMetropolisVertexIds({ science: null, trade: null, politics: null })
     setPendingMetropolisClaim(null)
+    // Same reasoning as pendingMetropolisClaim just above — these are all
+    // player-id-keyed flags, and a fresh game reuses the same 1..N player
+    // ids, so leaving any of them set would silently misapply a PREVIOUS
+    // match's pending discount/rate/swap to a player who never earned it in
+    // this one.
+    setCraneDiscountPlayerId(null)
+    setPendingMedicineUse(null)
+    setPendingInventionSwap(null)
+    setMerchantFleetRate(null)
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -3144,6 +3507,14 @@ function App() {
     )
     setDiceRoll(null)
     setIsRolling(false)
+    // Local-only, not part of MatchSnapshot — same "always reset on
+    // restore" treatment devCardPicker/pendingTrade just above get, rather
+    // than risk carrying a pre-disconnect discount/rate/swap into the
+    // reconnected session with no way to tell whether it's still valid.
+    setCraneDiscountPlayerId(null)
+    setPendingMedicineUse(null)
+    setPendingInventionSwap(null)
+    setMerchantFleetRate(null)
     setDiscardSelection([])
     // Progress-card hand-limit queue — unlike discardPlayerIds (recomputed
     // below from restored resource counts) this genuinely IS a persisted
@@ -3347,15 +3718,18 @@ function App() {
 
   // Tasks 8-16 each wire in one more progress-card type's Play action —
   // ProgressCardsPanel treats a missing key as "no handler yet" (disabled
-  // button), not a crash, so shipping this partial is safe. Alchemy is
-  // deliberately absent: it has its own 2-number picker UI next to the Roll
-  // Dice button (playAlchemy, wired directly to GameHud) rather than the
-  // generic click-to-play this object drives — leaving it keyless here
-  // means its card in the panel renders disabled, so it can't ALSO be
-  // reached via a plain click that would skip the picker.
+  // button), not a crash, so shipping this partial is safe. Alchemy,
+  // Invention, and Merchant Fleet are deliberately absent: each needs its
+  // own small argument-picker UI next to the Roll Dice button (playAlchemy/
+  // playInvention/playMerchantFleet, wired directly to GameHud) rather than
+  // the generic no-argument click-to-play this object drives — leaving them
+  // keyless here means their cards in the panel render disabled, so they
+  // can't ALSO be reached via a plain click that would skip the picker.
   const progressCardPlayHandlers: ProgressCardPlayHandlers = {
     irrigation: playIrrigation,
     mining: playMining,
+    crane: playCrane,
+    medicine: playMedicine,
   }
 
   return (
@@ -3419,6 +3793,18 @@ function App() {
             // sealed inside the dome and simply invisible.
             hiddenTilesMode={gameRules.hiddenTiles}
             revealedTileIds={revealedTileIds}
+          />
+          {/* Cities & Knights Invention — sibling to RobberLayer/
+              BoardInteractions, same Canvas. active is scoped to the LOCAL
+              client's own view: pendingInventionSwap is local-only state, so
+              this only ever renders active for whichever browser actually
+              played the card (in local Pass & Play, localPlayer tracks
+              whoever's turn it currently is, which is the same player). */}
+          <TileSwapLayer
+            tiles={tiles}
+            active={pendingInventionSwap?.playerId === localPlayer.id}
+            firstTileId={pendingInventionSwap?.firstTileId ?? null}
+            onSelectTile={handleInventionTileSelect}
           />
           <PortMarkers ports={ports} />
           {diceDisplayMode === 'physics' ? (
@@ -3534,6 +3920,11 @@ function App() {
         }}
         progressCardPlayHandlers={progressCardPlayHandlers}
         onPlayAlchemy={playAlchemy}
+        craneDiscountActive={craneDiscountPlayerId === localPlayer.id}
+        onPlayInvention={playInvention}
+        inventionSwapActive={pendingInventionSwap !== null}
+        onPlayMerchantFleet={playMerchantFleet}
+        merchantFleetRate={merchantFleetRate}
         activeProgressDiscarderId={activeProgressDiscarderId}
         progressDiscardSelection={progressDiscardSelection}
         onToggleProgressDiscard={toggleProgressDiscardSelection}

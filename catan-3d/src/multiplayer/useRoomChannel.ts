@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ProgressCardType, ResourceType } from '../game/types'
+import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ProgressCardType, ResourceType, Resources } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { EventDieFace } from '../components/Dice3D'
 
@@ -76,6 +76,14 @@ export interface SettlementBuiltPayload {
 export interface CityBuiltPayload {
   vertexId: string
   playerId: number
+  // Cities & Knights Medicine — set only when this city was upgraded at
+  // Medicine's discounted 1 Wheat + 2 Ore price instead of the normal
+  // CITY_COST. The acting client's own pendingMedicineUse flag is local-only
+  // (a one-shot per-client UI state, not broadcast on its own), so a
+  // receiver has no way to independently know "why was this city cheaper" —
+  // telling it the exact cost actually paid keeps every client's copy of the
+  // builder's resources in sync without a separate Medicine-play broadcast.
+  costOverride?: Partial<Resources>
 }
 
 export interface RoadBuiltPayload {
@@ -148,6 +156,16 @@ export interface CityImprovementPurchasedPayload {
   playerId: number
   track: ImprovementTrack
   newLevel: number
+  // Cities & Knights Crane — true when this purchase consumed the buyer's
+  // pay-full-then-refund-1 discount. craneDiscountPlayerId (App.tsx) is
+  // local-only state, never broadcast on its own (unlike Medicine's
+  // pendingMedicineUse, Crane's discount doesn't gate WHICH click resolves
+  // it — it's folded straight into this existing purchase broadcast
+  // instead), so without this flag every OTHER client would apply
+  // applyCityImprovementPurchase's full, undiscounted deduction and never
+  // issue the matching 1-commodity refund the acting client gave itself —
+  // a permanent, silent commodity-count desync between clients.
+  craneDiscount?: boolean
 }
 
 // Cities & Knights progress cards — sent once per event-die trigger with a
@@ -189,6 +207,18 @@ export interface MetropolisClaimedPayload {
   track: ImprovementTrack
   playerId: number
   vertexId: string
+}
+
+// Cities & Knights Invention — swaps 2 number tokens on the board. Unlike
+// every other progress-card effect in this file, this one is deterministic
+// given only the 2 tile ids (no player-specific state involved at all — the
+// board itself is the only thing that changes), so it gets its own tiny
+// payload/broadcast pair rather than reusing the generic
+// ProgressCardPlayedPayload shape: that shape only carries WHO played WHICH
+// card, and Invention's actual effect needs to say WHICH 2 tiles.
+export interface InventionSwappedPayload {
+  tileAId: string
+  tileBId: string
 }
 
 export interface BankTradePayload {
@@ -386,6 +416,10 @@ export interface RoomChannelHandlers {
   // Trusted-apply — see MetropolisClaimedPayload's own comment above for why
   // receivers apply payload.playerId directly instead of re-resolving it.
   onMetropolisClaimed?: (payload: MetropolisClaimedPayload) => void
+  // Cities & Knights Invention — see InventionSwappedPayload's own comment
+  // above. Every client (actor and receivers alike) applies this via the
+  // exact same applyInventionSwap function.
+  onInventionSwapped?: (payload: InventionSwappedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
   onCommodityTraded?: (payload: CommodityTradedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
@@ -592,6 +626,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, ({ payload }) => {
       handlersRef.current.onMetropolisClaimed?.(payload)
     })
+    channel.on<InventionSwappedPayload>('broadcast', { event: 'INVENTION_SWAPPED' }, ({ payload }) => {
+      handlersRef.current.onInventionSwapped?.(payload)
+    })
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
       handlersRef.current.onBankTrade?.(payload)
     })
@@ -797,6 +834,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'METROPOLIS_CLAIMED', payload })
   }
+  const broadcastInventionSwapped = (payload: InventionSwappedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'INVENTION_SWAPPED', payload })
+  }
   const broadcastBankTrade = (payload: BankTradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
   }
@@ -843,6 +883,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastProgressCardsDrawn,
     broadcastProgressCardPlayed,
     broadcastMetropolisClaimed,
+    broadcastInventionSwapped,
     broadcastBankTrade,
     broadcastCommodityTraded,
     broadcastHoverChanged,

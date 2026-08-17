@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupStage } from '../../App'
 import {
+  COMMODITY_LABELS,
+  COMMODITY_ORDER,
   IMPROVEMENT_TRACK_ORDER,
+  RESOURCE_LABELS,
+  RESOURCE_ORDER,
   type Building,
   type CommodityType,
   type DevCardType,
@@ -153,6 +157,31 @@ interface GameHudProps {
   // Dice button below, only reachable pre-roll on the current player's own
   // turn.
   onPlayAlchemy: (d1: number, d2: number) => void
+  // Cities & Knights Crane — true when the viewer holds an unused "next
+  // improvement costs 1 less" discount. Threaded straight through to
+  // CityImprovementsPanel — see that prop's own comment for why the button-
+  // enabled check needs it too, not just App.tsx's own purchase gate.
+  craneDiscountActive: boolean
+  // Cities & Knights Invention — deliberately NOT part of
+  // progressCardPlayHandlers (same exception as Alchemy above): fires from
+  // its own small "Play" button near Roll Dice, which only spends the card
+  // and opens the 2-tile board picker (App.tsx's pendingInventionSwap) —
+  // the actual swap resolves via board clicks, entirely outside GameHud.
+  onPlayInvention: () => void
+  // True while the VIEWER'S OWN 2-tile pick is in progress — hides the Play
+  // button (so a second Invention can't be spent mid-pick from here; App.tsx
+  // guards this too) and shows a "pick 2 tiles" hint instead.
+  inventionSwapActive: boolean
+  // Cities & Knights Merchant Fleet — same exception as Invention/Alchemy:
+  // needs a resource/commodity TYPE picked before it can be played, so it
+  // gets its own small picker UI rather than progressCardPlayHandlers'
+  // plain click-to-play.
+  onPlayMerchantFleet: (type: ResourceType | CommodityType) => void
+  // The viewer's own active rate, if any — null once nobody on this seat has
+  // one going. Drives both the small "active" status line near the picker
+  // and (below) whether the Commodities trade tab is reachable even short of
+  // Trade level 3, when the named type is a commodity.
+  merchantFleetRate: { playerId: number; type: ResourceType | CommodityType } | null
   // Cities & Knights progress-card hand limit (4 cards). Unlike
   // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
   // this is the raw front-of-queue player id — GameHud derives its OWN
@@ -245,6 +274,11 @@ export function GameHud({
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
+  craneDiscountActive,
+  onPlayInvention,
+  inventionSwapActive,
+  onPlayMerchantFleet,
+  merchantFleetRate,
   activeProgressDiscarderId,
   progressDiscardSelection,
   onToggleProgressDiscard,
@@ -268,6 +302,9 @@ export function GameHud({
   // treatment devCardPicker's OWN resource choices get before submission.
   const [alchemyD1, setAlchemyD1] = useState(1)
   const [alchemyD2, setAlchemyD2] = useState(1)
+  // Cities & Knights Merchant Fleet's own type picker (Play button near Roll
+  // Dice, below) — same local-UI-state treatment as alchemyD1/alchemyD2.
+  const [merchantFleetType, setMerchantFleetType] = useState<ResourceType | CommodityType>(RESOURCE_ORDER[0])
   // devCardPicker takes priority — the two are mutually exclusive in
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
@@ -411,6 +448,7 @@ export function GameHud({
             onBuy={onBuyImprovement}
             pendingMetropolisTrack={pendingMetropolisTrack}
             metropolisPurchaseBlocked={metropolisPurchaseBlocked}
+            craneDiscountActive={craneDiscountActive}
           />
         )}
         {citiesAndKnightsProgressCards && (
@@ -497,7 +535,23 @@ export function GameHud({
           // own conditional above), same precedent buyCityImprovement/
           // canBuyImprovement rely on without re-checking the house rule
           // flag themselves.
-          canTradeCommodities={viewer.cityImprovements.trade >= 3}
+          //
+          // Cities & Knights Merchant Fleet — also reachable below Trade
+          // level 3 when the viewer's active rate names a COMMODITY: without
+          // this, naming a commodity via Merchant Fleet would be unplayable
+          // through this UI, since the tab itself would never render. The
+          // trade's own 2:1 minimum-quantity check inside TradeModal already
+          // covers "affordable"; App.tsx's tradeCommodity independently
+          // re-checks the SAME merchantFleetRate before actually applying a
+          // trade below level 3, so selecting a non-named commodity here
+          // (still visible, since this only unlocks the TAB, not per-icon
+          // restriction) is rejected with a warn() at confirm time — the
+          // same "ineligible click just gets warn()'d" precedent Medicine's
+          // city-upgrade click already established.
+          canTradeCommodities={
+            viewer.cityImprovements.trade >= 3 ||
+            (merchantFleetRate?.playerId === viewer.id && (COMMODITY_ORDER as string[]).includes(merchantFleetRate.type))
+          }
           onTradeCommodity={onTradeCommodity}
         />
       )}
@@ -509,52 +563,119 @@ export function GameHud({
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
-      {/* Cities & Knights Alchemy — a 2-number picker, NOT a click-to-play
-          card (see progressCardPlayHandlers' own comment): gated on the
-          exact same pre-roll/own-turn conditions as RollDiceButton right
-          above it, so it only ever appears for the player who could
-          actually use it right now. Anchored to the LEFT of Roll Dice
-          (right-44 clears that button's own right-8/w-32 footprint) rather
-          than sharing EventDieIndicator's slot above it, since lastEventDie
-          stays populated into later turns too (set once per roll, never
-          cleared) and would otherwise sit right on top of this once a game
-          is a few rolls in. */}
-      {citiesAndKnightsProgressCards && isMyTurn && !hasRolledThisTurn && currentPlayer.progressCards.includes('alchemy') && (
-        <div className="pointer-events-auto absolute right-44 bottom-10 flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-          <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
-          <div className="flex items-center gap-1.5">
-            <select
-              value={alchemyD1}
-              onChange={(e) => setAlchemyD1(Number(e.target.value))}
-              className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+      {/* Every progress card with its own small picker UI (not
+          progressCardPlayHandlers' generic click-to-play) stacks in this one
+          column, anchored to the LEFT of Roll Dice (right-44 clears that
+          button's own right-8/w-32 footprint). flex-col-reverse + gap-2
+          grows the stack UPWARD from a single shared bottom-10 anchor as
+          more of these become simultaneously eligible, rather than each
+          needing its own hand-tuned bottom offset that would need
+          re-tuning every time a sibling is added/removed. */}
+      <div className="pointer-events-none absolute right-44 bottom-10 flex flex-col-reverse items-center gap-2">
+        {/* Cities & Knights Alchemy — a 2-number picker, gated on the exact
+            same pre-roll/own-turn conditions as RollDiceButton right next to
+            it, so it only ever appears for the player who could actually use
+            it right now. */}
+        {citiesAndKnightsProgressCards && isMyTurn && !hasRolledThisTurn && currentPlayer.progressCards.includes('alchemy') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
+            <div className="flex items-center gap-1.5">
+              <select
+                value={alchemyD1}
+                onChange={(e) => setAlchemyD1(Number(e.target.value))}
+                className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+              >
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={alchemyD2}
+                onChange={(e) => setAlchemyD2(Number(e.target.value))}
+                className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+              >
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => onPlayAlchemy(alchemyD1, alchemyD2)}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
-              {[1, 2, 3, 4, 5, 6].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            <select
-              value={alchemyD2}
-              onChange={(e) => setAlchemyD2(Number(e.target.value))}
-              className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
-            >
-              {[1, 2, 3, 4, 5, 6].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+              Play
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onPlayAlchemy(alchemyD1, alchemyD2)}
-            className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-          >
-            Play
-          </button>
-        </div>
-      )}
+        )}
+        {/* Cities & Knights Invention — no argument picker of its own (the
+            actual 2-tile pick happens on the board itself, via
+            TileSwapLayer), so this is just a spend-and-arm button. Hidden
+            once inventionSwapActive so a second Invention can't be spent
+            mid-pick from here (App.tsx's playInvention guards this too); a
+            "pick tiles" hint takes its place instead. No pre-roll
+            restriction, unlike Alchemy — Invention has no such rule. */}
+        {citiesAndKnightsProgressCards && isMyTurn && !inventionSwapActive && currentPlayer.progressCards.includes('invention') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
+            <button
+              type="button"
+              onClick={onPlayInvention}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+            >
+              Play
+            </button>
+          </div>
+        )}
+        {citiesAndKnightsProgressCards && isMyTurn && inventionSwapActive && (
+          <div className="pointer-events-auto animate-gold-pulse rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-center font-body text-[10px] text-gold uppercase">
+            Pick 2 number tiles on the board
+          </div>
+        )}
+        {/* Cities & Knights Merchant Fleet — a 1-type picker (resource or
+            commodity), same shape as Alchemy's 2-number picker. No pre-roll
+            restriction either. */}
+        {citiesAndKnightsProgressCards && isMyTurn && currentPlayer.progressCards.includes('merchantFleet') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Merchant Fleet: Name a Type</span>
+            <select
+              value={merchantFleetType}
+              onChange={(e) => setMerchantFleetType(e.target.value as ResourceType | CommodityType)}
+              className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+            >
+              {RESOURCE_ORDER.map((resource) => (
+                <option key={resource} value={resource}>
+                  {RESOURCE_LABELS[resource]}
+                </option>
+              ))}
+              {COMMODITY_ORDER.map((commodity) => (
+                <option key={commodity} value={commodity}>
+                  {COMMODITY_LABELS[commodity]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onPlayMerchantFleet(merchantFleetType)}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+            >
+              Play
+            </button>
+            {merchantFleetRate?.playerId === viewer.id && (
+              <span className="font-body text-[9px] text-gold/80">
+                Active: 2:1{' '}
+                {(COMMODITY_ORDER as string[]).includes(merchantFleetRate.type)
+                  ? COMMODITY_LABELS[merchantFleetRate.type as CommodityType]
+                  : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
       {lastEventDie && (
         <div className="pointer-events-none absolute right-8 bottom-40">
           <EventDieIndicator face={lastEventDie} />

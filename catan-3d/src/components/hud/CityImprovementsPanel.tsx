@@ -28,6 +28,14 @@ interface CityImprovementsPanelProps {
   // evaluateMetropolisPurchase helper (which needs the full player list), not
   // here — this component just reads the final verdict.
   metropolisPurchaseBlocked: Record<ImprovementTrack, boolean>
+  // Cities & Knights Crane — true when the viewer has an unused "next
+  // improvement costs 1 less" discount (App.tsx's craneDiscountPlayerId ===
+  // viewer.id). Applies to whichever track they actually buy, not one
+  // specific track — without this, a viewer who can only afford the
+  // DISCOUNTED price would see every track's Buy button rendered disabled
+  // by the plain (undiscounted) canAffordImprovement check below and could
+  // never click through to App.tsx's own discount-aware affordability path.
+  craneDiscountActive: boolean
 }
 
 export function CityImprovementsPanel({
@@ -37,6 +45,7 @@ export function CityImprovementsPanel({
   onBuy,
   pendingMetropolisTrack,
   metropolisPurchaseBlocked,
+  craneDiscountActive,
 }: CityImprovementsPanelProps) {
   return (
     <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
@@ -44,9 +53,20 @@ export function CityImprovementsPanel({
       {IMPROVEMENT_TRACK_ORDER.map((track) => {
         const level = cityImprovements[track]
         const nextName = level < 5 ? IMPROVEMENT_TRACK_NAMES[track][level] : null
-        const cost = level < 5 ? improvementLevelCost(level + 1) : null
+        const fullCost = level < 5 ? improvementLevelCost(level + 1) : null
+        // Displays the NET price the player will actually end up paying
+        // (Crane refunds 1 right after the full-price purchase — see
+        // App.tsx's buyCityImprovement) rather than the sticker price, so
+        // the badge doesn't show a number the player never really pays.
+        const cost = craneDiscountActive && fullCost != null ? Math.max(0, fullCost - 1) : fullCost
         const blockedByMetropolis = metropolisPurchaseBlocked[track]
-        const affordable = canBuy && level < 5 && canAffordImprovement(commodities, track, level) && !blockedByMetropolis
+        const canAffordDiscounted =
+          craneDiscountActive && fullCost != null && commodities[COMMODITY_FOR_TRACK[track]] >= Math.max(0, fullCost - 1)
+        const affordable =
+          canBuy &&
+          level < 5 &&
+          (canAffordDiscounted || canAffordImprovement(commodities, track, level)) &&
+          !blockedByMetropolis
         const isPendingSelection = pendingMetropolisTrack === track
         return (
           <div key={track} className="flex flex-col gap-1 rounded-xl border border-glass-border bg-white/5 p-2">

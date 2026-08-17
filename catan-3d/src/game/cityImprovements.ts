@@ -15,7 +15,13 @@ export function improvementLevelCost(level: number): number {
   return level
 }
 
-const MAX_IMPROVEMENT_LEVEL = 5
+// Exported so App.tsx's Crane discount path (buyCityImprovement) can apply
+// the SAME ceiling to its discounted affordability branch — without this,
+// a discounted check computed independently could wrongly say "affordable"
+// for a track already at level 5, where buyImprovementLevel's own ceiling
+// guard silently no-ops the purchase but Crane's post-purchase refund would
+// still fire, handing the player a free commodity for nothing.
+export const MAX_IMPROVEMENT_LEVEL = 5
 
 export function canAffordImprovement(
   commodities: Commodities,

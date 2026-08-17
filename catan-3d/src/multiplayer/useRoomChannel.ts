@@ -261,6 +261,33 @@ export interface CommodityTradedPayload {
   receive: ResourceType | CommodityType
 }
 
+// Cities & Knights Guild Dues (Task 11) — the announcer's own picks from a
+// targeted opponent's hand. Unlike ProgressCardsDrawnPayload/DevCardBoughtPayload,
+// there's no card-identity trust issue here: both clients already hold the
+// IDENTICAL target hand (players state is fully synced to every client, just
+// never rendered for a non-viewer — this task's own scope note), so the
+// receiver applies these exact type picks directly via applyGuildDuesTake
+// rather than re-deriving anything from its own state.
+export interface GuildDuesTakenPayload {
+  takerId: number
+  targetId: number
+  picks: (ResourceType | CommodityType)[]
+}
+
+// Cities & Knights Espionage (Task 11) — cardIndex is an index into the
+// TARGET's progressCards array, not a card identity. Both clients already
+// hold the identical array (no un-syncable local randomness involved, unlike
+// a devDeck/progressCardDeck draw — see ProgressCardsDrawnPayload's own
+// comment for that contrast), so the receiver re-derives the actual card
+// from target.progressCards[cardIndex] itself (applyEspionageTake, App.tsx)
+// rather than trusting a duplicated card-identity field over the wire that
+// could disagree with what's actually at that index on this client.
+export interface EspionageTakenPayload {
+  takerId: number
+  targetId: number
+  cardIndex: number
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -446,6 +473,14 @@ export interface RoomChannelHandlers {
   onInventionSwapped?: (payload: InventionSwappedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
   onCommodityTraded?: (payload: CommodityTradedPayload) => void
+  // Cities & Knights Guild Dues/Espionage (Task 11) — fire once the acting
+  // client has confirmed their own picks in OpponentHandPicker; the card
+  // itself was already spent (and every client already removed it from the
+  // taker's hand) via the earlier, generic onProgressCardPlayed broadcast —
+  // same two-broadcast split onInventionSwapped uses relative to
+  // onProgressCardPlayed's 'invention' branch.
+  onGuildDuesTaken?: (payload: GuildDuesTakenPayload) => void
+  onEspionageTaken?: (payload: EspionageTakenPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -665,6 +700,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, ({ payload }) => {
       handlersRef.current.onCommodityTraded?.(payload)
     })
+    channel.on<GuildDuesTakenPayload>('broadcast', { event: 'GUILD_DUES_TAKEN' }, ({ payload }) => {
+      handlersRef.current.onGuildDuesTaken?.(payload)
+    })
+    channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, ({ payload }) => {
+      handlersRef.current.onEspionageTaken?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -879,6 +920,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastCommodityTraded = (payload: CommodityTradedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'COMMODITY_TRADED', payload })
   }
+  const broadcastGuildDuesTaken = (payload: GuildDuesTakenPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'GUILD_DUES_TAKEN', payload })
+  }
+  const broadcastEspionageTaken = (payload: EspionageTakenPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'ESPIONAGE_TAKEN', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -924,6 +971,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastInventionSwapped,
     broadcastBankTrade,
     broadcastCommodityTraded,
+    broadcastGuildDuesTaken,
+    broadcastEspionageTaken,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

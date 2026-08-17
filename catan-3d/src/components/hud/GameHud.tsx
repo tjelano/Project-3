@@ -35,6 +35,9 @@ import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
 import { CityImprovementsPanel } from './CityImprovementsPanel'
 import { ProgressCardsPanel, type ProgressCardPlayHandlers } from './ProgressCardsPanel'
+import { PlayerTargetPicker } from './PlayerTargetPicker'
+import { OpponentHandPicker } from './OpponentHandPicker'
+import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 
 // 'scienceFreeResource' isn't a DevCardPickerMode (App.tsx keeps it as a
 // separate queue, not devCardPicker — see the design note on
@@ -204,6 +207,26 @@ interface GameHudProps {
   // and (below) whether the Commodities trade tab is reachable even short of
   // Trade level 3, when the named type is a commodity.
   merchantFleetRate: { playerId: number; type: ResourceType | CommodityType } | null
+  // Cities & Knights Guild Dues — null until the viewer's own OWN play
+  // spends the card (App.tsx's playGuildDues), local-only like
+  // pendingInventionSwap/merchantFleetType above (only ever set on the
+  // acting client's own screen). guildDuesEligibleTargets is App.tsx's own
+  // playersMeetingVpThreshold result, threaded down rather than
+  // recomputed here so this file doesn't need its own copy of that VP-
+  // comparison logic (or the settlements/trophy/metropolis state it reads).
+  pendingGuildDues: { targetId: number } | null
+  guildDuesEligibleTargets: Player[]
+  onSelectGuildDuesTarget: (playerId: number) => void
+  onConfirmGuildDues: (picks: (ResourceType | CommodityType)[]) => void
+  onCancelGuildDues: () => void
+  // Cities & Knights Espionage — same shape as pendingGuildDues above, but
+  // targets every OTHER player (no VP filter needed, so no separate
+  // eligible-targets prop — this file's own `otherPlayers`, below, already
+  // is that list).
+  pendingEspionage: { targetId: number } | null
+  onSelectEspionageTarget: (playerId: number) => void
+  onConfirmEspionage: (indices: number[]) => void
+  onCancelEspionage: () => void
   // Cities & Knights progress-card hand limit (4 cards). Unlike
   // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
   // this is the raw front-of-queue player id — GameHud derives its OWN
@@ -302,6 +325,15 @@ export function GameHud({
   inventionSwapActive,
   onPlayMerchantFleet,
   merchantFleetRate,
+  pendingGuildDues,
+  guildDuesEligibleTargets,
+  onSelectGuildDuesTarget,
+  onConfirmGuildDues,
+  onCancelGuildDues,
+  pendingEspionage,
+  onSelectEspionageTarget,
+  onConfirmEspionage,
+  onCancelEspionage,
   activeProgressDiscarderId,
   progressDiscardSelection,
   onToggleProgressDiscard,
@@ -336,6 +368,14 @@ export function GameHud({
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
+  // Cities & Knights Guild Dues/Espionage — each dialog gets its own focus
+  // trap (same DevCardResourcePicker-style forced-overlay treatment),
+  // wired to that card's own Cancel action for Escape-to-dismiss. Called
+  // unconditionally (hooks can't be conditional) — harmless when the
+  // matching pending* state is null, since the ref callback just never
+  // attaches to a mounted node.
+  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelGuildDues)
+  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelEspionage)
   // Cities & Knights progress-card hand-limit discard — mirrors
   // isMyDiscardTurn's role, but computed HERE (not in App.tsx) since it
   // needs THIS screen's own viewer, which online is always this browser's
@@ -366,11 +406,15 @@ export function GameHud({
     : NO_METROPOLIS_PURCHASE_BLOCKED
   const gameActive = !winner
   const tradeBlocked = !!pendingTrade
-  // Covers BOTH forced-choice pickers (devCardPicker and the Science
-  // level-3 free-resource pick) — same reasoning as the canRestart guard
-  // further down: the modal overlay alone stops mouse hit-testing, not
-  // keyboard Tab/Enter reaching an action button still marked enabled.
-  const pickerBlocked = !!activePickerMode
+  // Covers every forced-choice overlay (devCardPicker, the Science level-3
+  // free-resource pick, and Guild Dues/Espionage's own target-and-cards
+  // dialogs below) — same reasoning as the canRestart guard further down:
+  // the modal overlay alone stops mouse hit-testing, not keyboard Tab/Enter
+  // reaching an action button still marked enabled. App.tsx's
+  // canPerformAction() re-checks pendingGuildDues/pendingEspionage
+  // independently at handler time — this is the matching UI-level lock, not
+  // the only one.
+  const pickerBlocked = !!activePickerMode || !!pendingGuildDues || !!pendingEspionage
   const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
     gamePhase === 'playing' &&
@@ -726,6 +770,88 @@ export function GameHud({
           subtitle={DEV_CARD_PICKER_COPY.tradeMonopolyProgress.subtitle}
           onComplete={onResolveDevCardCommodityPicker}
         />
+      )}
+      {/* Cities & Knights Guild Dues — target picker (PlayerTargetPicker,
+          restricted to playersMeetingVpThreshold's eligible set) stacked
+          above the card picker (OpponentHandPicker) in ONE dialog box, same
+          "one box, multiple sections" composition TradeModal already uses
+          for its own player-target row + give/receive grids, rather than a
+          sequential 2-screen flow. Only ever rendered on the acting
+          client's own screen — pendingGuildDues is local-only state (see
+          its own comment in App.tsx). */}
+      {pendingGuildDues && (
+        <div
+          ref={guildDuesDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guild-dues-title"
+          tabIndex={-1}
+          className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md"
+        >
+          <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p id="guild-dues-title" className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
+              Guild Dues
+            </p>
+            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
+            <div className="mb-4">
+              <PlayerTargetPicker
+                players={guildDuesEligibleTargets}
+                selectedPlayerId={pendingGuildDues.targetId}
+                onSelect={onSelectGuildDuesTarget}
+              />
+            </div>
+            <OpponentHandPicker
+              // Keyed on the target — OpponentHandPicker's own picks/
+              // cardPicks selection state is local to the component
+              // instance, so without a fresh key here, switching targets
+              // via PlayerTargetPicker above would carry stale selections
+              // (picked against the OLD target) into a submit against the
+              // NEW one instead of resetting them.
+              key={pendingGuildDues.targetId}
+              target={players.find((p) => p.id === pendingGuildDues.targetId) ?? guildDuesEligibleTargets[0] ?? viewer}
+              mode="resourcesAndCommodities"
+              maxPicks={2}
+              onConfirm={(picks) => onConfirmGuildDues(picks as (ResourceType | CommodityType)[])}
+              onCancel={onCancelGuildDues}
+            />
+          </div>
+        </div>
+      )}
+      {/* Cities & Knights Espionage — same composition as Guild Dues above,
+          but the target list is `otherPlayers` (unrestricted — "another
+          player," no VP filter) rather than a VP-eligible subset. */}
+      {pendingEspionage && (
+        <div
+          ref={espionageDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="espionage-title"
+          tabIndex={-1}
+          className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md"
+        >
+          <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p id="espionage-title" className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
+              Espionage
+            </p>
+            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
+            <div className="mb-4">
+              <PlayerTargetPicker
+                players={otherPlayers}
+                selectedPlayerId={pendingEspionage.targetId}
+                onSelect={onSelectEspionageTarget}
+              />
+            </div>
+            <OpponentHandPicker
+              // Same reset-on-switch reasoning as Guild Dues' own key above.
+              key={pendingEspionage.targetId}
+              target={players.find((p) => p.id === pendingEspionage.targetId) ?? otherPlayers[0] ?? viewer}
+              mode="progressCards"
+              maxPicks={1}
+              onConfirm={(picks) => onConfirmEspionage(picks as number[])}
+              onCancel={onCancelEspionage}
+            />
+          </div>
+        </div>
       )}
       {pendingTrade && (localPlayerId == null || pendingTrade.toPlayerId === localPlayerId) && (
         <TradeOfferPrompt

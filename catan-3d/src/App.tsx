@@ -64,6 +64,7 @@ import {
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
   PROGRESS_CARD_ORDER,
+  PROGRESS_CARD_VP_TYPES,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   ROAD_COST,
@@ -317,6 +318,20 @@ function App() {
     playerId: number
     type: ResourceType | CommodityType
   } | null>(null)
+  // Cities & Knights Guild Dues — set by playGuildDues (which also spends
+  // the card immediately, same "spend on click, resolve the argument after"
+  // shape as pendingInventionSwap above), then resolved by confirmGuildDues
+  // once the taker picks their 2 cards (or fewer, if the target holds
+  // fewer) via OpponentHandPicker. targetId, not a fixed value, so the
+  // player can switch among playersMeetingVpThreshold's eligible targets
+  // (via PlayerTargetPicker) before confirming. Local-only, like every
+  // other pending*-picker state above — only ever non-null on the acting
+  // client's own screen.
+  const [pendingGuildDues, setPendingGuildDues] = useState<{ targetId: number } | null>(null)
+  // Cities & Knights Espionage — same shape as pendingGuildDues above, but
+  // targeting is unrestricted ("another player," not VP-gated) and the take
+  // itself is optional ("you may take 1") — see confirmEspionage.
+  const [pendingEspionage, setPendingEspionage] = useState<{ targetId: number } | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
   const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
@@ -453,6 +468,19 @@ function App() {
     }
     if (devCardPicker) {
       warn('Resolve the development card first.')
+      return false
+    }
+    // Cities & Knights Guild Dues/Espionage — the card is already spent the
+    // instant either pending* state is set (playGuildDues/playEspionage),
+    // same "forced choice already in motion" reasoning as devCardPicker
+    // just above, so every other action (including ending the turn, which
+    // calls this first) stays blocked until OpponentHandPicker resolves.
+    if (pendingGuildDues) {
+      warn('Finish taking your Guild Dues cards first.')
+      return false
+    }
+    if (pendingEspionage) {
+      warn('Finish playing Espionage first.')
       return false
     }
     if (activeScienceFreeResourcePlayerId != null) {
@@ -1043,6 +1071,8 @@ function App() {
     broadcastProgressCardsDrawn,
     broadcastProgressCardPlayed,
     broadcastProgressDiscardConfirmed,
+    broadcastGuildDuesTaken,
+    broadcastEspionageTaken,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1280,6 +1310,16 @@ function App() {
             p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p,
           ),
         )
+      } else if (payload.card === 'guildDues' || payload.card === 'espionage') {
+        // Same split as Invention/Merchant Fleet above — the target-and-
+        // cards picker (pendingGuildDues/pendingEspionage) is local-only UI
+        // state on the acting client, so a receiver just removes the spent
+        // card here; the actual take arrives separately via
+        // onGuildDuesTaken/onEspionageTaken once the actor confirms their
+        // picks in OpponentHandPicker.
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, payload.card) } : p)),
+        )
       }
     },
     onInventionSwapped: (payload) => applyInventionSwap(payload.tileAId, payload.tileBId),
@@ -1340,6 +1380,27 @@ function App() {
       }
       applyCommodityTrade(payload.playerId, payload.give, payload.receive)
     },
+    // Cities & Knights Guild Dues — validated against RESOURCE_ORDER/
+    // COMMODITY_ORDER membership before ever reaching applyGuildDuesTake's
+    // resources[]/commodities[] arithmetic, same malformed-payload guard
+    // shape as onBankTrade/onCommodityTraded above.
+    onGuildDuesTaken: (payload) => {
+      const valid = payload.picks.every(
+        (pick) => (RESOURCE_ORDER as readonly string[]).includes(pick) || (COMMODITY_ORDER as readonly string[]).includes(pick),
+      )
+      if (!valid) {
+        console.error('[Catan] Ignoring malformed guild-dues payload:', payload)
+        return
+      }
+      applyGuildDuesTake(payload.takerId, payload.targetId, payload.picks)
+    },
+    // Cities & Knights Espionage — cardIndex is trusted as an index, not a
+    // card identity (see EspionageTakenPayload's own comment in
+    // useRoomChannel.ts); applyEspionageTake already re-derives the actual
+    // card from target.progressCards[cardIndex] on THIS client and bails
+    // out on an out-of-range index or a VP card, so no separate validation
+    // is needed here beyond that.
+    onEspionageTaken: (payload) => applyEspionageTake(payload.takerId, payload.targetId, payload.cardIndex),
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
     // back to their own sender by default, so this only ever fires on
@@ -3486,6 +3547,167 @@ function App() {
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'wedding' })
   }
 
+  // Cities & Knights Guild Dues — "look at the hand of a player with more
+  // VPs than you, take any 2 cards of your choice (resource and/or
+  // commodity) from them." Unlike Sabotage/Wedding just above, the taken
+  // cards aren't auto-selected: the announcer picks EXACTLY which 2 (or
+  // fewer, if the target holds fewer than 2 total), via OpponentHandPicker.
+  // Trusted-apply — shared by the local actor (confirmGuildDues, below,
+  // which also broadcasts) and the receiving client (onGuildDuesTaken):
+  // both apply the identical mutation from the identical `picks` array, no
+  // re-derivation needed, since (unlike a deck draw) there's no un-syncable
+  // randomness involved in a player's own choice of which held cards to
+  // give up.
+  const applyGuildDuesTake = (takerId: number, targetId: number, picks: (ResourceType | CommodityType)[]) => {
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === targetId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: Math.max(0, resources[pick as ResourceType] - 1) }
+            else commodities = { ...commodities, [pick]: Math.max(0, commodities[pick as CommodityType] - 1) }
+          }
+          return { ...p, resources, commodities }
+        }
+        if (p.id === takerId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: resources[pick as ResourceType] + 1 }
+            else commodities = { ...commodities, [pick]: commodities[pick as CommodityType] + 1 }
+          }
+          return { ...p, resources, commodities }
+        }
+        return p
+      }),
+    )
+  }
+
+  const playGuildDues = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('guildDues')) {
+      warn('No Guild Dues card to play.')
+      return
+    }
+    const eligibleTargets = playersMeetingVpThreshold(player.id, 'gt')
+    if (eligibleTargets.length === 0) {
+      warn('No player currently has more VP than you.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'guildDues') } : p)),
+    )
+    // picker lets the player switch targets among eligibleTargets before
+    // confirming, via PlayerTargetPicker (see GameHud.tsx's own Guild Dues
+    // dialog and guildDuesEligibleTargets, below).
+    setPendingGuildDues({ targetId: eligibleTargets[0].id })
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'guildDues' })
+  }
+
+  // Lets the announcer switch targets (among playersMeetingVpThreshold's
+  // eligible set) before confirming which cards to take — GameHud passes
+  // this straight to PlayerTargetPicker's onSelect.
+  const selectGuildDuesTarget = (playerId: number) => {
+    if (!pendingGuildDues) return
+    setPendingGuildDues({ targetId: playerId })
+  }
+
+  // picks: exactly 2 entries from ResourceType | CommodityType (or fewer,
+  // if the target holds fewer than 2 total), each entry present at most as
+  // many times as the target actually holds it — OpponentHandPicker
+  // enforces this at selection time, this function trusts it (same trust
+  // boundary as confirmDiscard trusting discardSelection's own length
+  // invariant).
+  const confirmGuildDues = (picks: (ResourceType | CommodityType)[]) => {
+    if (!pendingGuildDues) return
+    const taker = players[currentPlayerIndex]
+    const targetId = pendingGuildDues.targetId
+    const target = playerById.get(targetId)
+    applyGuildDuesTake(taker.id, targetId, picks)
+    setPendingGuildDues(null)
+    if (onlineInfo) broadcastGuildDuesTaken({ takerId: taker.id, targetId, picks })
+    inform(`${taker.name} took ${picks.length} card${picks.length === 1 ? '' : 's'} from ${target?.name ?? 'an opponent'} via Guild Dues.`)
+  }
+
+  const cancelGuildDues = () => setPendingGuildDues(null)
+
+  // Cities & Knights Espionage — "look at another player's hand of
+  // progress cards; you may take 1 and add it to your hand. VP cards can't
+  // be taken this way." Same shape as Guild Dues just above, simpler: no
+  // VP threshold ("another player," any of them) and the take itself is
+  // optional, so confirmEspionage below tolerates 0 picks (looked, took
+  // nothing) as well as exactly 1.
+  const applyEspionageTake = (takerId: number, targetId: number, cardIndex: number) => {
+    setPlayers((prev) => {
+      const target = prev.find((p) => p.id === targetId)
+      const card = target?.progressCards[cardIndex]
+      // VP cards can't be taken — re-verified here (the receiver), not just
+      // picker-side, since a receiving client must never trust that an
+      // incoming index was already screened by the sender's own UI.
+      if (!card || PROGRESS_CARD_VP_TYPES.has(card)) return prev
+      return prev.map((p) => {
+        if (p.id === targetId) {
+          const next = [...p.progressCards]
+          next.splice(cardIndex, 1)
+          return { ...p, progressCards: next }
+        }
+        if (p.id === takerId) return { ...p, progressCards: [...p.progressCards, card] }
+        return p
+      })
+    })
+  }
+
+  const playEspionage = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('espionage')) {
+      warn('No Espionage card to play.')
+      return
+    }
+    const otherPlayersList = players.filter((p) => p.id !== player.id)
+    if (otherPlayersList.length === 0) {
+      warn('No other player to target.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'espionage') } : p)),
+    )
+    setPendingEspionage({ targetId: otherPlayersList[0].id })
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'espionage' })
+  }
+
+  const selectEspionageTarget = (playerId: number) => {
+    if (!pendingEspionage) return
+    setPendingEspionage({ targetId: playerId })
+  }
+
+  // indices: 0 or 1 entries (OpponentHandPicker's maxPicks=1 for this
+  // mode) — 0 means "looked, took nothing" (the card's own "you may take
+  // 1" wording), matching Cancel's own effect exactly; a non-empty array
+  // takes indices[0] via applyEspionageTake, which re-derives and
+  // re-validates the actual card itself rather than trusting anything else
+  // about it.
+  const confirmEspionage = (indices: number[]) => {
+    if (!pendingEspionage) return
+    const taker = players[currentPlayerIndex]
+    const targetId = pendingEspionage.targetId
+    setPendingEspionage(null)
+    if (indices.length === 0) return
+    applyEspionageTake(taker.id, targetId, indices[0])
+    if (onlineInfo) broadcastEspionageTaken({ takerId: taker.id, targetId, cardIndex: indices[0] })
+    inform(`${taker.name} took a progress card via Espionage.`)
+  }
+
+  const cancelEspionage = () => setPendingEspionage(null)
+
   // Resolves whichever picker is currently open (Year of Plenty or
   // Monopoly) with the resource(s) the player picked in the modal. Only
   // ever reachable by the local actor — devCardPicker is pure local UI
@@ -3724,6 +3946,8 @@ function App() {
     setPendingMedicineUse(null)
     setPendingInventionSwap(null)
     setMerchantFleetRate(null)
+    setPendingGuildDues(null)
+    setPendingEspionage(null)
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -3836,6 +4060,8 @@ function App() {
     setPendingMedicineUse(null)
     setPendingInventionSwap(null)
     setMerchantFleetRate(null)
+    setPendingGuildDues(null)
+    setPendingEspionage(null)
     setDiscardSelection([])
     // Progress-card hand-limit queue — unlike discardPlayerIds (recomputed
     // below from restored resource counts) this genuinely IS a persisted
@@ -4055,7 +4281,23 @@ function App() {
     tradeMonopoly: playTradeMonopoly,
     sabotage: playSabotage,
     wedding: playWedding,
+    // Guild Dues/Espionage DO fit the plain click-to-play shape this object
+    // drives, unlike Alchemy/Invention/Merchant Fleet above — the target is
+    // auto-picked (defaulted, then adjustable) rather than needing an
+    // argument chosen BEFORE the initial click, same "click first, argue
+    // after" shape Invention itself already uses for its board-tile pick.
+    guildDues: playGuildDues,
+    espionage: playEspionage,
   }
+
+  // Recomputed every render (cheap — one VP-comparison filter over
+  // players), only meaningful while pendingGuildDues is actually open:
+  // GameHud's PlayerTargetPicker needs the CURRENT eligible set (VP
+  // standings can't change mid-picker since canPerformAction blocks every
+  // other action while pendingGuildDues is set, but recomputing here rather
+  // than freezing it at playGuildDues-time keeps this one source of truth
+  // with playersMeetingVpThreshold, not a second copy that could drift).
+  const guildDuesEligibleTargets = pendingGuildDues ? playersMeetingVpThreshold(players[currentPlayerIndex].id, 'gt') : []
 
   return (
     <div className="relative h-screen w-screen bg-board-navy">
@@ -4251,6 +4493,15 @@ function App() {
         inventionSwapActive={pendingInventionSwap !== null}
         onPlayMerchantFleet={playMerchantFleet}
         merchantFleetRate={merchantFleetRate}
+        pendingGuildDues={pendingGuildDues}
+        guildDuesEligibleTargets={guildDuesEligibleTargets}
+        onSelectGuildDuesTarget={selectGuildDuesTarget}
+        onConfirmGuildDues={confirmGuildDues}
+        onCancelGuildDues={cancelGuildDues}
+        pendingEspionage={pendingEspionage}
+        onSelectEspionageTarget={selectEspionageTarget}
+        onConfirmEspionage={confirmEspionage}
+        onCancelEspionage={cancelEspionage}
         activeProgressDiscarderId={activeProgressDiscarderId}
         progressDiscardSelection={progressDiscardSelection}
         onToggleProgressDiscard={toggleProgressDiscardSelection}

@@ -184,17 +184,24 @@ interface GameHudProps {
   // here either, matching the citiesAndKnightsCommodities/
   // citiesAndKnightsProgressCards precedent above).
   citiesAndKnightsKnights: boolean
-  // Recruit (Task 7) and Activate/Promote (Task 8) are wired up so far —
-  // Tasks 9-11 add the remaining KnightsPanel props (move/displace/
-  // chase-robber) the same way onPlayAlchemy etc. were added above, one
-  // Cities & Knights feature per task. Until then, KnightsPanel renders
-  // with inline no-op/false placeholders for those, same pattern
-  // KnightLayer's own moveTargets/displaceTargets/onSelectKnight use in
-  // App.tsx.
+  // Recruit (Task 7), Activate/Promote (Task 8), and Move (Task 9) are
+  // wired up so far — Task 10-11 add the remaining KnightsPanel props
+  // (displace/chase-robber) the same way onPlayAlchemy etc. were added
+  // above, one Cities & Knights feature per task. Until then, KnightsPanel
+  // renders with inline no-op/false placeholders for those, same pattern
+  // KnightLayer's own displaceTargets/onSelectKnight use in App.tsx.
   onRecruitKnight: () => void
   canRecruitKnight: boolean
   onActivateKnight: (knightId: string) => void
   onPromoteKnight: (knightId: string) => void
+  // Cities & Knights knight move (Task 9) — arms App.tsx's own
+  // armedKnightAction (mode: 'move'), which in turn drives KnightLayer's
+  // moveTargets prop. armedKnightId mirrors armedKnightAction?.knightId so
+  // KnightsPanel can highlight whichever of the viewer's own knights is
+  // currently armed (also doubles for Displace once Task 10 arms that mode
+  // through the same armedKnightAction state).
+  onArmKnightMove: (knightId: string) => void
+  armedKnightId: string | null
   // Once per turn, per knight INSTANCE — gates the Promote button
   // alongside canPromoteKnight's own cost/supply/track checks, since that
   // module has no notion of "this turn" (see its own comment in
@@ -377,6 +384,8 @@ export function GameHud({
   canRecruitKnight,
   onActivateKnight,
   onPromoteKnight,
+  onArmKnightMove,
+  armedKnightId,
   knightsPromotedThisTurn,
   progressCardDeckCounts,
   progressCardPlayHandlers,
@@ -659,11 +668,11 @@ export function GameHud({
             )}
           </>
         )}
-        {/* Cities & Knights knights — Recruit (Task 7) and Activate/Promote
-            (Task 8) are wired up; Move/Displace/Chase Robber are still
-            inline no-op/false placeholders (Tasks 9-11 replace them one
-            feature at a time, same pattern KnightLayer's own
-            moveTargets/displaceTargets/onSelectKnight use in App.tsx). */}
+        {/* Cities & Knights knights — Recruit (Task 7), Activate/Promote
+            (Task 8), and Move (Task 9) are wired up; Displace/Chase Robber
+            are still inline no-op/false placeholders (Task 10-11 replace
+            them one feature at a time, same pattern KnightLayer's own
+            displaceTargets/onSelectKnight use in App.tsx). */}
         {citiesAndKnightsKnights && (
           <KnightsPanel
             player={viewer}
@@ -671,13 +680,13 @@ export function GameHud({
             onRecruit={onRecruitKnight}
             onActivate={onActivateKnight}
             onPromote={onPromoteKnight}
-            onArmMove={() => {} /* Task 9 replaces this */}
+            onArmMove={onArmKnightMove}
             onArmDisplace={() => {} /* Task 10 replaces this */}
             onArmChaseRobber={() => {} /* Task 11 replaces this */}
             canRecruit={canRecruitKnight}
             canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}
             canChaseRobber={() => false /* Task 11 replaces this */}
-            armedKnightId={null /* Tasks 9-10 replace this */}
+            armedKnightId={armedKnightId}
           />
         )}
       </div>

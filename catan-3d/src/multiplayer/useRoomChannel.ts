@@ -369,6 +369,17 @@ export interface KnightPromotedPayload {
   newStrength: KnightStrength
 }
 
+// Cities & Knights knight move (Task 9) — same trusted-apply model
+// KnightActivatedPayload/KnightPromotedPayload's own comment above
+// describes: the acting client already validated the move locally
+// (knightMoveTargets) before ever broadcasting, so every other client just
+// applies vertexId directly.
+export interface KnightMovedPayload {
+  playerId: number
+  knightId: string
+  vertexId: string
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -580,6 +591,9 @@ export interface RoomChannelHandlers {
   // the trusted-apply reasoning.
   onKnightActivated?: (payload: KnightActivatedPayload) => void
   onKnightPromoted?: (payload: KnightPromotedPayload) => void
+  // Cities & Knights knight move (Task 9) — see KnightMovedPayload's own
+  // comment above for the trusted-apply reasoning.
+  onKnightMoved?: (payload: KnightMovedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -823,6 +837,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<KnightPromotedPayload>('broadcast', { event: 'KNIGHT_PROMOTED' }, ({ payload }) => {
       handlersRef.current.onKnightPromoted?.(payload)
     })
+    channel.on<KnightMovedPayload>('broadcast', { event: 'KNIGHT_MOVED' }, ({ payload }) => {
+      handlersRef.current.onKnightMoved?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1061,6 +1078,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastKnightPromoted = (payload: KnightPromotedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PROMOTED', payload })
   }
+  const broadcastKnightMoved = (payload: KnightMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_MOVED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1114,6 +1134,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastKnightRecruited,
     broadcastKnightActivated,
     broadcastKnightPromoted,
+    broadcastKnightMoved,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

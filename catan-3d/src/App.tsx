@@ -104,6 +104,7 @@ import {
   canActivateKnight,
   canPromoteKnight,
   canRecruitKnight,
+  knightMoveTargets,
   nextKnightStrength,
   recruitableVertices,
 } from './game/knights'
@@ -1256,6 +1257,7 @@ function App() {
     broadcastKnightRecruited,
     broadcastKnightActivated,
     broadcastKnightPromoted,
+    broadcastKnightMoved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1754,6 +1756,19 @@ function App() {
         }),
       )
       setKnightsPromotedThisTurn((prev) => new Set(prev).add(payload.knightId))
+    },
+    // Cities & Knights knight move (Task 9) — same trusted-apply reasoning
+    // as onKnightRecruited/onKnightActivated/onKnightPromoted above: the
+    // sending client already validated the move locally (knightMoveTargets)
+    // before ever broadcasting.
+    onKnightMoved: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== payload.playerId
+            ? p
+            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, vertexId: payload.vertexId, active: false } : k)) },
+        ),
+      )
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -4191,6 +4206,31 @@ function App() {
     setPendingKnightRecruit(player.id)
   }
 
+  // Cities & Knights knight move (Task 9) — arms KnightLayer's move-target
+  // picker for the current player's own screen, same "nothing spent/moved
+  // until handleKnightVertexSelect's armedKnightAction branch below actually
+  // resolves it" deferral armKnightRecruit's own comment above describes.
+  // Mutually exclusive with a pending recruit AND with an already-armed
+  // action (Displace, once Task 10 adds it), same guard armKnightRecruit
+  // uses.
+  const armKnightMove = (knightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !knight.active) {
+      warn('That knight cannot move.')
+      return
+    }
+    if (pendingKnightRecruit != null || armedKnightAction) {
+      warn('Finish the current knight action first.')
+      return
+    }
+    setArmedKnightAction({ knightId, mode: 'move' })
+  }
+
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
   // Move handler extends this with a branch checking armedKnightAction
   // instead of pendingKnightRecruit, rather than a second handler.
@@ -4235,8 +4275,37 @@ function App() {
       if (onlineInfo) broadcastKnightRecruited({ knight: newKnight })
       return
     }
-    // Task 9 (Move) adds its own branch here, checking armedKnightAction
-    // instead of pendingKnightRecruit — see that task's diff.
+    // Cities & Knights knight move (Task 9) — mirrors the recruit branch
+    // above but checks armedKnightAction (set by armKnightMove) instead of
+    // pendingKnightRecruit. Reuses knightPiecesByVertex (the same memoized
+    // vertex -> KnightPiece map the recruit branch's own
+    // recruitableVertices call above already uses, and the road/settlement
+    // occupancy checks near the top of this file build from) rather than
+    // constructing a second one inline.
+    if (armedKnightAction?.mode === 'move') {
+      const { knightId } = armedKnightAction
+      const player = players[currentPlayerIndex]
+      const knight = player.knightPieces.find((k) => k.id === knightId)
+      if (!knight) {
+        setArmedKnightAction(null)
+        return
+      }
+      const targets = knightMoveTargets(knight, graph, roads, settlements, knightPiecesByVertex)
+      if (!targets.has(vertexId)) {
+        warn('Not a valid move.')
+        return
+      }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== player.id
+            ? p
+            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, vertexId, active: false } : k)) },
+        ),
+      )
+      setArmedKnightAction(null)
+      if (onlineInfo) broadcastKnightMoved({ playerId: player.id, knightId, vertexId })
+      return
+    }
   }
 
   // Cities & Knights knight activate — resolves immediately, no board
@@ -5410,13 +5479,14 @@ function App() {
             vertexTileIds={graph.vertexTileIds}
             onSelectTile={handleMerchantTileSelect}
           />
-          {/* Cities & Knights Knights (Task 7) — sibling to RobberLayer/
-              MerchantLayer, same Canvas. recruitTargets is scoped to the
-              LOCAL client's own view: pendingKnightRecruit is local-only
-              state, same reasoning TileSwapLayer/MerchantLayer's own
-              active/placingPlayerId props give above. moveTargets/
+          {/* Cities & Knights Knights (Task 7, Move wired in Task 9) —
+              sibling to RobberLayer/MerchantLayer, same Canvas.
+              recruitTargets/moveTargets are both scoped to the LOCAL
+              client's own view: pendingKnightRecruit/armedKnightAction are
+              both local-only state, same reasoning TileSwapLayer/
+              MerchantLayer's own active/placingPlayerId props give above.
               displaceTargets/onSelectKnight are still placeholders here —
-              Tasks 9 and 10 replace them. */}
+              Task 10 replaces them. */}
           {gameRules.citiesAndKnightsKnights && (
             <KnightLayer
               knights={players.flatMap((p) => p.knightPieces)}
@@ -5427,7 +5497,14 @@ function App() {
                   ? recruitableVertices(pendingKnightRecruit, graph, roads, settlements, knightPiecesByVertex)
                   : null
               }
-              moveTargets={null /* Task 9 replaces this */}
+              moveTargets={
+                armedKnightAction?.mode === 'move'
+                  ? (() => {
+                      const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
+                      return knight ? knightMoveTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
+                    })()
+                  : null
+              }
               displaceTargets={null /* Task 10 replaces this */}
               onSelectVertex={handleKnightVertexSelect}
               onSelectKnight={() => {} /* Task 10 replaces this */}
@@ -5547,6 +5624,8 @@ function App() {
         canRecruitKnight={canRecruitKnight(localPlayer)}
         onActivateKnight={activateKnight}
         onPromoteKnight={promoteKnight}
+        onArmKnightMove={armKnightMove}
+        armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,

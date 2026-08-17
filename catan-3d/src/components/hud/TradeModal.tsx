@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   COMMODITY_LABELS,
   COMMODITY_ORDER,
-  PLAYER_COLORS,
   RESOURCE_ORDER,
   type Commodities,
   type CommodityType,
@@ -13,6 +12,7 @@ import {
 import { useDraggablePanel } from '../../hooks/useDraggablePanel'
 import { ResourceIcon } from './ResourceIcon'
 import { CommodityIcon } from './CommodityIcon'
+import { PlayerTargetPicker } from './PlayerTargetPicker'
 
 interface TradeModalProps {
   resources: Resources
@@ -162,26 +162,8 @@ export function TradeModal({
           <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
             Trade With
           </span>
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {otherPlayers.map((player) => {
-              const selected = targetPlayerId === player.id
-              return (
-                <button
-                  key={player.id}
-                  type="button"
-                  onClick={() => setTargetPlayerId(player.id)}
-                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[11px] transition-colors ${
-                    selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/75'
-                  }`}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: PLAYER_COLORS[player.colorToken] }}
-                  />
-                  {player.name}
-                </button>
-              )
-            })}
+          <div className="mb-3">
+            <PlayerTargetPicker players={otherPlayers} selectedPlayerId={targetPlayerId} onSelect={setTargetPlayerId} />
           </div>
         </>
       )}

@@ -2,7 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { CommodityType, DevCardType, GameRules, ImprovementTrack, KnightPiece, PlayerColorToken, ProgressCardType, ResourceType, Resources } from '../game/types'
+import type {
+  CommodityType,
+  DevCardType,
+  GameRules,
+  ImprovementTrack,
+  KnightPiece,
+  KnightStrength,
+  PlayerColorToken,
+  ProgressCardType,
+  ResourceType,
+  Resources,
+} from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { EventDieFace } from '../components/Dice3D'
 
@@ -342,6 +353,22 @@ export interface KnightRecruitedPayload {
   knight: KnightPiece
 }
 
+// Cities & Knights knight activate/promote (Task 8) — sent ALREADY-RESOLVED,
+// same trusted-apply model KnightRecruitedPayload's own comment above
+// describes: the acting client already validated cost/state locally
+// (canActivateKnight/canPromoteKnight) before ever broadcasting, so every
+// other client just applies the effect directly.
+export interface KnightActivatedPayload {
+  playerId: number
+  knightId: string
+}
+
+export interface KnightPromotedPayload {
+  playerId: number
+  knightId: string
+  newStrength: KnightStrength
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -548,6 +575,11 @@ export interface RoomChannelHandlers {
   // Cities & Knights knight recruit (Task 7) — see KnightRecruitedPayload's
   // own comment above for the trusted-apply reasoning.
   onKnightRecruited?: (payload: KnightRecruitedPayload) => void
+  // Cities & Knights knight activate/promote (Task 8) — see
+  // KnightActivatedPayload/KnightPromotedPayload's own comment above for
+  // the trusted-apply reasoning.
+  onKnightActivated?: (payload: KnightActivatedPayload) => void
+  onKnightPromoted?: (payload: KnightPromotedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -785,6 +817,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<KnightRecruitedPayload>('broadcast', { event: 'KNIGHT_RECRUITED' }, ({ payload }) => {
       handlersRef.current.onKnightRecruited?.(payload)
     })
+    channel.on<KnightActivatedPayload>('broadcast', { event: 'KNIGHT_ACTIVATED' }, ({ payload }) => {
+      handlersRef.current.onKnightActivated?.(payload)
+    })
+    channel.on<KnightPromotedPayload>('broadcast', { event: 'KNIGHT_PROMOTED' }, ({ payload }) => {
+      handlersRef.current.onKnightPromoted?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1017,6 +1055,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastKnightRecruited = (payload: KnightRecruitedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_RECRUITED', payload })
   }
+  const broadcastKnightActivated = (payload: KnightActivatedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_ACTIVATED', payload })
+  }
+  const broadcastKnightPromoted = (payload: KnightPromotedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PROMOTED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1068,6 +1112,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastDiplomacyPlayed,
     broadcastMerchantMoved,
     broadcastKnightRecruited,
+    broadcastKnightActivated,
+    broadcastKnightPromoted,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

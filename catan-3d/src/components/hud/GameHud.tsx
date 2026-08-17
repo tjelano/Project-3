@@ -15,6 +15,7 @@ import {
   type ResourceType,
 } from '../../game/types'
 import { evaluateMetropolisPurchase } from '../../game/cityImprovements'
+import { canPromoteKnight } from '../../game/knights'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
@@ -183,15 +184,24 @@ interface GameHudProps {
   // here either, matching the citiesAndKnightsCommodities/
   // citiesAndKnightsProgressCards precedent above).
   citiesAndKnightsKnights: boolean
-  // Recruit is the only knight action wired up so far (Task 7) — Tasks
-  // 8-11 add the remaining KnightsPanel props (activate/promote/move/
-  // displace/chase-robber) the same way onPlayAlchemy etc. were added
-  // above, one Cities & Knights feature per task. Until then, KnightsPanel
-  // renders with inline no-op/false placeholders for those, same pattern
+  // Recruit (Task 7) and Activate/Promote (Task 8) are wired up so far —
+  // Tasks 9-11 add the remaining KnightsPanel props (move/displace/
+  // chase-robber) the same way onPlayAlchemy etc. were added above, one
+  // Cities & Knights feature per task. Until then, KnightsPanel renders
+  // with inline no-op/false placeholders for those, same pattern
   // KnightLayer's own moveTargets/displaceTargets/onSelectKnight use in
   // App.tsx.
   onRecruitKnight: () => void
   canRecruitKnight: boolean
+  onActivateKnight: (knightId: string) => void
+  onPromoteKnight: (knightId: string) => void
+  // Once per turn, per knight INSTANCE — gates the Promote button
+  // alongside canPromoteKnight's own cost/supply/track checks, since that
+  // module has no notion of "this turn" (see its own comment in
+  // game/knights.ts). Passed down as the raw Set (not a derived boolean)
+  // because canPromote below needs to check membership per-knight, not
+  // once for the whole panel.
+  knightsPromotedThisTurn: Set<string>
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -365,6 +375,9 @@ export function GameHud({
   citiesAndKnightsKnights,
   onRecruitKnight,
   canRecruitKnight,
+  onActivateKnight,
+  onPromoteKnight,
+  knightsPromotedThisTurn,
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
@@ -646,23 +659,23 @@ export function GameHud({
             )}
           </>
         )}
-        {/* Cities & Knights knights (Task 7) — only Recruit is wired up so
-            far; the rest of these props are inline no-op/false placeholders
-            (Tasks 8-11 replace them one feature at a time, same pattern
-            KnightLayer's own moveTargets/displaceTargets/onSelectKnight use
-            in App.tsx). */}
+        {/* Cities & Knights knights — Recruit (Task 7) and Activate/Promote
+            (Task 8) are wired up; Move/Displace/Chase Robber are still
+            inline no-op/false placeholders (Tasks 9-11 replace them one
+            feature at a time, same pattern KnightLayer's own
+            moveTargets/displaceTargets/onSelectKnight use in App.tsx). */}
         {citiesAndKnightsKnights && (
           <KnightsPanel
             player={viewer}
             isMyTurn={canPlayProgressCards}
             onRecruit={onRecruitKnight}
-            onActivate={() => {} /* Task 8 replaces this */}
-            onPromote={() => {} /* Task 8 replaces this */}
+            onActivate={onActivateKnight}
+            onPromote={onPromoteKnight}
             onArmMove={() => {} /* Task 9 replaces this */}
             onArmDisplace={() => {} /* Task 10 replaces this */}
             onArmChaseRobber={() => {} /* Task 11 replaces this */}
             canRecruit={canRecruitKnight}
-            canPromote={() => false /* Task 8 replaces this */}
+            canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}
             canChaseRobber={() => false /* Task 11 replaces this */}
             armedKnightId={null /* Tasks 9-10 replace this */}
           />

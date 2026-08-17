@@ -62,6 +62,8 @@ import {
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
   IMPROVEMENT_TRACK_ORDER,
+  KNIGHT_ACTIVATE_COST,
+  KNIGHT_PROMOTE_COST,
   KNIGHT_RECRUIT_COST,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
@@ -98,7 +100,13 @@ import {
   type Resources,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
-import { canRecruitKnight, recruitableVertices } from './game/knights'
+import {
+  canActivateKnight,
+  canPromoteKnight,
+  canRecruitKnight,
+  nextKnightStrength,
+  recruitableVertices,
+} from './game/knights'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
@@ -518,12 +526,15 @@ function App() {
   const [armedKnightAction, setArmedKnightAction] = useState<{ knightId: string; mode: 'move' | 'displace' } | null>(
     null,
   )
-  // knightsPromotedThisTurn (once per turn, per knight INSTANCE — Smithing
-  // promotes 2 different knights for free in one play, which must stay
-  // legal) is intentionally NOT declared here: nothing in this task's own
-  // Recruit flow reads or writes it, and a state variable with no consumer
-  // fails noUnusedLocals. Task 8 (Activate & Promote) declares it fresh
-  // alongside the Promote handler that's its first real reader/writer.
+  // Cities & Knights knight promote (Task 8) — once per turn, per knight
+  // INSTANCE (a future Smithing card promotes 2 different knights for free
+  // in one play, which must stay legal, so this is a Set of knight ids, not
+  // a single flag or count). Cleared in applyTurnAdvance alongside
+  // pendingKnightRecruit/armedKnightAction just above — same "shared
+  // choke point for both the local end-turn action AND the remote
+  // TURN_PASSED receiver" reasoning, not handleEndTurn, which only guards
+  // and delegates to endTurn -> applyTurnAdvance.
+  const [knightsPromotedThisTurn, setKnightsPromotedThisTurn] = useState<Set<string>>(new Set())
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -654,6 +665,16 @@ function App() {
     // pay for) a knight on the outgoing player's behalf.
     setPendingKnightRecruit(null)
     setArmedKnightAction(null)
+    // Cities & Knights knight promote (Task 8) — same turn-boundary exploit
+    // pendingKnightRecruit's own comment above describes: without this, a
+    // stale knightsPromotedThisTurn entry from the OUTGOING player would
+    // wrongly block the incoming player from promoting a same-id-coincident
+    // knight, or (more importantly) simply never get cleared for the
+    // outgoing player's own next turn. Cleared here — not in
+    // handleEndTurn, which only guards and delegates to endTurn, which
+    // calls this — so both the local end-turn action and the remote
+    // TURN_PASSED receiver apply the identical reset.
+    setKnightsPromotedThisTurn(new Set())
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
@@ -1233,6 +1254,8 @@ function App() {
     broadcastDiplomacyPlayed,
     broadcastMerchantMoved,
     broadcastKnightRecruited,
+    broadcastKnightActivated,
+    broadcastKnightPromoted,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1694,6 +1717,43 @@ function App() {
             : p,
         ),
       )
+    },
+    // Cities & Knights knight activate/promote (Task 8) — same trusted-apply
+    // reasoning as onKnightRecruited just above: the sending client already
+    // validated cost/state locally (canActivateKnight/canPromoteKnight)
+    // before ever broadcasting.
+    onKnightActivated: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== payload.playerId
+            ? p
+            : {
+                ...p,
+                resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
+                knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: true } : k)),
+              },
+        ),
+      )
+    },
+    onKnightPromoted: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id !== payload.playerId) return p
+          const knight = p.knightPieces.find((k) => k.id === payload.knightId)
+          if (!knight) return p
+          return {
+            ...p,
+            resources: deductCost(p.resources, KNIGHT_PROMOTE_COST),
+            knightSupply: {
+              ...p.knightSupply,
+              [knight.strength]: p.knightSupply[knight.strength] + 1,
+              [payload.newStrength]: p.knightSupply[payload.newStrength] - 1,
+            },
+            knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, strength: payload.newStrength } : k)),
+          }
+        }),
+      )
+      setKnightsPromotedThisTurn((prev) => new Set(prev).add(payload.knightId))
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -4179,6 +4239,76 @@ function App() {
     // instead of pendingKnightRecruit — see that task's diff.
   }
 
+  // Cities & Knights knight activate — resolves immediately, no board
+  // picker: unlike Recruit (which arms a vertex picker via
+  // pendingKnightRecruit), there's no target to choose, so this is the same
+  // straightforward resource-deduct-and-broadcast shape buyDevCard uses.
+  const activateKnight = (knightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !canActivateKnight(player, knight)) {
+      warn('Cannot activate that knight.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id !== player.id
+          ? p
+          : {
+              ...p,
+              resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
+              knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, active: true } : k)),
+            },
+      ),
+    )
+    if (onlineInfo) broadcastKnightActivated({ playerId: player.id, knightId })
+  }
+
+  // Cities & Knights knight promote — same immediate-resolve shape as
+  // activateKnight above. knightsPromotedThisTurn (once per turn, per knight
+  // INSTANCE) is checked here in addition to canPromoteKnight's own
+  // cost/supply/track checks, since that module has no notion of "this
+  // turn" (see canPromoteKnight's own comment in game/knights.ts).
+  const promoteKnight = (knightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight) {
+      warn('Cannot promote that knight.')
+      return
+    }
+    if (knightsPromotedThisTurn.has(knightId)) {
+      warn('That knight was already promoted this turn.')
+      return
+    }
+    if (!canPromoteKnight(player, knight)) {
+      warn('Cannot promote that knight.')
+      return
+    }
+    const next = nextKnightStrength(knight.strength)!
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id !== player.id
+          ? p
+          : {
+              ...p,
+              resources: deductCost(p.resources, KNIGHT_PROMOTE_COST),
+              knightSupply: { ...p.knightSupply, [knight.strength]: p.knightSupply[knight.strength] + 1, [next]: p.knightSupply[next] - 1 },
+              knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, strength: next } : k)),
+            },
+      ),
+    )
+    setKnightsPromotedThisTurn((prev) => new Set(prev).add(knightId))
+    if (onlineInfo) broadcastKnightPromoted({ playerId: player.id, knightId, newStrength: next })
+  }
+
   // Shared VP-comparison helper — both Sabotage and Wedding need "every
   // player whose VP compares a certain way to the announcer." Sabotage
   // uses 'gte' (AS MANY OR MORE VPs than the announcer triggers a forced
@@ -5415,6 +5545,9 @@ function App() {
         citiesAndKnightsKnights={gameRules.citiesAndKnightsKnights}
         onRecruitKnight={armKnightRecruit}
         canRecruitKnight={canRecruitKnight(localPlayer)}
+        onActivateKnight={activateKnight}
+        onPromoteKnight={promoteKnight}
+        knightsPromotedThisTurn={knightsPromotedThisTurn}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,
           trade: progressCardDecks.trade.length,

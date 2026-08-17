@@ -10,6 +10,7 @@ import {
   PROGRESS_CARD_ORDER,
   PROGRESS_CARD_DECK_COMPOSITION,
   PROGRESS_CARD_TRACK,
+  KNIGHT_STARTING_SUPPLY,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
@@ -302,5 +303,16 @@ describe('getPublicScore does not hide progress card VP', () => {
     const publicScore = getPublicScore(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
     const trueScore = getPlayerScore(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
     expect(trueScore - publicScore).toBe(1) // only the hidden devCard VP is subtracted, not printing
+  })
+})
+
+describe('createInitialPlayers — knights & city walls', () => {
+  it('gives every player the starting knight supply, no knights on board, and no city walls', () => {
+    const players = createInitialPlayers(3)
+    for (const player of players) {
+      expect(player.knightSupply).toEqual(KNIGHT_STARTING_SUPPLY)
+      expect(player.knightPieces).toEqual([])
+      expect(player.cityWalls).toEqual([])
+    }
   })
 })

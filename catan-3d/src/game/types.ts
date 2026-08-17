@@ -89,6 +89,61 @@ export const PROGRESS_CARD_DECK_COMPOSITION: Record<ImprovementTrack, Partial<Re
   },
 }
 
+// Cities & Knights knight pieces — deliberately separate from DevCardType's
+// 'knight' (the base game's Knight/Soldier development card, which drives
+// the existing largestArmy trophy via Player.knightsPlayed). These are a
+// completely different game object: a physical piece placed on a board
+// intersection, not a card that gets played once and discarded. See the
+// design spec's "Naming — Avoiding Collisions" section.
+export type KnightStrength = 'basic' | 'strong' | 'mighty'
+
+export const KNIGHT_STRENGTH_ORDER: KnightStrength[] = ['basic', 'strong', 'mighty']
+
+export const KNIGHT_STRENGTH_VALUE: Record<KnightStrength, number> = {
+  basic: 1,
+  strong: 2,
+  mighty: 3,
+}
+
+export const KNIGHT_STRENGTH_LABELS: Record<KnightStrength, string> = {
+  basic: 'Basic Knight',
+  strong: 'Strong Knight',
+  mighty: 'Mighty Knight',
+}
+
+export interface KnightPiece {
+  id: string
+  ownerId: number
+  strength: KnightStrength
+  active: boolean
+  vertexId: string
+}
+
+// 2 basic, 0 strong, 0 mighty — 6 physical tokens total per player (CN3087
+// p.9: "Players each have 6 knights, two of each strength"). Promoting a
+// knight moves 1 unit from this record's source bucket to the next.
+export const KNIGHT_STARTING_SUPPLY: Record<KnightStrength, number> = {
+  basic: 2,
+  strong: 0,
+  mighty: 0,
+}
+
+// Costs confirmed via rendered rulebook page images (icon-only in this
+// edition's text layout — see the design spec).
+export const KNIGHT_RECRUIT_COST: Partial<Resources> = { wool: 1, ore: 1 }
+export const KNIGHT_ACTIVATE_COST: Partial<Resources> = { grain: 1 }
+export const KNIGHT_PROMOTE_COST: Partial<Resources> = { wool: 1, ore: 1 }
+export const CITY_WALL_COST: Partial<Resources> = { brick: 2 }
+
+// Shared board-wide pool, NOT per-player — CN3087 p.8: "you may have a
+// maximum of 3 city walls built at the same time," no per-player qualifier.
+export const MAX_CITY_WALLS_BOARD_WIDE = 3
+
+// A player's own strong→mighty promotion additionally requires this
+// Politics track level (CN3087 p.8/p.9). basic→strong has no track
+// requirement.
+export const MIGHTY_KNIGHT_POLITICS_LEVEL = 3
+
 export interface Player {
   id: number
   name: string
@@ -105,6 +160,17 @@ export interface Player {
   // whenever this player's turn begins (see endTurn in App.tsx).
   devCardsBoughtThisTurn: DevCardType[]
   knightsPlayed: number
+  // Cities & Knights knight pieces currently on the board. See KnightPiece
+  // above — deliberately distinct from knightsPlayed.
+  knightPieces: KnightPiece[]
+  // Off-board knight tokens available to recruit/promote into. Starts at
+  // KNIGHT_STARTING_SUPPLY.
+  knightSupply: Record<KnightStrength, number>
+  // Vertex IDs of this player's walled cities. Subject to both a 1-per-city
+  // check (against the vertex) and the shared MAX_CITY_WALLS_BOARD_WIDE cap
+  // (checked across all players' cityWalls combined, not enforced by this
+  // field's shape alone).
+  cityWalls: string[]
 }
 
 export type BuildingType = 'settlement' | 'city'
@@ -308,6 +374,16 @@ export interface GameRules {
   // passes) — no UI-level dependency enforced, verified no existing
   // pattern for that in HouseRulesDropdown.tsx to reuse.
   citiesAndKnightsProgressCards: boolean
+  // Cities & Knights knight pieces & city walls: recruit/activate/promote/
+  // move/displace knights, chase the robber with an active knight, build
+  // city walls (raises the discard-on-7 hand limit). See
+  // docs/superpowers/specs/2026-08-17-cities-knights-knights-city-walls-design.md.
+  // Only meaningful alongside citiesAndKnightsProgressCards (5 progress
+  // cards act on knights/walls) — turning this on alone is harmless, not
+  // broken: knights can be recruited/moved with no progress-card
+  // interaction, matching the "provably inert when its dependency is off"
+  // bar every Phase A/B feature already had to clear.
+  citiesAndKnightsKnights: boolean
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -320,6 +396,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
   hiddenTiles: 'off',
   citiesAndKnightsCommodities: false,
   citiesAndKnightsProgressCards: false,
+  citiesAndKnightsKnights: false,
 }
 
 // A victoryPointTarget set above WINNING_SCORE needs proportionally more of
@@ -413,6 +490,9 @@ export function createInitialPlayers(
     devCards: [],
     devCardsBoughtThisTurn: [],
     knightsPlayed: 0,
+    knightPieces: [],
+    knightSupply: { ...KNIGHT_STARTING_SUPPLY },
+    cityWalls: [],
   }))
 }
 

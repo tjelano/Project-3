@@ -518,19 +518,12 @@ function App() {
   const [armedKnightAction, setArmedKnightAction] = useState<{ knightId: string; mode: 'move' | 'displace' } | null>(
     null,
   )
-  // Once per turn, per knight INSTANCE (not a single global flag) — Smithing
+  // knightsPromotedThisTurn (once per turn, per knight INSTANCE — Smithing
   // promotes 2 different knights for free in one play, which must stay
-  // legal. Cleared in handleEndTurn alongside devCardsBoughtThisTurn.
-  // Established here (Task 7) for Task 8's Promote handler to consume —
-  // nothing in this task's own Recruit flow reads the SET yet, only writes
-  // it (via the setter, in resetGame below), so noUnusedLocals flags the
-  // getter until Task 8 adds its first real read. @ts-expect-error is a
-  // deliberate, self-correcting placeholder for that gap: it will itself
-  // start failing ("unused directive") the moment Task 8 makes this read,
-  // forcing that task to remove it rather than silently leaving stale
-  // suppression behind.
-  // @ts-expect-error -- knightsPromotedThisTurn has no reader until Task 8 (Activate & Promote).
-  const [knightsPromotedThisTurn, setKnightsPromotedThisTurn] = useState<Set<string>>(new Set()) // eslint-disable-line @typescript-eslint/no-unused-vars -- same reason as the ts-expect-error directive above.
+  // legal) is intentionally NOT declared here: nothing in this task's own
+  // Recruit flow reads or writes it, and a state variable with no consumer
+  // fails noUnusedLocals. Task 8 (Activate & Promote) declares it fresh
+  // alongside the Promote handler that's its first real reader/writer.
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -648,6 +641,19 @@ function App() {
     // active rate expires the instant the turn actually passes, regardless
     // of who it passes to.
     setMerchantFleetRate(null)
+    // Cities & Knights knight recruit/move/displace — unlike
+    // pendingMerchantPlacement (which spends its card up front and so
+    // BLOCKS end-turn instead, see handleEndTurn), recruiting spends
+    // nothing until the vertex click resolves, so there's nothing to
+    // strand by silently clearing it here instead. Without this, a stale
+    // pendingKnightRecruit/armedKnightAction from the OUTGOING player would
+    // leave KnightLayer's target rings live and clickable on the incoming
+    // player's turn — isMyTurn and pendingKnightRecruit != null would both
+    // still read true, but pendingKnightRecruit would still hold the
+    // OUTGOING player's id, letting the incoming player's click place (and
+    // pay for) a knight on the outgoing player's behalf.
+    setPendingKnightRecruit(null)
+    setArmedKnightAction(null)
     setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
@@ -4141,8 +4147,7 @@ function App() {
         setPendingKnightRecruit(null)
         return
       }
-      const knightsByVertex = new Map(players.flatMap((p) => p.knightPieces.map((k) => [k.vertexId, k] as const)))
-      const targets = recruitableVertices(playerId, graph, roads, settlements, knightsByVertex)
+      const targets = recruitableVertices(playerId, graph, roads, settlements, knightPiecesByVertex)
       if (!targets.has(vertexId)) {
         warn('Not a valid knight placement.')
         return
@@ -4746,14 +4751,13 @@ function App() {
     setMerchantTileId(null)
     setMerchantHolderId(null)
     setPendingMerchantPlacement(null)
-    // Cities & Knights knight recruit/move/displace/promote — all 3 are
-    // local-only UI state (never persisted/broadcast), same "always reset
-    // on a fresh game" treatment pendingMerchantPlacement gets just above.
-    // players' own knightPieces/knightSupply/cityWalls reset automatically
-    // via createInitialPlayers, so no separate reset is needed for those.
+    // Cities & Knights knight recruit/move/displace — both are local-only UI
+    // state (never persisted/broadcast), same "always reset on a fresh
+    // game" treatment pendingMerchantPlacement gets just above. players'
+    // own knightPieces/knightSupply/cityWalls reset automatically via
+    // createInitialPlayers, so no separate reset is needed for those.
     setPendingKnightRecruit(null)
     setArmedKnightAction(null)
-    setKnightsPromotedThisTurn(new Set())
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')

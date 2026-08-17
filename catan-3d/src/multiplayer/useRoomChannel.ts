@@ -122,6 +122,25 @@ export interface MonopolyPlayedPayload {
   resource: ResourceType
 }
 
+// Cities & Knights Resource Monopoly — same payload SHAPE as
+// MonopolyPlayedPayload (announcer + the announced resource type), kept as
+// its own interface/event rather than reusing MONOPOLY_PLAYED so the event
+// log / receiving clients can tell which card was actually played; the
+// resource-steal math itself (applyMonopolyEffect) is identical either way.
+export interface ResourceMonopolyPlayedPayload {
+  playerId: number
+  resource: ResourceType
+}
+
+// Cities & Knights Trade Monopoly — the commodity equivalent of
+// ResourceMonopolyPlayedPayload just above (announces a CommodityType
+// instead of a ResourceType; applyTradeMonopolyEffect takes 1 per player
+// instead of Resource Monopoly's take-all).
+export interface TradeMonopolyPlayedPayload {
+  playerId: number
+  commodity: CommodityType
+}
+
 export interface TradePayload {
   fromPlayerId: number
   toPlayerId: number
@@ -373,6 +392,11 @@ export interface RoomChannelHandlers {
   onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
   onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
   onMonopolyPlayed?: (payload: MonopolyPlayedPayload) => void
+  // Cities & Knights Resource/Trade Monopoly — see ResourceMonopolyPlayedPayload/
+  // TradeMonopolyPlayedPayload's own comments above for why these are
+  // separate events rather than reusing onMonopolyPlayed/onProgressCardPlayed.
+  onResourceMonopolyPlayed?: (payload: ResourceMonopolyPlayedPayload) => void
+  onTradeMonopolyPlayed?: (payload: TradeMonopolyPlayedPayload) => void
   // Sent to the target player when someone proposes a trade.
   onTradeOffered?: (payload: TradePayload) => void
   // Sent by the target when they accept — every client receives it, but only
@@ -584,6 +608,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<MonopolyPlayedPayload>('broadcast', { event: 'MONOPOLY_PLAYED' }, ({ payload }) => {
       handlersRef.current.onMonopolyPlayed?.(payload)
     })
+    channel.on<ResourceMonopolyPlayedPayload>('broadcast', { event: 'RESOURCE_MONOPOLY_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onResourceMonopolyPlayed?.(payload)
+    })
+    channel.on<TradeMonopolyPlayedPayload>('broadcast', { event: 'TRADE_MONOPOLY_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onTradeMonopolyPlayed?.(payload)
+    })
     channel.on<TradePayload>('broadcast', { event: 'TRADE_OFFERED' }, ({ payload }) => {
       handlersRef.current.onTradeOffered?.(payload)
     })
@@ -789,6 +819,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastMonopolyPlayed = (payload: MonopolyPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'MONOPOLY_PLAYED', payload })
   }
+  const broadcastResourceMonopolyPlayed = (payload: ResourceMonopolyPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'RESOURCE_MONOPOLY_PLAYED', payload })
+  }
+  const broadcastTradeMonopolyPlayed = (payload: TradeMonopolyPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_MONOPOLY_PLAYED', payload })
+  }
   const broadcastTradeOffered = (payload: TradePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_OFFERED', payload })
   }
@@ -869,6 +905,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
+    broadcastResourceMonopolyPlayed,
+    broadcastTradeMonopolyPlayed,
     broadcastTradeOffered,
     broadcastTradeAcceptRequest,
     broadcastTradeResolved,

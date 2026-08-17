@@ -29,6 +29,7 @@ import { VictoryBanner } from './VictoryBanner'
 import { BuildingCostsPanel } from './BuildingCostsPanel'
 import { TradeOfferPrompt, type PendingTrade } from './TradeOfferPrompt'
 import { DevCardResourcePicker } from './DevCardResourcePicker'
+import { DevCardCommodityPicker } from './DevCardCommodityPicker'
 import { RankingsPanel } from './RankingsPanel'
 import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
@@ -45,6 +46,21 @@ type PickerMode = DevCardPickerMode | 'scienceFreeResource'
 const DEV_CARD_PICKER_COPY: Record<PickerMode, { title: string; subtitle: string; pickCount: number }> = {
   yearOfPlenty: { title: 'Year of Plenty', subtitle: 'Choose 2 resources to take from the bank.', pickCount: 2 },
   monopoly: { title: 'Monopoly', subtitle: 'Choose 1 resource type to seize from every opponent.', pickCount: 1 },
+  resourceMonopolyProgress: {
+    title: 'Resource Monopoly',
+    subtitle: 'Announce 1 resource type — every opponent gives you 2 of it (or their last one).',
+    pickCount: 1,
+  },
+  // pickCount here is never actually read — 'tradeMonopolyProgress' renders
+  // DevCardCommodityPicker below, not DevCardResourcePicker, and that
+  // component fixes its pick count at 1 internally. Kept for type
+  // uniformity across this Record (title/subtitle ARE read for both) rather
+  // than splitting the map in two.
+  tradeMonopolyProgress: {
+    title: 'Trade Monopoly',
+    subtitle: 'Announce 1 commodity type — every opponent gives you 1 of it.',
+    pickCount: 1,
+  },
   scienceFreeResource: { title: 'Free Resource', subtitle: 'Science level 3: choose 1 resource.', pickCount: 1 },
 }
 
@@ -104,6 +120,12 @@ interface GameHudProps {
   onPlayDevCard: (type: DevCardType) => void
   devCardPicker: DevCardPickerMode | null
   onResolveDevCardPicker: (picks: ResourceType[]) => void
+  // Cities & Knights Trade Monopoly's picker — a separate resolver rather
+  // than widening onResolveDevCardPicker's ResourceType[] signature, since
+  // DevCardCommodityPicker resolves a single CommodityType, not a
+  // ResourceType array. Only ever called while devCardPicker ===
+  // 'tradeMonopolyProgress' (see activePickerMode's render branch below).
+  onResolveDevCardCommodityPicker: (pick: CommodityType) => void
   // Science level 3's per-roll bonus: a player who received zero production
   // this roll gets to pick 1 free resource. Modeled as its own flag/handler
   // pair (not folded into devCardPicker) because it can be true for a
@@ -259,6 +281,7 @@ export function GameHud({
   onPlayDevCard,
   devCardPicker,
   onResolveDevCardPicker,
+  onResolveDevCardCommodityPicker,
   scienceFreeResourceActive,
   onResolveScienceFreeResource,
   devCardPlayedThisTurn,
@@ -681,7 +704,13 @@ export function GameHud({
           <EventDieIndicator face={lastEventDie} />
         </div>
       )}
-      {activePickerMode && (
+      {/* Trade Monopoly announces a CommodityType, not a ResourceType, so it
+          gets its own picker component (DevCardCommodityPicker) rather than
+          forcing DevCardResourcePicker's resource-only picks array to carry
+          a commodity — see that component's own comment for why it isn't
+          generalized into DevCardResourcePicker instead. Every other
+          activePickerMode still renders the original resource picker. */}
+      {activePickerMode && activePickerMode !== 'tradeMonopolyProgress' && (
         <DevCardResourcePicker
           title={DEV_CARD_PICKER_COPY[activePickerMode].title}
           subtitle={DEV_CARD_PICKER_COPY[activePickerMode].subtitle}
@@ -689,6 +718,13 @@ export function GameHud({
           onComplete={(picks) =>
             activePickerMode === 'scienceFreeResource' ? onResolveScienceFreeResource(picks[0]) : onResolveDevCardPicker(picks)
           }
+        />
+      )}
+      {activePickerMode === 'tradeMonopolyProgress' && (
+        <DevCardCommodityPicker
+          title={DEV_CARD_PICKER_COPY.tradeMonopolyProgress.title}
+          subtitle={DEV_CARD_PICKER_COPY.tradeMonopolyProgress.subtitle}
+          onComplete={onResolveDevCardCommodityPicker}
         />
       )}
       {pendingTrade && (localPlayerId == null || pendingTrade.toPlayerId === localPlayerId) && (

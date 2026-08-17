@@ -96,7 +96,7 @@ import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
-export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly'
+export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
   text: string
   variant: 'info' | 'warning'
@@ -747,6 +747,38 @@ function App() {
     }
   }
 
+  // Cities & Knights Trade Monopoly — sibling to applyMonopolyEffect just
+  // above, but takes only 1 of the announced commodity per player (not
+  // all of it — Resource Monopoly's base-game-derived take-all shape is
+  // deliberately NOT reused here, since the physical Trade Monopoly card
+  // text caps it at 1). Shared by the local actor
+  // (resolveDevCardCommodityPicker, below) and the receiving client
+  // (onTradeMonopolyPlayed), same trust model as every other progress-card
+  // effect in this file.
+  const applyTradeMonopolyEffect = (playerId: number, commodity: CommodityType) => {
+    let collected = 0
+    const victimNotes: string[] = []
+    setPlayers((prev) => {
+      const next = prev.map((p) => {
+        if (p.id === playerId || p.commodities[commodity] <= 0) return p
+        victimNotes.push(`1 from ${p.name}`)
+        collected += 1
+        return { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 } }
+      })
+      return next.map((p) =>
+        p.id === playerId ? { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + collected } } : p,
+      )
+    })
+    const player = playerById.get(playerId)
+    if (player) {
+      inform(
+        collected > 0
+          ? `${player.name} monopolized ${COMMODITY_LABELS[commodity]} trade — collected ${collected} card${collected === 1 ? '' : 's'} (${victimNotes.join(', ')})!`
+          : `${player.name} played Trade Monopoly on ${COMMODITY_LABELS[commodity]}, but no one had any.`,
+      )
+    }
+  }
+
   // Trusted state mutation for a resolved player-to-player trade — shared by
   // the local (Pass & Play) accept path and the online host-arbiter path
   // (resolveTradeAsHost, below), neither of which re-validates: by the time
@@ -956,6 +988,8 @@ function App() {
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
     broadcastMonopolyPlayed,
+    broadcastResourceMonopolyPlayed,
+    broadcastTradeMonopolyPlayed,
     broadcastTradeOffered,
     broadcastTradeAcceptRequest,
     broadcastTradeResolved,
@@ -1007,6 +1041,37 @@ function App() {
     onMonopolyPlayed: (payload) => {
       spendDevCard(payload.playerId, 'monopoly')
       applyMonopolyEffect(payload.playerId, payload.resource)
+    },
+    // Resource/Trade Monopoly are progress cards, not dev cards — spent at
+    // play-time via progressCards/removeOne (see playResourceMonopoly/
+    // playTradeMonopoly), not spendDevCard, so a receiving client (which
+    // never ran either locally) removes the card from progressCards itself
+    // here before applying the identical seize effect, same "receiver
+    // spends since the acting client already spent" split onPlentyPlayed/
+    // onMonopolyPlayed use above.
+    onResourceMonopolyPlayed: (payload) => {
+      if (!RESOURCE_ORDER.includes(payload.resource)) {
+        console.error('[Catan] Ignoring malformed resource-monopoly payload:', payload)
+        return
+      }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p,
+        ),
+      )
+      applyMonopolyEffect(payload.playerId, payload.resource)
+    },
+    onTradeMonopolyPlayed: (payload) => {
+      if (!COMMODITY_ORDER.includes(payload.commodity)) {
+        console.error('[Catan] Ignoring malformed trade-monopoly payload:', payload)
+        return
+      }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p,
+        ),
+      )
+      applyTradeMonopolyEffect(payload.playerId, payload.commodity)
     },
     onTradeOffered: (payload) => {
       setPendingTrade(payload)
@@ -1148,6 +1213,13 @@ function App() {
       else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
       else if (payload.card === 'crane') applyCraneEffect(payload.playerId)
       else if (payload.card === 'medicine') applyMedicineEffect(payload.playerId)
+      // Sabotage/Wedding are also fully deterministic from public state (VP
+      // comparison) plus each affected player's OWN hand contents — see
+      // applySabotageEffect/applyWeddingEffect's own comments — so, same as
+      // Irrigation/Mining/Crane/Medicine above, a receiver just needs to
+      // know who played which card.
+      else if (payload.card === 'sabotage') applySabotageEffect(payload.playerId)
+      else if (payload.card === 'wedding') applyWeddingEffect(payload.playerId)
       else if (payload.card === 'invention') {
         // Unlike Irrigation/Mining/Crane/Medicine, Invention's effect isn't
         // "spend the card and immediately apply a deterministic result" —
@@ -2883,6 +2955,54 @@ function App() {
     if (type === 'monopoly') return playMonopoly()
   }
 
+  // Cities & Knights Resource Monopoly — mirrors playMonopoly above almost
+  // verbatim: spends the card and opens the SAME DevCardResourcePicker
+  // (via the widened DevCardPickerMode) that base-game Monopoly uses, since
+  // resolveDevCardPicker's resourceMonopolyProgress branch calls the exact
+  // same applyMonopolyEffect. Unlike playMonopoly (reached only through
+  // ResourcePanel's dev-card buttons, which are already isMyTurn-gated),
+  // this is dispatched through progressCardPlayHandlers/ProgressCardsPanel
+  // — guarded directly anyway per this plan's "guard even when the UI
+  // already blocks it" convention (buyDevCard's own comment), since
+  // resolveDevCardPicker is a SHARED function also used by the base-game
+  // Monopoly/Year-of-Plenty dev cards and the panel-level gate alone isn't
+  // enough to stop a stale click from reaching it.
+  const playResourceMonopoly = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('resourceMonopoly')) {
+      warn('No Resource Monopoly card to play.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p)),
+    )
+    setDevCardPicker('resourceMonopolyProgress')
+  }
+
+  // Cities & Knights Trade Monopoly — same 2-step spend-then-picker shape
+  // as playResourceMonopoly just above, but opens DevCardCommodityPicker
+  // (via resolveDevCardCommodityPicker) instead, since it announces a
+  // CommodityType. Same isMyTurn guard reasoning as playResourceMonopoly.
+  const playTradeMonopoly = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('tradeMonopoly')) {
+      warn('No Trade Monopoly card to play.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p)),
+    )
+    setDevCardPicker('tradeMonopolyProgress')
+  }
+
   // Cities & Knights Alchemy — playable only pre-roll (same gate every
   // other pre-roll-only action uses), so unlike playIrrigation/playMining
   // below it isn't wired into progressCardPlayHandlers at all: it has its
@@ -3198,6 +3318,134 @@ function App() {
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'merchantFleet' })
   }
 
+  // Shared VP-comparison helper — both Sabotage and Wedding need "every
+  // player whose VP compares a certain way to the announcer." Sabotage
+  // uses 'gte' (AS MANY OR MORE VPs than the announcer triggers a forced
+  // discard), Wedding uses 'gt' (STRICTLY MORE VPs triggers a gift) — the
+  // card texts are easy to confuse with each other, so this single helper
+  // is the one place that distinction is encoded, rather than each play
+  // handler re-deriving its own comparison. Uses getPlayerScore (the TRUE
+  // total, including face-down VP cards) rather than getPublicScore — the
+  // physical card compares actual VP totals, not just what's visible on
+  // the table, same as win detection elsewhere in this file.
+  const playersMeetingVpThreshold = (announcerId: number, comparison: 'gte' | 'gt'): Player[] => {
+    const announcer = playerById.get(announcerId)
+    if (!announcer) return []
+    const announcerVp = getPlayerScore(announcer, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
+    return players.filter((p) => {
+      if (p.id === announcerId) return false
+      const vp = getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
+      return comparison === 'gte' ? vp >= announcerVp : vp > announcerVp
+    })
+  }
+
+  // Cities & Knights Sabotage — every player with as many or more VPs than
+  // the announcer discards half their resource-and/or-commodity hand
+  // (rounded down). The physical card's "rounded down" leaves the exact
+  // cards discarded up to the affected player, which this plan auto-selects
+  // via the SAME greedy autoDiscardCounts logic the resource-discard
+  // timeout fallback already uses (game/discard.ts) rather than building a
+  // second targeted-player response UI for a choice the official text
+  // doesn't actually require interaction for (deliberate scope cut, see
+  // this plan's own Task 10 notes). Trusted-apply — shared by the local
+  // actor (playSabotage, below, which also spends the card and broadcasts)
+  // and the receiving client (onProgressCardPlayed): both recompute the
+  // identical affected set from the same public VP state, then each
+  // affected player's OWN hand contents (already synced), same "safe to
+  // re-run identically on every client" reasoning as applyIrrigationEffect.
+  const applySabotageEffect = (announcerId: number) => {
+    const announcer = playerById.get(announcerId)
+    if (!announcer) return
+    const affected = playersMeetingVpThreshold(announcerId, 'gte')
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
+        if (!affected.some((a) => a.id === p.id)) return p
+        const handSize = discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
+        const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
+      }),
+    )
+    inform(`${announcer.name} played Sabotage — ${affected.length} player(s) discarded half their hand.`)
+  }
+
+  const playSabotage = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('sabotage')) {
+      warn('No Sabotage card to play.')
+      return
+    }
+    applySabotageEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'sabotage' })
+  }
+
+  // Cities & Knights Wedding — every player with STRICTLY MORE VPs than the
+  // announcer gives up to 2 resource-and/or-commodity cards of their choice
+  // (or as many as they have, if fewer than 2). Same auto-selection
+  // reasoning as Sabotage's own comment above, but the taken cards are
+  // ADDED to the announcer's hand instead of discarded to the supply — the
+  // one real difference from Sabotage's shape. The per-affected-player
+  // counts (and the combined per-type total credited to the announcer) are
+  // computed ONCE from the current players state, before setPlayers runs,
+  // rather than inside the setPlayers updater itself — deliberately, so a
+  // dev-mode StrictMode double-invocation of that updater can't double-count
+  // what the announcer receives.
+  const applyWeddingEffect = (announcerId: number) => {
+    const announcer = playerById.get(announcerId)
+    if (!announcer) return
+    const affected = playersMeetingVpThreshold(announcerId, 'gt')
+    const perPlayerCounts = new Map<number, Partial<Record<ResourceType | CommodityType, number>>>()
+    const takenTotals: Partial<Record<ResourceType | CommodityType, number>> = {}
+    let totalTaken = 0
+    for (const p of affected) {
+      const handSize = discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
+      const counts = autoDiscardCounts(p.resources, p.commodities, Math.min(2, handSize))
+      perPlayerCounts.set(p.id, counts)
+      for (const [type, count] of Object.entries(counts)) {
+        const key = type as ResourceType | CommodityType
+        takenTotals[key] = (takenTotals[key] ?? 0) + (count as number)
+        totalTaken += count as number
+      }
+    }
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === announcerId) {
+          const resources = { ...p.resources }
+          const commodities = { ...p.commodities }
+          for (const [type, count] of Object.entries(takenTotals)) {
+            if (RESOURCE_ORDER.includes(type as ResourceType)) resources[type as ResourceType] += count as number
+            else commodities[type as CommodityType] += count as number
+          }
+          return { ...p, resources, commodities, progressCards: removeOne(p.progressCards, 'wedding') }
+        }
+        const counts = perPlayerCounts.get(p.id)
+        if (!counts) return p
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
+      }),
+    )
+    inform(`${announcer.name} played Wedding — received ${totalTaken} card${totalTaken === 1 ? '' : 's'} from ${affected.length} player(s).`)
+  }
+
+  const playWedding = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('wedding')) {
+      warn('No Wedding card to play.')
+      return
+    }
+    applyWeddingEffect(player.id)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'wedding' })
+  }
+
   // Resolves whichever picker is currently open (Year of Plenty or
   // Monopoly) with the resource(s) the player picked in the modal. Only
   // ever reachable by the local actor — devCardPicker is pure local UI
@@ -3215,9 +3463,40 @@ function App() {
       return
     }
 
+    // Trade Monopoly resolves through resolveDevCardCommodityPicker instead
+    // (GameHud renders DevCardCommodityPicker, not DevCardResourcePicker,
+    // for this mode — see activePickerMode's render branch in GameHud.tsx)
+    // — unreachable in practice, but bails out here rather than misapplying
+    // a resource-typed effect to what would actually be a commodity pick if
+    // that gating ever drifts.
+    if (mode === 'tradeMonopolyProgress') return
+
     const resource = picks[0]
     applyMonopolyEffect(player.id, resource)
+    if (mode === 'resourceMonopolyProgress') {
+      // Identical resource-steal math to base Monopoly (applyMonopolyEffect,
+      // reused verbatim) — only the broadcast event name differs, so the
+      // event log / receiving clients can tell which card actually triggered
+      // it (Resource Monopoly vs. base-game Monopoly).
+      if (onlineInfo) broadcastResourceMonopolyPlayed({ playerId: player.id, resource })
+      return
+    }
     if (onlineInfo) broadcastMonopolyPlayed({ playerId: player.id, resource })
+  }
+
+  // Cities & Knights Trade Monopoly's own resolver — a separate function
+  // from resolveDevCardPicker rather than widening that function's
+  // ResourceType[] picks signature, since DevCardCommodityPicker resolves a
+  // single CommodityType, not a resource array. Only ever reachable by the
+  // local actor, same "devCardPicker is pure local UI state" reasoning as
+  // resolveDevCardPicker's own comment.
+  const resolveDevCardCommodityPicker = (pick: CommodityType) => {
+    const mode = devCardPicker
+    setDevCardPicker(null)
+    if (mode !== 'tradeMonopolyProgress') return
+    const player = players[currentPlayerIndex]
+    applyTradeMonopolyEffect(player.id, pick)
+    if (onlineInfo) broadcastTradeMonopolyPlayed({ playerId: player.id, commodity: pick })
   }
 
   // Resolves the active Science level 3 free-resource pick with the
@@ -3730,6 +4009,10 @@ function App() {
     mining: playMining,
     crane: playCrane,
     medicine: playMedicine,
+    resourceMonopoly: playResourceMonopoly,
+    tradeMonopoly: playTradeMonopoly,
+    sabotage: playSabotage,
+    wedding: playWedding,
   }
 
   return (
@@ -3897,6 +4180,7 @@ function App() {
         onPlayDevCard={playDevCard}
         devCardPicker={devCardPicker}
         onResolveDevCardPicker={resolveDevCardPicker}
+        onResolveDevCardCommodityPicker={resolveDevCardCommodityPicker}
         scienceFreeResourceActive={activeScienceFreeResourcePlayerId != null}
         onResolveScienceFreeResource={resolveScienceFreeResource}
         devCardPlayedThisTurn={devCardPlayedThisTurn}

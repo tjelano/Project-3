@@ -419,6 +419,7 @@ export function GameHud({
               progressCards={viewer.progressCards}
               deckCounts={progressCardDeckCounts}
               playHandlers={progressCardPlayHandlers}
+              isMyTurn={isMyTurn}
               discardActive={isMyProgressDiscardTurn}
               discardSelection={progressDiscardSelection}
               onToggleDiscard={onToggleProgressDiscard}

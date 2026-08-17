@@ -42,6 +42,16 @@ export interface ProgressCardsPanelProps {
   progressCards: ProgressCardType[]
   deckCounts: Record<'science' | 'trade' | 'politics', number>
   playHandlers: ProgressCardPlayHandlers
+  // Gates the Play buttons the same way GameHud's own canPlayDevCards
+  // gates ResourcePanel's dev-card buttons — every play handler this panel
+  // dispatches to acts on players[currentPlayerIndex] with no further
+  // turn check of its own (see playIrrigation/playMining/playAlchemy in
+  // App.tsx), so without this a non-turn viewer could play a card off
+  // THEIR OWN hand display and have it silently resolve against whoever's
+  // turn it actually is. Deliberately NOT applied while discardActive —
+  // that flow already has its own independent turn concept
+  // (isMyProgressDiscardTurn), unrelated to whose roll/build turn it is.
+  isMyTurn: boolean
   discardActive?: boolean
   // Indices into `progressCards`, not card types — a hand can hold 2 copies
   // of the same type (crane: 2 in the deck composition, etc.), so selection
@@ -52,7 +62,7 @@ export interface ProgressCardsPanelProps {
 }
 
 export function ProgressCardsPanel({
-  progressCards, deckCounts, playHandlers, discardActive, discardSelection, onToggleDiscard,
+  progressCards, deckCounts, playHandlers, isMyTurn, discardActive, discardSelection, onToggleDiscard,
 }: ProgressCardsPanelProps) {
   if (progressCards.length === 0) return null
   return (
@@ -71,7 +81,7 @@ export function ProgressCardsPanel({
             <button
               key={`${card}-${index}`}
               type="button"
-              disabled={isVp || (!discardActive && !playHandlers[card])}
+              disabled={isVp || (!discardActive && (!isMyTurn || !playHandlers[card]))}
               onClick={() => (discardActive ? onToggleDiscard?.(index) : playHandlers[card]?.())}
               className={`relative overflow-hidden rounded-lg border transition ${
                 selected ? 'border-red-400 ring-2 ring-red-400/60' : 'border-white/20'

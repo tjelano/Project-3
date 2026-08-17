@@ -2719,12 +2719,24 @@ function App() {
   // broadcastDiceRolled, so every other client already receives the
   // final, overridden dice/total with no separate signal needed.
   const playAlchemy = (d1: number, d2: number) => {
+    // Not currently reachable through the UI — the picker that calls this
+    // is itself gated on isMyTurn (GameHud.tsx) — but every sibling
+    // pre-roll/dev-card handler in this file (rollDice, buyDevCard,
+    // canPlayDevCardNow) guards directly too rather than relying solely on
+    // the UI gate; matching that convention here.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     if (hasRolledThisTurn) {
       warn('Alchemy can only be played before rolling.')
       return
     }
     const player = players[currentPlayerIndex]
-    if (!player.progressCards.includes('alchemy')) return
+    if (!player.progressCards.includes('alchemy')) {
+      warn('No Alchemy card to play.')
+      return
+    }
     setPlayers((prev) =>
       prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'alchemy') } : p)),
     )
@@ -2777,8 +2789,24 @@ function App() {
   }
 
   const playIrrigation = () => {
+    // playIrrigation/playMining always act on players[currentPlayerIndex] —
+    // without this guard, a non-turn player clicking their OWN Irrigation
+    // card (ProgressCardsPanel shows viewer.progressCards regardless of
+    // whose turn it is) would spend and credit the ACTUAL current player's
+    // copy instead, if that player happened to also hold one. Same
+    // "defense-in-depth to match the rest of this file" guard buyDevCard's
+    // own comment describes — ProgressCardsPanel's disabled prop now also
+    // gates on isMyTurn (GameHud.tsx), but this is the one place that
+    // actually stops it if that ever drifts.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     const player = players[currentPlayerIndex]
-    if (!player.progressCards.includes('irrigation')) return
+    if (!player.progressCards.includes('irrigation')) {
+      warn('No Irrigation card to play.')
+      return
+    }
     applyIrrigationEffect(player.id)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'irrigation' })
   }
@@ -2802,8 +2830,16 @@ function App() {
   }
 
   const playMining = () => {
+    // See playIrrigation's own comment just above — identical reasoning.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
     const player = players[currentPlayerIndex]
-    if (!player.progressCards.includes('mining')) return
+    if (!player.progressCards.includes('mining')) {
+      warn('No Mining card to play.')
+      return
+    }
     applyMiningEffect(player.id)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'mining' })
   }

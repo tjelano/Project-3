@@ -12,6 +12,12 @@ export function calculateLongestRoad(
   roads: Record<string, number>,
   graph: BoardGraph,
   settlements: Record<string, Building>,
+  // Cities & Knights knights: vertex id -> owning player id, for every
+  // knight currently on the board (any strength, active or inactive — both
+  // block equally per CN3087 p.9). Defaults to empty so every pre-existing
+  // call site (and the whole pre-existing test suite above) keeps behaving
+  // identically when this house rule is off.
+  knightOwnerByVertex: ReadonlyMap<string, number> = new Map(),
 ): number {
   const ownedEdgeIds = new Set(graph.edges.filter((edge) => roads[edge.id] === playerId).map((edge) => edge.id))
   if (ownedEdgeIds.size === 0) return 0
@@ -31,7 +37,9 @@ export function calculateLongestRoad(
 
   const isBlockedByOpponent = (vertexId: string): boolean => {
     const building = settlements[vertexId]
-    return building != null && building.ownerId !== playerId
+    if (building != null && building.ownerId !== playerId) return true
+    const knightOwnerId = knightOwnerByVertex.get(vertexId)
+    return knightOwnerId != null && knightOwnerId !== playerId
   }
 
   const dfs = (vertex: string, visitedEdges: Set<string>): number => {

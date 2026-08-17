@@ -71,6 +71,23 @@ describe('calculateLongestRoad', () => {
     const settlements: Record<string, Building> = { C: { ownerId: 1, type: 'settlement' } }
     expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), settlements)).toBe(4)
   })
+
+  it('an opponent knight breaks the road the same way an opponent settlement does', () => {
+    const edges = chain('A', 'B', 'C', 'D', 'E', 'F') // 5 edges, would be length 5
+    const knightOwnerByVertex = new Map([['D', 2]]) // opponent's knight sits at D
+    expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {}, knightOwnerByVertex)).toBe(3) // A-B-C-D, blocked past D
+  })
+
+  it('the road owner own knight does not break their own road', () => {
+    const edges = chain('A', 'B', 'C', 'D', 'E', 'F')
+    const knightOwnerByVertex = new Map([['D', 1]]) // the SAME player's own knight
+    expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {}, knightOwnerByVertex)).toBe(5)
+  })
+
+  it('with no knightOwnerByVertex argument, behaves exactly as before', () => {
+    const edges = chain('A', 'B', 'C', 'D', 'E', 'F')
+    expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {})).toBe(5)
+  })
 })
 
 describe('pickTrophyHolder', () => {

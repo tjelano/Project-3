@@ -232,6 +232,23 @@ function App() {
   // O(1) lookup map for players to avoid O(N) array finds in frequent game loops/callbacks.
   // Expected performance impact: ~5x faster lookup vs Array.find for typical 3-4 player sizes.
   const playerById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players])
+  // Cities & Knights knights: vertex id -> the KnightPiece standing there
+  // (any player). Reused by the road-placement and settlement-placement
+  // occupancy checks below, and by Task 5's KnightLayer wiring — don't
+  // create a second one later.
+  const knightPiecesByVertex = useMemo(
+    () => new Map(players.flatMap((p) => p.knightPieces.map((k) => [k.vertexId, k] as const))),
+    [players],
+  )
+  // Cities & Knights knights: vertex id -> owning player id, for every
+  // knight currently on the board. Feeds calculateLongestRoad's optional
+  // 5th argument. Naturally empty (a no-op) whenever
+  // gameRules.citiesAndKnightsKnights is off, since nothing populates any
+  // player's knightPieces while the rule is off.
+  const knightOwnerByVertex = useMemo(
+    () => new Map(Array.from(knightPiecesByVertex, ([vertexId, knight]) => [vertexId, knight.ownerId] as const)),
+    [knightPiecesByVertex],
+  )
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   const [settlements, setSettlements] = useState<Record<string, Building>>({})
@@ -1777,10 +1794,10 @@ function App() {
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
-      lengths.set(player.id, calculateLongestRoad(player.id, roads, graph, settlements))
+      lengths.set(player.id, calculateLongestRoad(player.id, roads, graph, settlements, knightOwnerByVertex))
     }
     return lengths
-  }, [players, roads, graph, settlements])
+  }, [players, roads, graph, settlements, knightOwnerByVertex])
 
   const knightCounts = useMemo(() => {
     const counts = new Map<number, number>()
@@ -1866,11 +1883,27 @@ function App() {
     return edgeIds.some((edgeId) => roads[edgeId] === playerId)
   }
 
+  // Cities & Knights knights: a road cannot be extended THROUGH a vertex
+  // occupied by another player's knight (CN3087 p.9's own illustration: "If
+  // Blue places their knight at intersection A, then Orange will not be
+  // able to extend their road past that point"). Arrival is unaffected —
+  // this only matters for whether a vertex counts as a valid JUMPING-OFF
+  // point for a NEW edge, so a settlement you already own at that vertex is
+  // unaffected too (a settlement and a knight can never share a vertex —
+  // see buildSettlementRaw's knight-occupancy check).
+  const isBlockedForRoadPlacement = (vertexId: string, playerId: number): boolean => {
+    if (!gameRules.citiesAndKnightsKnights) return false
+    const knight = knightPiecesByVertex.get(vertexId)
+    return knight != null && knight.ownerId !== playerId
+  }
+
   const isRoadPlacementConnected = (edgeId: string, playerId: number): boolean => {
     const edge = edgeById.get(edgeId)
     if (!edge) return false
     if (settlements[edge.a]?.ownerId === playerId || settlements[edge.b]?.ownerId === playerId) return true
-    return hasPlayerRoadAt(edge.a, playerId) || hasPlayerRoadAt(edge.b, playerId)
+    const aUsable = hasPlayerRoadAt(edge.a, playerId) && !isBlockedForRoadPlacement(edge.a, playerId)
+    const bUsable = hasPlayerRoadAt(edge.b, playerId) && !isBlockedForRoadPlacement(edge.b, playerId)
+    return aUsable || bUsable
   }
 
   // Best available bank-trade rate for giving away this resource: 2:1 if the
@@ -2057,6 +2090,16 @@ function App() {
       if (onlineInfo) {
         broadcastCityBuilt({ vertexId, playerId: player.id, costOverride: usingMedicine ? medicineCost : undefined })
       }
+      return
+    }
+
+    // Cities & Knights knights: a settlement and a knight can never share a
+    // vertex — the `existing` branch above only catches vertices that
+    // already hold a BUILDING, so a knight-occupied-but-buildingless vertex
+    // needs its own guard here, before the distance-rule/connectivity
+    // checks and well before any resource-spending.
+    if (gameRules.citiesAndKnightsKnights && knightPiecesByVertex.has(vertexId)) {
+      warn('A knight is standing there.')
       return
     }
 

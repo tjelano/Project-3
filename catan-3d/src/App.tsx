@@ -104,6 +104,7 @@ import {
   canActivateKnight,
   canPromoteKnight,
   canRecruitKnight,
+  knightDisplaceTargets,
   knightMoveTargets,
   nextKnightStrength,
   recruitableVertices,
@@ -1258,6 +1259,7 @@ function App() {
     broadcastKnightActivated,
     broadcastKnightPromoted,
     broadcastKnightMoved,
+    broadcastKnightDisplaced,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1768,6 +1770,44 @@ function App() {
             ? p
             : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, vertexId: payload.vertexId, active: false } : k)) },
         ),
+      )
+    },
+    // Cities & Knights knight displace (Task 10) — same trusted-apply
+    // reasoning as onKnightMoved above, but mirrors the local resolution's
+    // two-knight update exactly: the mover goes inactive at its new vertex,
+    // while the displaced knight keeps its own active/inactive status
+    // (CN3087 — only the mover goes inactive) and either relocates within
+    // its own owner's pieces or, when displacedVertexId is null, is removed
+    // and returned to that owner's supply.
+    onKnightDisplaced: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id === payload.moverId) {
+            return {
+              ...p,
+              knightPieces: p.knightPieces.map((k) =>
+                k.id === payload.knightId ? { ...k, vertexId: payload.newMoverVertexId, active: false } : k,
+              ),
+            }
+          }
+          if (p.id === payload.displacedOwnerId) {
+            if (payload.displacedVertexId) {
+              return {
+                ...p,
+                knightPieces: p.knightPieces.map((k) =>
+                  k.id === payload.targetKnightId ? { ...k, vertexId: payload.displacedVertexId! } : k,
+                ),
+              }
+            }
+            const removed = p.knightPieces.find((k) => k.id === payload.targetKnightId)
+            return {
+              ...p,
+              knightPieces: p.knightPieces.filter((k) => k.id !== payload.targetKnightId),
+              knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
+            }
+          }
+          return p
+        }),
       )
     },
     // The active player's live vertex/edge hover, mirrored so spectators
@@ -4231,6 +4271,31 @@ function App() {
     setArmedKnightAction({ knightId, mode: 'move' })
   }
 
+  // Cities & Knights knight displace (Task 10) — arms KnightLayer's
+  // displace-target picker (a set of OPPONENT KNIGHTS, not empty vertices)
+  // for the current player's own screen. Same "nothing spent/moved until
+  // resolve actually resolves it" deferral, and the same mutual-exclusion
+  // guard, armKnightMove's own comment above describes — Displace is the
+  // 'displace' branch of the SAME armedKnightAction state armKnightMove
+  // already uses, not a separate piece of state.
+  const armKnightDisplace = (knightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !knight.active) {
+      warn('That knight cannot displace.')
+      return
+    }
+    if (pendingKnightRecruit != null || armedKnightAction) {
+      warn('Finish the current knight action first.')
+      return
+    }
+    setArmedKnightAction({ knightId, mode: 'displace' })
+  }
+
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
   // Move handler extends this with a branch checking armedKnightAction
   // instead of pendingKnightRecruit, rather than a second handler.
@@ -4286,7 +4351,13 @@ function App() {
       const { knightId } = armedKnightAction
       const player = players[currentPlayerIndex]
       const knight = player.knightPieces.find((k) => k.id === knightId)
-      if (!knight) {
+      // !knight.active guard (Task 10 fix round) — closes the gap Task 9's
+      // reviewer flagged: Displace introduces a second way a knight's active
+      // state can change mid-turn (the mover goes inactive), so a stale
+      // armedKnightAction referencing an already-inactive knight (e.g. this
+      // same knight was just used to displace, or moved, in another armed
+      // action) must not be allowed to resolve a second move.
+      if (!knight || !knight.active) {
         setArmedKnightAction(null)
         return
       }
@@ -4305,6 +4376,79 @@ function App() {
       setArmedKnightAction(null)
       if (onlineInfo) broadcastKnightMoved({ playerId: player.id, knightId, vertexId })
       return
+    }
+  }
+
+  // Cities & Knights knight displace (Task 10) — the resolve handler
+  // KnightLayer's onSelectKnight callback calls, kept SEPARATE from
+  // handleKnightVertexSelect above: Displace's target is another player's
+  // KNIGHT (clicked via displaceTargets), not an empty vertex, so it can't
+  // share that handler's onSelectVertex wiring. Reuses knightPiecesByVertex
+  // (the Task 3 memo every other knight lookup in this file already uses)
+  // rather than building a fresh inline map.
+  const handleKnightSelect = (targetKnightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (armedKnightAction?.mode !== 'displace') return
+    const { knightId } = armedKnightAction
+    const player = players[currentPlayerIndex]
+    const mover = player.knightPieces.find((k) => k.id === knightId)
+    // !mover.active guard — the mover may have gone inactive mid-turn since
+    // this action was armed (e.g. it already resolved a Move or a Displace
+    // through a stale armedKnightAction reference); same reasoning as the
+    // !knight.active guard added to the Move branch above.
+    if (!mover || !mover.active) {
+      setArmedKnightAction(null)
+      return
+    }
+    const targets = knightDisplaceTargets(mover, graph, roads, settlements, knightPiecesByVertex)
+    const target = targets.find((k) => k.id === targetKnightId)
+    if (!target) {
+      warn('Not a valid displace target.')
+      return
+    }
+    const targetOwner = playerById.get(target.ownerId)!
+    // Where the displaced knight is forced to — reachable empty vertex from
+    // ITS OWN owner's road network, same reachability rule as an ordinary
+    // move, computed as if the knight were still standing where it is right
+    // now (its own vertexId is the origin). Picked deterministically (lowest
+    // vertex id) — CN3087 places no choice constraint on which one.
+    const forcedTargets = [...knightMoveTargets(target, graph, roads, settlements, knightPiecesByVertex)].sort()
+    const displacedVertexId = forcedTargets[0] ?? null // null => removed to supply, no empty reachable vertex
+
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === player.id) {
+          return {
+            ...p,
+            knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, vertexId: target.vertexId, active: false } : k)),
+          }
+        }
+        if (p.id === targetOwner.id) {
+          if (displacedVertexId) {
+            return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === target.id ? { ...k, vertexId: displacedVertexId } : k)) }
+          }
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== target.id),
+            knightSupply: { ...p.knightSupply, [target.strength]: p.knightSupply[target.strength] + 1 },
+          }
+        }
+        return p
+      }),
+    )
+    setArmedKnightAction(null)
+    if (onlineInfo) {
+      broadcastKnightDisplaced({
+        moverId: player.id,
+        knightId,
+        displacedOwnerId: targetOwner.id,
+        targetKnightId,
+        newMoverVertexId: target.vertexId,
+        displacedVertexId,
+      })
     }
   }
 
@@ -5479,14 +5623,13 @@ function App() {
             vertexTileIds={graph.vertexTileIds}
             onSelectTile={handleMerchantTileSelect}
           />
-          {/* Cities & Knights Knights (Task 7, Move wired in Task 9) —
-              sibling to RobberLayer/MerchantLayer, same Canvas.
-              recruitTargets/moveTargets are both scoped to the LOCAL
-              client's own view: pendingKnightRecruit/armedKnightAction are
-              both local-only state, same reasoning TileSwapLayer/
-              MerchantLayer's own active/placingPlayerId props give above.
-              displaceTargets/onSelectKnight are still placeholders here —
-              Task 10 replaces them. */}
+          {/* Cities & Knights Knights (Task 7, Move wired in Task 9,
+              Displace wired in Task 10) — sibling to RobberLayer/
+              MerchantLayer, same Canvas. recruitTargets/moveTargets/
+              displaceTargets are all scoped to the LOCAL client's own view:
+              pendingKnightRecruit/armedKnightAction are both local-only
+              state, same reasoning TileSwapLayer/MerchantLayer's own
+              active/placingPlayerId props give above. */}
           {gameRules.citiesAndKnightsKnights && (
             <KnightLayer
               knights={players.flatMap((p) => p.knightPieces)}
@@ -5505,9 +5648,16 @@ function App() {
                     })()
                   : null
               }
-              displaceTargets={null /* Task 10 replaces this */}
+              displaceTargets={
+                armedKnightAction?.mode === 'displace'
+                  ? (() => {
+                      const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
+                      return knight ? knightDisplaceTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
+                    })()
+                  : null
+              }
               onSelectVertex={handleKnightVertexSelect}
-              onSelectKnight={() => {} /* Task 10 replaces this */}
+              onSelectKnight={handleKnightSelect}
             />
           )}
           <PortMarkers ports={ports} />
@@ -5625,6 +5775,7 @@ function App() {
         onActivateKnight={activateKnight}
         onPromoteKnight={promoteKnight}
         onArmKnightMove={armKnightMove}
+        onArmKnightDisplace={armKnightDisplace}
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         progressCardDeckCounts={{

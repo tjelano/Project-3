@@ -198,9 +198,13 @@ interface GameHudProps {
   // armedKnightAction (mode: 'move'), which in turn drives KnightLayer's
   // moveTargets prop. armedKnightId mirrors armedKnightAction?.knightId so
   // KnightsPanel can highlight whichever of the viewer's own knights is
-  // currently armed (also doubles for Displace once Task 10 arms that mode
+  // currently armed (also doubles for Displace, Task 10 arms that mode
   // through the same armedKnightAction state).
   onArmKnightMove: (knightId: string) => void
+  // Cities & Knights knight displace (Task 10) — same "arms App.tsx's own
+  // armedKnightAction" shape onArmKnightMove's own comment above describes,
+  // just with mode: 'displace' instead of 'move'.
+  onArmKnightDisplace: (knightId: string) => void
   armedKnightId: string | null
   // Once per turn, per knight INSTANCE — gates the Promote button
   // alongside canPromoteKnight's own cost/supply/track checks, since that
@@ -385,6 +389,7 @@ export function GameHud({
   onActivateKnight,
   onPromoteKnight,
   onArmKnightMove,
+  onArmKnightDisplace,
   armedKnightId,
   knightsPromotedThisTurn,
   progressCardDeckCounts,
@@ -669,10 +674,10 @@ export function GameHud({
           </>
         )}
         {/* Cities & Knights knights — Recruit (Task 7), Activate/Promote
-            (Task 8), and Move (Task 9) are wired up; Displace/Chase Robber
-            are still inline no-op/false placeholders (Task 10-11 replace
-            them one feature at a time, same pattern KnightLayer's own
-            displaceTargets/onSelectKnight use in App.tsx). */}
+            (Task 8), Move (Task 9), and Displace (Task 10) are wired up;
+            Chase Robber is still an inline no-op/false placeholder (Task 11
+            replaces it, same pattern KnightLayer's own displaceTargets/
+            onSelectKnight used before Task 10 wired them). */}
         {citiesAndKnightsKnights && (
           <KnightsPanel
             player={viewer}
@@ -681,7 +686,7 @@ export function GameHud({
             onActivate={onActivateKnight}
             onPromote={onPromoteKnight}
             onArmMove={onArmKnightMove}
-            onArmDisplace={() => {} /* Task 10 replaces this */}
+            onArmDisplace={onArmKnightDisplace}
             onArmChaseRobber={() => {} /* Task 11 replaces this */}
             canRecruit={canRecruitKnight}
             canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}

@@ -1311,6 +1311,7 @@ function App() {
       else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
       else if (payload.card === 'crane') applyCraneEffect(payload.playerId)
       else if (payload.card === 'medicine') applyMedicineEffect(payload.playerId)
+      else if (payload.card === 'progressRoadBuilding') setFreeRoadsRemaining((prev) => prev + 2)
       // Sabotage/Wedding are also fully deterministic from public state (VP
       // comparison) plus each affected player's OWN hand contents — see
       // applySabotageEffect/applyWeddingEffect's own comments — so, same as
@@ -3633,6 +3634,19 @@ function App() {
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'medicine' })
   }
 
+  const playProgressRoadBuilding = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('progressRoadBuilding')) return
+    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'progressRoadBuilding') } : p)))
+    setFreeRoadsRemaining((prev) => prev + 2)
+    inform(`${player.name} played (progress card) Road Building — place 2 free roads.`)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'progressRoadBuilding' })
+  }
+
   // Cities & Knights Invention — trusted-apply for the actual tile swap.
   // Deterministic given only the 2 tile ids (no player-specific state
   // involved at all — the board itself is the only thing that changes), so
@@ -4677,6 +4691,7 @@ function App() {
     mining: playMining,
     crane: playCrane,
     medicine: playMedicine,
+    progressRoadBuilding: playProgressRoadBuilding,
     resourceMonopoly: playResourceMonopoly,
     tradeMonopoly: playTradeMonopoly,
     sabotage: playSabotage,

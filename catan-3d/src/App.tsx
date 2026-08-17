@@ -4401,6 +4401,12 @@ function App() {
       ...p,
       commodities: p.commodities ?? emptyCommodities(),
       cityImprovements: p.cityImprovements ?? emptyCityImprovements(),
+      // progressCards is a required Player field (Task 1) — same
+      // pre-feature-snapshot gap as commodities/cityImprovements above.
+      // Missing it here would leave `undefined` on a field GameHud's
+      // hand-limit math and progressCardVP scoring both index into
+      // unconditionally.
+      progressCards: p.progressCards ?? [],
     }))
     setPlayers(normalizedPlayers)
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
@@ -4481,6 +4487,19 @@ function App() {
     // indices could otherwise point at the wrong cards in a freshly
     // restored progressCards array.
     setProgressCardOverLimitPlayerIds(snapshot.progressCardOverLimitPlayerIds ?? [])
+    // Cities & Knights progress-card draw decks (Task 3, snapshot wiring
+    // deferred to this task) — same `?? fallback` treatment as every other
+    // optional MatchSnapshot field above: absent on any snapshot saved
+    // before this field was wired in, which falls back to a freshly built
+    // set of per-track decks (correct composition, just not this match's
+    // exact remaining draw order).
+    setProgressCardDecks(
+      snapshot.progressCardDecks ?? {
+        science: buildProgressCardDeck('science'),
+        trade: buildProgressCardDeck('trade'),
+        politics: buildProgressCardDeck('politics'),
+      },
+    )
     setProgressDiscardSelection([])
     // Unlike discardPlayerIds (recomputed below from restored resource
     // counts), Science level 3's queue isn't derivable after the fact — it
@@ -4629,6 +4648,7 @@ function App() {
       freeRoadsRemaining,
       hasRolledThisTurn,
       progressCardOverLimitPlayerIds,
+      progressCardDecks,
     }
     saveMatchSnapshot(onlineInfo.roomCode, snapshot)
   }, [
@@ -4666,6 +4686,7 @@ function App() {
     freeRoadsRemaining,
     hasRolledThisTurn,
     progressCardOverLimitPlayerIds,
+    progressCardDecks,
   ])
 
   if (!gameStarted) {

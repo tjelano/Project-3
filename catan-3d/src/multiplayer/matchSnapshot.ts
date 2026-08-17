@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '../lib/supabaseClient'
-import type { Building, DevCardType, GameRules, ImprovementTrack, MetropolisHolders, Player } from '../game/types'
+import type { Building, DevCardType, GameRules, ImprovementTrack, MetropolisHolders, Player, ProgressCardType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { GamePhase, SetupStage } from '../App'
 
@@ -93,6 +93,18 @@ export interface MatchSnapshot {
   // back to [] (do not repeat Phase A's Critical-1 gap of a required-but-
   // unnormalized field).
   progressCardOverLimitPlayerIds?: number[]
+  // Cities & Knights progress-card draw decks (Task 3) — each track's
+  // remaining shuffled deck after however many cards have been drawn so
+  // far. Task 3's own report explicitly deferred this field's snapshot
+  // persistence to this whole-plan normalization pass rather than wiring it
+  // ad hoc. Optional for the same reason progressCardOverLimitPlayerIds is:
+  // absent on any snapshot saved before this field was wired in.
+  // restoreFromSnapshot (App.tsx) falls back to a freshly built set of
+  // per-track decks on either case — correct for a genuinely pre-feature
+  // match (nothing could have been drawn yet), and for a pre-this-field
+  // snapshot it only loses that match's exact remaining draw order, not
+  // correctness (a rebuilt deck still has the right per-track composition).
+  progressCardDecks?: Record<ImprovementTrack, ProgressCardType[]>
 }
 
 // Serializes the actual network writes so a reordered/slow response can

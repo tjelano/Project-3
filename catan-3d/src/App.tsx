@@ -34,7 +34,7 @@ import { createSeededRandom } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
-import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './game/discard'
+import { autoDiscardCounts, applyDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
@@ -1706,14 +1706,20 @@ function App() {
   // trusting the stored list directly) means that can't stay broken: it's
   // filtered back to correct the instant `players` says so, same render,
   // no extra round trip through an effect.
+  const playerDiscardThreshold = useCallback(
+    (player: Player): number =>
+      discardThreshold(gameRules.citiesAndKnightsKnights ? player.cityWalls.length : 0),
+    [gameRules.citiesAndKnightsKnights],
+  )
+
   const validDiscardPlayerIds = useMemo(
     () =>
       discardPlayerIds.filter((id) => {
         const player = playerById.get(id)
         if (player == null) return false
-        return discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities) > 7
+        return discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities) > playerDiscardThreshold(player)
       }),
-    [discardPlayerIds, playerById, gameRules.citiesAndKnightsCommodities],
+    [discardPlayerIds, playerById, gameRules.citiesAndKnightsCommodities, playerDiscardThreshold],
   )
 
   // Who's actively discarding on THIS screen right now. Local Pass & Play
@@ -2646,7 +2652,7 @@ function App() {
       if (isStillRollersTurn) {
         const handSizeOf = (p: Player) =>
           discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
-        const overLimitIds = players.filter((p) => handSizeOf(p) > 7).map((p) => p.id)
+        const overLimitIds = players.filter((p) => handSizeOf(p) > playerDiscardThreshold(p)).map((p) => p.id)
         debugLog('7 rolled — discard check', {
           overLimitIds,
           resourceCounts: players.map((p) => ({ id: p.id, name: p.name, total: handSizeOf(p) })),
@@ -4788,7 +4794,11 @@ function App() {
     setDiscardPlayerIds(
       snapshot.gamePhase === 'discard'
         ? normalizedPlayers
-            .filter((p) => discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) > 7)
+            .filter(
+              (p) =>
+                discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) >
+                discardThreshold(restoredRules.citiesAndKnightsKnights ? p.cityWalls.length : 0),
+            )
             .map((p) => p.id)
         : [],
     )

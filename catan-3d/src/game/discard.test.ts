@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoDiscardCounts, applyDiscardCounts, discardHandSize } from './discard'
+import { autoDiscardCounts, applyDiscardCounts, discardHandSize, discardThreshold } from './discard'
 import { emptyResources, emptyCommodities } from './types'
 
 describe('discardHandSize', () => {
@@ -148,5 +148,16 @@ describe('applyDiscardCounts', () => {
     const result = applyDiscardCounts(resources, commodities, counts)
 
     expect(result.resources.ore).toBe(1)
+  })
+})
+
+describe('discardThreshold', () => {
+  it('is 7 with no city walls', () => {
+    expect(discardThreshold(0)).toBe(7)
+  })
+
+  it('adds 2 per city wall', () => {
+    expect(discardThreshold(1)).toBe(9)
+    expect(discardThreshold(2)).toBe(11)
   })
 })

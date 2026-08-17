@@ -30,6 +30,15 @@ export function discardHandSize(
   return totalResourceCount(resources) + (countsCommodities ? totalCommodityCount(commodities) : 0)
 }
 
+// CN3087 p.8: "Each city wall adds 2 to the number you may hold before
+// having to discard." The discard COUNT itself stays `floor(handSize / 2)`
+// unchanged — only the threshold for whether a player must discard AT ALL
+// moves. Callers pass 0 when citiesAndKnightsKnights is off, recovering the
+// flat 7 every existing call site already used.
+export function discardThreshold(cityWallCount: number): number {
+  return 7 + 2 * cityWallCount
+}
+
 // Deterministic forced discard for a player who never confirmed one in
 // time — greedily takes from whichever resource they're holding the most
 // of first, so the loss is spread across their hand rather than wiping out

@@ -35,6 +35,7 @@ import { DiscardPanel } from './DiscardPanel'
 import { RoomCodeTag } from './RoomCodeTag'
 import { CityImprovementsPanel } from './CityImprovementsPanel'
 import { ProgressCardsPanel, type ProgressCardPlayHandlers } from './ProgressCardsPanel'
+import { KnightsPanel } from './KnightsPanel'
 import { PlayerTargetPicker } from './PlayerTargetPicker'
 import { OpponentHandPicker } from './OpponentHandPicker'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
@@ -174,6 +175,23 @@ interface GameHudProps {
   // citiesAndKnightsCommodities also on, but no UI-level dependency
   // enforced here either, matching that precedent).
   citiesAndKnightsProgressCards: boolean
+  // Cities & Knights knights (Task 7) — gates whether KnightsPanel renders
+  // at all, same "derived from GameRules, not folded into
+  // citiesAndKnightsProgressCards" split GameRules itself keeps (see that
+  // field's own comment in game/types.ts: only meaningful alongside
+  // citiesAndKnightsProgressCards, but no UI-level dependency enforced
+  // here either, matching the citiesAndKnightsCommodities/
+  // citiesAndKnightsProgressCards precedent above).
+  citiesAndKnightsKnights: boolean
+  // Recruit is the only knight action wired up so far (Task 7) — Tasks
+  // 8-11 add the remaining KnightsPanel props (activate/promote/move/
+  // displace/chase-robber) the same way onPlayAlchemy etc. were added
+  // above, one Cities & Knights feature per task. Until then, KnightsPanel
+  // renders with inline no-op/false placeholders for those, same pattern
+  // KnightLayer's own moveTargets/displaceTargets/onSelectKnight use in
+  // App.tsx.
+  onRecruitKnight: () => void
+  canRecruitKnight: boolean
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -344,6 +362,9 @@ export function GameHud({
   citiesAndKnightsCommodities,
   onBuyImprovement,
   citiesAndKnightsProgressCards,
+  citiesAndKnightsKnights,
+  onRecruitKnight,
+  canRecruitKnight,
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
@@ -624,6 +645,27 @@ export function GameHud({
               </div>
             )}
           </>
+        )}
+        {/* Cities & Knights knights (Task 7) — only Recruit is wired up so
+            far; the rest of these props are inline no-op/false placeholders
+            (Tasks 8-11 replace them one feature at a time, same pattern
+            KnightLayer's own moveTargets/displaceTargets/onSelectKnight use
+            in App.tsx). */}
+        {citiesAndKnightsKnights && (
+          <KnightsPanel
+            player={viewer}
+            isMyTurn={canPlayProgressCards}
+            onRecruit={onRecruitKnight}
+            onActivate={() => {} /* Task 8 replaces this */}
+            onPromote={() => {} /* Task 8 replaces this */}
+            onArmMove={() => {} /* Task 9 replaces this */}
+            onArmDisplace={() => {} /* Task 10 replaces this */}
+            onArmChaseRobber={() => {} /* Task 11 replaces this */}
+            canRecruit={canRecruitKnight}
+            canPromote={() => false /* Task 8 replaces this */}
+            canChaseRobber={() => false /* Task 11 replaces this */}
+            armedKnightId={null /* Tasks 9-10 replace this */}
+          />
         )}
       </div>
       <EventLogPanel events={eventLog} />

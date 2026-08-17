@@ -13,6 +13,7 @@ import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { TileSwapLayer } from './components/TileSwapLayer'
 import { MerchantLayer } from './components/MerchantLayer'
+import { KnightLayer } from './components/KnightLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
@@ -61,6 +62,7 @@ import {
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
   IMPROVEMENT_TRACK_ORDER,
+  KNIGHT_RECRUIT_COST,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
@@ -87,6 +89,7 @@ import {
   type DevCardType,
   type GameRules,
   type ImprovementTrack,
+  type KnightPiece,
   type MetropolisHolders,
   type Player,
   type PlayerColorToken,
@@ -95,6 +98,7 @@ import {
   type Resources,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
+import { canRecruitKnight, recruitableVertices } from './game/knights'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
@@ -249,6 +253,11 @@ function App() {
     () => new Map(Array.from(knightPiecesByVertex, ([vertexId, knight]) => [vertexId, knight.ownerId] as const)),
     [knightPiecesByVertex],
   )
+  // player id -> colorToken, same shape BoardInteractions.tsx already builds
+  // internally for its own ghost-hologram tint — hoisted here so KnightLayer
+  // (and any other future consumer) can reuse one copy instead of each
+  // building its own.
+  const colorTokenByPlayerId = useMemo(() => new Map(players.map((p) => [p.id, p.colorToken])), [players])
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   const [settlements, setSettlements] = useState<Record<string, Building>>({})
@@ -497,6 +506,31 @@ function App() {
   // `active` rendering), not an object, since there's nothing else to track
   // between the card being spent and the single tile click that resolves it.
   const [pendingMerchantPlacement, setPendingMerchantPlacement] = useState<number | null>(null)
+
+  // Cities & Knights knight recruit — non-null only on the acting client's
+  // own screen while a placement is in progress, same local-only treatment
+  // pendingMerchantPlacement/pendingInventionSwap already get.
+  const [pendingKnightRecruit, setPendingKnightRecruit] = useState<number | null>(null)
+  // Cities & Knights knight move/displace — which of the viewer's OWN
+  // knights is currently armed for a Move or Displace action. Mutually
+  // exclusive with pendingKnightRecruit (KnightsPanel only ever arms one
+  // mode at a time) and with each other (armMode discriminates).
+  const [armedKnightAction, setArmedKnightAction] = useState<{ knightId: string; mode: 'move' | 'displace' } | null>(
+    null,
+  )
+  // Once per turn, per knight INSTANCE (not a single global flag) — Smithing
+  // promotes 2 different knights for free in one play, which must stay
+  // legal. Cleared in handleEndTurn alongside devCardsBoughtThisTurn.
+  // Established here (Task 7) for Task 8's Promote handler to consume —
+  // nothing in this task's own Recruit flow reads the SET yet, only writes
+  // it (via the setter, in resetGame below), so noUnusedLocals flags the
+  // getter until Task 8 adds its first real read. @ts-expect-error is a
+  // deliberate, self-correcting placeholder for that gap: it will itself
+  // start failing ("unused directive") the moment Task 8 makes this read,
+  // forcing that task to remove it rather than silently leaving stale
+  // suppression behind.
+  // @ts-expect-error -- knightsPromotedThisTurn has no reader until Task 8 (Activate & Promote).
+  const [knightsPromotedThisTurn, setKnightsPromotedThisTurn] = useState<Set<string>>(new Set()) // eslint-disable-line @typescript-eslint/no-unused-vars -- same reason as the ts-expect-error directive above.
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -1192,6 +1226,7 @@ function App() {
     broadcastCommercialHarborPlayed,
     broadcastDiplomacyPlayed,
     broadcastMerchantMoved,
+    broadcastKnightRecruited,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1634,6 +1669,25 @@ function App() {
     onMerchantMoved: (payload) => {
       setMerchantTileId(payload.tileId)
       setMerchantHolderId(payload.holderId)
+    },
+    // Cities & Knights knight recruit (Task 7) — trusted-apply, same
+    // reasoning KnightRecruitedPayload's own comment (useRoomChannel.ts)
+    // gives: the sending client already validated cost/supply/target
+    // locally, so every other client just applies the fully-formed
+    // KnightPiece directly.
+    onKnightRecruited: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === payload.knight.ownerId
+            ? {
+                ...p,
+                resources: deductCost(p.resources, KNIGHT_RECRUIT_COST),
+                knightSupply: { ...p.knightSupply, basic: p.knightSupply.basic - 1 },
+                knightPieces: [...p.knightPieces, payload.knight],
+              }
+            : p,
+        ),
+      )
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -4048,6 +4102,78 @@ function App() {
     if (onlineInfo) broadcastMerchantMoved({ tileId, holderId: playerId })
   }
 
+  // Cities & Knights knight recruit — arms KnightLayer's recruit-target
+  // picker for the current player's own screen. Unlike playMerchant (which
+  // spends the card up front before the tile pick resolves), nothing is
+  // spent here until handleKnightVertexSelect below actually places the
+  // knight, since recruiting has no card to consume — only resources and
+  // knightSupply, both checked again at resolve time.
+  const armKnightRecruit = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!canRecruitKnight(player)) {
+      warn('Cannot recruit a knight right now.')
+      return
+    }
+    if (pendingKnightRecruit != null || armedKnightAction) {
+      warn('Finish the current knight action first.')
+      return
+    }
+    setPendingKnightRecruit(player.id)
+  }
+
+  // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
+  // Move handler extends this with a branch checking armedKnightAction
+  // instead of pendingKnightRecruit, rather than a second handler.
+  const handleKnightVertexSelect = (vertexId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (pendingKnightRecruit != null) {
+      const playerId = pendingKnightRecruit
+      const player = playerById.get(playerId)
+      if (!player || !canRecruitKnight(player)) {
+        warn('Cannot recruit a knight right now.')
+        setPendingKnightRecruit(null)
+        return
+      }
+      const knightsByVertex = new Map(players.flatMap((p) => p.knightPieces.map((k) => [k.vertexId, k] as const)))
+      const targets = recruitableVertices(playerId, graph, roads, settlements, knightsByVertex)
+      if (!targets.has(vertexId)) {
+        warn('Not a valid knight placement.')
+        return
+      }
+      const newKnight: KnightPiece = {
+        id: `knight-${playerId}-${Date.now()}`,
+        ownerId: playerId,
+        strength: 'basic',
+        active: false,
+        vertexId,
+      }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id === playerId
+            ? {
+                ...p,
+                resources: deductCost(p.resources, KNIGHT_RECRUIT_COST),
+                knightSupply: { ...p.knightSupply, basic: p.knightSupply.basic - 1 },
+                knightPieces: [...p.knightPieces, newKnight],
+              }
+            : p,
+        ),
+      )
+      setPendingKnightRecruit(null)
+      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight })
+      return
+    }
+    // Task 9 (Move) adds its own branch here, checking armedKnightAction
+    // instead of pendingKnightRecruit — see that task's diff.
+  }
+
   // Shared VP-comparison helper — both Sabotage and Wedding need "every
   // player whose VP compares a certain way to the announcer." Sabotage
   // uses 'gte' (AS MANY OR MORE VPs than the announcer triggers a forced
@@ -4620,6 +4746,14 @@ function App() {
     setMerchantTileId(null)
     setMerchantHolderId(null)
     setPendingMerchantPlacement(null)
+    // Cities & Knights knight recruit/move/displace/promote — all 3 are
+    // local-only UI state (never persisted/broadcast), same "always reset
+    // on a fresh game" treatment pendingMerchantPlacement gets just above.
+    // players' own knightPieces/knightSupply/cityWalls reset automatically
+    // via createInitialPlayers, so no separate reset is needed for those.
+    setPendingKnightRecruit(null)
+    setArmedKnightAction(null)
+    setKnightsPromotedThisTurn(new Set())
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -5098,6 +5232,7 @@ function App() {
             roadPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
             remoteHover={remoteHover}
             onHoverChange={onHoverChange}
+            cityWalls={new Set(players.flatMap((p) => p.cityWalls))}
           />
           <RobberLayer
             tiles={tiles}
@@ -5141,6 +5276,29 @@ function App() {
             vertexTileIds={graph.vertexTileIds}
             onSelectTile={handleMerchantTileSelect}
           />
+          {/* Cities & Knights Knights (Task 7) — sibling to RobberLayer/
+              MerchantLayer, same Canvas. recruitTargets is scoped to the
+              LOCAL client's own view: pendingKnightRecruit is local-only
+              state, same reasoning TileSwapLayer/MerchantLayer's own
+              active/placingPlayerId props give above. moveTargets/
+              displaceTargets/onSelectKnight are still placeholders here —
+              Tasks 9 and 10 replace them. */}
+          {gameRules.citiesAndKnightsKnights && (
+            <KnightLayer
+              knights={players.flatMap((p) => p.knightPieces)}
+              colorTokenByPlayerId={colorTokenByPlayerId}
+              vertexById={graph.vertexById}
+              recruitTargets={
+                pendingKnightRecruit != null
+                  ? recruitableVertices(pendingKnightRecruit, graph, roads, settlements, knightPiecesByVertex)
+                  : null
+              }
+              moveTargets={null /* Task 9 replaces this */}
+              displaceTargets={null /* Task 10 replaces this */}
+              onSelectVertex={handleKnightVertexSelect}
+              onSelectKnight={() => {} /* Task 10 replaces this */}
+            />
+          )}
           <PortMarkers ports={ports} />
           {diceDisplayMode === 'physics' ? (
             <PhysicsDice3D roll={physicsRoll} onSettled={handlePhysicsSettled} />
@@ -5250,6 +5408,9 @@ function App() {
         citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
         onBuyImprovement={buyCityImprovement}
         citiesAndKnightsProgressCards={gameRules.citiesAndKnightsProgressCards}
+        citiesAndKnightsKnights={gameRules.citiesAndKnightsKnights}
+        onRecruitKnight={armKnightRecruit}
+        canRecruitKnight={canRecruitKnight(localPlayer)}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,
           trade: progressCardDecks.trade.length,

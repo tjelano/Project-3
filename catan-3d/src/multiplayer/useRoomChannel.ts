@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
-import type { CommodityType, DevCardType, GameRules, ImprovementTrack, PlayerColorToken, ProgressCardType, ResourceType, Resources } from '../game/types'
+import type { CommodityType, DevCardType, GameRules, ImprovementTrack, KnightPiece, PlayerColorToken, ProgressCardType, ResourceType, Resources } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { EventDieFace } from '../components/Dice3D'
 
@@ -333,6 +333,15 @@ export interface MerchantMovedPayload {
   holderId: number
 }
 
+// Cities & Knights knight recruit (Task 7) — sent ALREADY-RESOLVED, same
+// trusted-apply model MerchantMovedPayload's own comment above describes:
+// the acting client already validated cost/supply/target locally
+// (canRecruitKnight + recruitableVertices) before ever broadcasting, so
+// every other client just applies the fully-formed KnightPiece directly.
+export interface KnightRecruitedPayload {
+  knight: KnightPiece
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -536,6 +545,9 @@ export interface RoomChannelHandlers {
   // Cities & Knights Merchant (Task 13) — see MerchantMovedPayload's own
   // comment above for the trusted-apply reasoning.
   onMerchantMoved?: (payload: MerchantMovedPayload) => void
+  // Cities & Knights knight recruit (Task 7) — see KnightRecruitedPayload's
+  // own comment above for the trusted-apply reasoning.
+  onKnightRecruited?: (payload: KnightRecruitedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -770,6 +782,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<MerchantMovedPayload>('broadcast', { event: 'MERCHANT_MOVED' }, ({ payload }) => {
       handlersRef.current.onMerchantMoved?.(payload)
     })
+    channel.on<KnightRecruitedPayload>('broadcast', { event: 'KNIGHT_RECRUITED' }, ({ payload }) => {
+      handlersRef.current.onKnightRecruited?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -999,6 +1014,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastMerchantMoved = (payload: MerchantMovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'MERCHANT_MOVED', payload })
   }
+  const broadcastKnightRecruited = (payload: KnightRecruitedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_RECRUITED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1049,6 +1067,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCommercialHarborPlayed,
     broadcastDiplomacyPlayed,
     broadcastMerchantMoved,
+    broadcastKnightRecruited,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

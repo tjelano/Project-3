@@ -149,6 +149,11 @@ interface GameHudProps {
   // just "a player."
   metropolisHolders: MetropolisHolders
   metropolisVertexIds: Record<ImprovementTrack, string | null>
+  // Cities & Knights Merchant (Task 13) — who currently controls the
+  // Merchant piece (App-level board state, Task 13), passed on to
+  // RankingsPanel/VictoryBanner for scoring, same "live in App.tsx, not on
+  // Player" reasoning metropolisHolders' own comment above gives.
+  merchantHolderId: number | null
   // Set the instant the viewer's own purchase crosses into level 4/5 on a
   // track — threaded straight down from App.tsx (not derivable from any
   // prop GameHud already has) so CityImprovementsPanel can swap that row to
@@ -327,6 +332,7 @@ export function GameHud({
   largestArmyHolderId,
   metropolisHolders,
   metropolisVertexIds,
+  merchantHolderId,
   pendingMetropolisTrack,
   citiesAndKnightsCommodities,
   onBuyImprovement,
@@ -523,6 +529,7 @@ export function GameHud({
           longestRoadLengths={longestRoadLengths}
           largestArmyHolderId={largestArmyHolderId}
           metropolisHolders={metropolisHolders}
+          merchantHolderId={merchantHolderId}
         />
         {/* Placement is a first-pass call, not yet confirmed live in the
             browser (see this task's report) — stacked here alongside
@@ -950,6 +957,7 @@ export function GameHud({
           longestRoadHolderId={longestRoadHolderId}
           largestArmyHolderId={largestArmyHolderId}
           metropolisHolders={metropolisHolders}
+          merchantHolderId={merchantHolderId}
           onReturnToMenu={onReturnToMenu}
         />
       )}

@@ -26,6 +26,10 @@ interface VictoryBannerProps {
   longestRoadHolderId: number | null
   largestArmyHolderId: number | null
   metropolisHolders: MetropolisHolders
+  // Cities & Knights Merchant (Task 13) — who currently controls the
+  // Merchant piece, same category as metropolisHolders above, needed here
+  // since getScoreBreakdown's signature now requires it.
+  merchantHolderId: number | null
   onReturnToMenu: () => void
 }
 
@@ -36,12 +40,13 @@ export function VictoryBanner({
   longestRoadHolderId,
   largestArmyHolderId,
   metropolisHolders,
+  merchantHolderId,
   onReturnToMenu,
 }: VictoryBannerProps) {
   const ranked = [...players]
     .map((player) => ({
       player,
-      score: getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders),
+      score: getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId),
     }))
     .sort((a, b) => b.score.total - a.score.total)
   const winnerScore = ranked.find((row) => row.player.id === winner.id)?.score.total ?? 0

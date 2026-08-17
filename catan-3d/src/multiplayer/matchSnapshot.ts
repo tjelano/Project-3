@@ -71,6 +71,13 @@ export interface MatchSnapshot {
   // by a player who ISN'T the snapshot-writing host.
   metropolisHolders?: MetropolisHolders
   metropolisVertexIds?: Record<ImprovementTrack, string | null>
+  // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
+  // category/optionality as robberTileId's sibling above: absent on any
+  // snapshot saved before this feature existed. restoreFromSnapshot
+  // (App.tsx) falls back to `?? null` on both, which is always correct for
+  // a pre-feature match (the Merchant piece was never placed).
+  merchantTileId?: string | null
+  merchantHolderId?: number | null
   devCardPlayedThisTurn: boolean
   freeRoadsRemaining: number
   // Whether the current player has already rolled this turn — restored so a

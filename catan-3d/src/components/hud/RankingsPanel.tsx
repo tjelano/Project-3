@@ -23,6 +23,11 @@ interface RankingsPanelProps {
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
   metropolisHolders: MetropolisHolders
+  // Cities & Knights Merchant (Task 13) — who currently controls the
+  // Merchant piece (App-level board state, same category as
+  // metropolisHolders above), needed here since getPublicScore's signature
+  // now requires it.
+  merchantHolderId: number | null
 }
 
 export function RankingsPanel({
@@ -33,6 +38,7 @@ export function RankingsPanel({
   longestRoadLengths,
   largestArmyHolderId,
   metropolisHolders,
+  merchantHolderId,
 }: RankingsPanelProps) {
   // Public score only — Victory Point dev cards stay face-down, so this
   // board never reveals them. The viewer gets a private "+N" hint for
@@ -41,7 +47,7 @@ export function RankingsPanel({
   const ranked = [...players]
     .map((player) => ({
       player,
-      score: getPublicScore(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders),
+      score: getPublicScore(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId),
       hidden:
         player.id === viewerPlayerId
           ? player.devCards.filter((card) => card === 'victoryPoint').length

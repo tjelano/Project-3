@@ -33,6 +33,11 @@ function playerWith(overrides: Partial<Player> = {}): Player {
 
 const NO_TROPHIES = [null, null] as const
 const NO_METROPOLIS_HOLDERS: MetropolisHolders = { science: null, trade: null, politics: null }
+// Cities & Knights Merchant (Task 13) — getScoreBreakdown/getPlayerScore/
+// getPublicScore all gained a trailing merchantHolderId parameter; every
+// pre-existing call site below is indifferent to it (none of those tests
+// are about the Merchant), so they all just pass "nobody holds it."
+const NO_MERCHANT_HOLDER: number | null = null
 
 describe('buildSetupOrder', () => {
   it('produces the snake order for each supported player count', () => {
@@ -88,7 +93,7 @@ describe('getScoreBreakdown', () => {
   }
 
   it('scores 1 per settlement and 2 per city, counting only its own buildings', () => {
-    const score = getScoreBreakdown(playerWith({ id: 1 }), settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)
+    const score = getScoreBreakdown(playerWith({ id: 1 }), settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)
     expect(score.settlements).toBe(1)
     expect(score.cities).toBe(1)
     expect(score.total).toBe(3)
@@ -96,23 +101,25 @@ describe('getScoreBreakdown', () => {
 
   it('adds hidden Victory Point cards to the true total', () => {
     const player = playerWith({ id: 1, devCards: ['victoryPoint', 'knight', 'victoryPoint'] })
-    const score = getScoreBreakdown(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)
+    const score = getScoreBreakdown(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)
     expect(score.victoryPointCards).toBe(2)
     expect(score.total).toBe(5) // 1 settlement + 2 city + 2 cards
   })
 
   it('adds the trophy bonuses only to their holders', () => {
     const p1 = playerWith({ id: 1 })
-    expect(getScoreBreakdown(p1, settlements, 1, null, NO_METROPOLIS_HOLDERS).longestRoad).toBe(LONGEST_ROAD_VP)
-    expect(getScoreBreakdown(p1, settlements, null, 1, NO_METROPOLIS_HOLDERS).largestArmy).toBe(LARGEST_ARMY_VP)
-    expect(getScoreBreakdown(p1, settlements, 2, 2, NO_METROPOLIS_HOLDERS).longestRoad).toBe(0)
-    expect(getScoreBreakdown(p1, settlements, 1, 1, NO_METROPOLIS_HOLDERS).total).toBe(3 + LONGEST_ROAD_VP + LARGEST_ARMY_VP)
+    expect(getScoreBreakdown(p1, settlements, 1, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).longestRoad).toBe(LONGEST_ROAD_VP)
+    expect(getScoreBreakdown(p1, settlements, null, 1, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).largestArmy).toBe(LARGEST_ARMY_VP)
+    expect(getScoreBreakdown(p1, settlements, 2, 2, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).longestRoad).toBe(0)
+    expect(getScoreBreakdown(p1, settlements, 1, 1, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).total).toBe(
+      3 + LONGEST_ROAD_VP + LARGEST_ARMY_VP,
+    )
   })
 
   it('keeps getPlayerScore in step with the breakdown total', () => {
     const player = playerWith({ id: 1, devCards: ['victoryPoint'] })
-    expect(getPlayerScore(player, settlements, 1, null, NO_METROPOLIS_HOLDERS)).toBe(
-      getScoreBreakdown(player, settlements, 1, null, NO_METROPOLIS_HOLDERS).total,
+    expect(getPlayerScore(player, settlements, 1, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(
+      getScoreBreakdown(player, settlements, 1, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).total,
     )
   })
 })
@@ -128,19 +135,21 @@ describe('getPublicScore', () => {
 
   it('excludes hidden Victory Point cards', () => {
     const player = playerWith({ id: 1, devCards: ['victoryPoint', 'victoryPoint'] })
-    expect(getPublicScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)).toBe(3)
-    expect(getPlayerScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)).toBe(5)
+    expect(getPublicScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(3)
+    expect(getPlayerScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(5)
   })
 
   it('still counts buildings and both trophies, which are public information', () => {
     const player = playerWith({ id: 1, devCards: ['victoryPoint'] })
-    expect(getPublicScore(player, settlements, 1, 1, NO_METROPOLIS_HOLDERS)).toBe(3 + LONGEST_ROAD_VP + LARGEST_ARMY_VP)
+    expect(getPublicScore(player, settlements, 1, 1, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(
+      3 + LONGEST_ROAD_VP + LARGEST_ARMY_VP,
+    )
   })
 
   it('matches the true score for a player holding no Victory Point cards', () => {
     const player = playerWith({ id: 1, devCards: ['knight', 'monopoly'] })
-    expect(getPublicScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)).toBe(
-      getPlayerScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS),
+    expect(getPublicScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(
+      getPlayerScore(player, settlements, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER),
     )
   })
 
@@ -149,8 +158,8 @@ describe('getPublicScore', () => {
       Array.from({ length: 9 }, (_, i) => [`v${i}`, { ownerId: 1, type: 'settlement' as const }]),
     )
     const player = playerWith({ id: 1, devCards: ['victoryPoint'] })
-    expect(getPublicScore(player, nine, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)).toBe(9)
-    expect(getPlayerScore(player, nine, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS)).toBe(WINNING_SCORE)
+    expect(getPublicScore(player, nine, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(9)
+    expect(getPlayerScore(player, nine, ...NO_TROPHIES, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)).toBe(WINNING_SCORE)
   })
 })
 
@@ -185,15 +194,30 @@ describe('getScoreBreakdown metropolis VP', () => {
   it('adds 2 VP per track the player holds the Metropolis for', () => {
     const player = playerWith({ id: 1 })
     const holders: MetropolisHolders = { science: 1, trade: 1, politics: 2 }
-    const breakdown = getScoreBreakdown(player, {}, null, null, holders)
+    const breakdown = getScoreBreakdown(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
     expect(breakdown.metropolis).toBe(4) // science + trade, not politics
   })
 
   it('gives 0 metropolis VP when the player holds none', () => {
     const player = playerWith({ id: 1 })
     const holders: MetropolisHolders = { science: null, trade: null, politics: null }
-    const breakdown = getScoreBreakdown(player, {}, null, null, holders)
+    const breakdown = getScoreBreakdown(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
     expect(breakdown.metropolis).toBe(0)
+  })
+})
+
+describe('getScoreBreakdown merchant VP', () => {
+  it('adds 1 VP for the player holding the Merchant', () => {
+    const player = playerWith({ id: 1 })
+    const breakdown = getScoreBreakdown(player, {}, null, null, NO_METROPOLIS_HOLDERS, 1)
+    expect(breakdown.merchantVP).toBe(1)
+    expect(breakdown.total).toBe(1)
+  })
+
+  it('gives 0 merchant VP to everyone else, including nobody holding it', () => {
+    const player = playerWith({ id: 1 })
+    expect(getScoreBreakdown(player, {}, null, null, NO_METROPOLIS_HOLDERS, 2).merchantVP).toBe(0)
+    expect(getScoreBreakdown(player, {}, null, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER).merchantVP).toBe(0)
   })
 })
 
@@ -262,7 +286,7 @@ describe('progress card deck composition', () => {
 describe('getScoreBreakdown progress card VP', () => {
   it('counts printing and constitution as 1 VP each, other cards as 0', () => {
     const player = { ...playerWith(), id: 1, progressCards: ['printing', 'constitution', 'crane'] as ProgressCardType[] }
-    const breakdown = getScoreBreakdown(player, {}, null, null, { science: null, trade: null, politics: null })
+    const breakdown = getScoreBreakdown(player, {}, null, null, { science: null, trade: null, politics: null }, NO_MERCHANT_HOLDER)
     expect(breakdown.progressCardVP).toBe(2)
   })
 })
@@ -275,8 +299,8 @@ describe('getPublicScore does not hide progress card VP', () => {
       progressCards: ['printing'] as ProgressCardType[],
     })
     const holders = { science: null, trade: null, politics: null }
-    const publicScore = getPublicScore(player, {}, null, null, holders)
-    const trueScore = getPlayerScore(player, {}, null, null, holders)
+    const publicScore = getPublicScore(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
+    const trueScore = getPlayerScore(player, {}, null, null, holders, NO_MERCHANT_HOLDER)
     expect(trueScore - publicScore).toBe(1) // only the hidden devCard VP is subtracted, not printing
   })
 })

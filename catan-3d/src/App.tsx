@@ -12,6 +12,7 @@ import { computeFrameInnerSize, computeFrameOuterSize } from './three/layout'
 import { BoardInteractions } from './components/BoardInteractions'
 import { RobberLayer } from './components/RobberLayer'
 import { TileSwapLayer } from './components/TileSwapLayer'
+import { MerchantLayer } from './components/MerchantLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
@@ -448,6 +449,21 @@ function App() {
   const [canvasInstance, setCanvasInstance] = useState(0)
 
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
+
+  // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
+  // category as robberTileId just above, not a per-player field: the piece
+  // sits on one tile and is controlled by at most one player at a time,
+  // independent of createInitialPlayers/Player. null until the card is
+  // first played and placed.
+  const [merchantTileId, setMerchantTileId] = useState<string | null>(null)
+  const [merchantHolderId, setMerchantHolderId] = useState<number | null>(null)
+  // Non-null only on the acting client's own screen while a placement is in
+  // progress — local-only, never broadcast, same treatment
+  // pendingInventionSwap/pendingDiplomacyRemoval already get. Carries the
+  // placing player's id (gates MerchantLayer's eligible-tile filter and its
+  // `active` rendering), not an object, since there's nothing else to track
+  // between the card being spent and the single tile click that resolves it.
+  const [pendingMerchantPlacement, setPendingMerchantPlacement] = useState<number | null>(null)
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -1087,6 +1103,7 @@ function App() {
     broadcastEspionageTaken,
     broadcastCommercialHarborPlayed,
     broadcastDiplomacyPlayed,
+    broadcastMerchantMoved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1468,6 +1485,14 @@ function App() {
       }
       applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId)
     },
+    // Cities & Knights Merchant (Task 13) — trusted-apply, same reasoning
+    // MerchantMovedPayload's own comment (useRoomChannel.ts) gives: the
+    // sending client already validated land+adjacency locally, so every
+    // other client just applies tileId/holderId directly.
+    onMerchantMoved: (payload) => {
+      setMerchantTileId(payload.tileId)
+      setMerchantHolderId(payload.holderId)
+    },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
     // back to their own sender by default, so this only ever fires on
@@ -1684,7 +1709,7 @@ function App() {
   if (!winner && gameStarted) {
     const found = players.find(
       (p) =>
-        getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders) >=
+        getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId) >=
         gameRules.victoryPointTarget,
     )
     if (found) setWinner(found)
@@ -1732,6 +1757,20 @@ function App() {
     // settlement ownership at all, so it has to short-circuit before the
     // ports loop below rather than fold into it.
     if (merchantFleetRate?.playerId === playerId && merchantFleetRate.type === resource) return 2
+    // Cities & Knights Merchant (Task 13) — "trade that hex's resource
+    // (not commodity) at 2:1" while controlled. Stacks with the checks
+    // above/below (whichever applies): a distinct board-piece control
+    // check, not derived from settlement ownership like the ports loop
+    // below, so it short-circuits before that loop the same way the
+    // Merchant Fleet check just above does.
+    if (
+      merchantHolderId === playerId &&
+      merchantTileId &&
+      tiles.find((t) => t.id === merchantTileId)?.biome &&
+      BIOME_TO_RESOURCE[tiles.find((t) => t.id === merchantTileId)!.biome] === resource
+    ) {
+      return 2
+    }
     let hasGenericPort = false
     for (const port of ports) {
       const ownsPort = port.vertexIds.some((vertexId) => settlements[vertexId]?.ownerId === playerId)
@@ -2714,7 +2753,7 @@ function App() {
           const owner = playerById.get(building.ownerId)
           if (
             owner &&
-            getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders) <= 2
+            getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId) <= 2
           )
             continue
         }
@@ -3701,6 +3740,48 @@ function App() {
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'merchantFleet' })
   }
 
+  // Cities & Knights Merchant (Task 13) — "Take control of the merchant
+  // piece; place it on any land hex next to one of your buildings." Spends
+  // the card up front (same "spend on click, resolve the argument after"
+  // shape pendingInventionSwap already uses for Invention) and arms
+  // MerchantLayer's placement mode; the actual tile pick resolves via
+  // handleMerchantTileSelect below, entirely outside this function, same
+  // split playInvention/handleInventionTileSelect already use.
+  const playMerchant = () => {
+    // Binding correction from Task 7's review (applies plan-wide): must be
+    // checked BEFORE reading players[currentPlayerIndex], not after.
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('merchant')) {
+      warn('No Merchant card to play.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchant') } : p)),
+    )
+    setPendingMerchantPlacement(player.id)
+    inform(`${player.name} played Merchant — choose a land hex next to one of your buildings.`)
+  }
+
+  // Resolves the single board-tile click MerchantLayer offers while
+  // pendingMerchantPlacement is set. Deterministic given just the clicked
+  // tileId (MerchantLayer only ever offers land hexes adjacent to the
+  // placing player's own buildings as click targets, so no further
+  // validation is needed here) — trusted-apply on every OTHER client too,
+  // same reasoning RobberMovedPayload/MetropolisClaimedPayload already use
+  // for their own board-piece moves.
+  const handleMerchantTileSelect = (tileId: string) => {
+    if (pendingMerchantPlacement == null) return
+    const playerId = pendingMerchantPlacement
+    setMerchantTileId(tileId)
+    setMerchantHolderId(playerId)
+    setPendingMerchantPlacement(null)
+    if (onlineInfo) broadcastMerchantMoved({ tileId, holderId: playerId })
+  }
+
   // Shared VP-comparison helper — both Sabotage and Wedding need "every
   // player whose VP compares a certain way to the announcer." Sabotage
   // uses 'gte' (AS MANY OR MORE VPs than the announcer triggers a forced
@@ -3714,10 +3795,17 @@ function App() {
   const playersMeetingVpThreshold = (announcerId: number, comparison: 'gte' | 'gt'): Player[] => {
     const announcer = playerById.get(announcerId)
     if (!announcer) return []
-    const announcerVp = getPlayerScore(announcer, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
+    const announcerVp = getPlayerScore(
+      announcer,
+      settlements,
+      longestRoadHolderId,
+      largestArmyHolderId,
+      metropolisHolders,
+      merchantHolderId,
+    )
     return players.filter((p) => {
       if (p.id === announcerId) return false
-      const vp = getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
+      const vp = getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId)
       return comparison === 'gte' ? vp >= announcerVp : vp > announcerVp
     })
   }
@@ -4230,6 +4318,16 @@ function App() {
     setMerchantFleetRate(null)
     setPendingGuildDues(null)
     setPendingEspionage(null)
+    // Cities & Knights Merchant (Task 13) — same reasoning as
+    // metropolisHolders/metropolisVertexIds above: a leftover holder/tile
+    // from a PREVIOUS match would silently keep granting 2:1 trades and +1
+    // VP to whoever last controlled it, on every client, for the rest of
+    // this session. pendingMerchantPlacement is local-only pending state,
+    // same "always reset on a fresh game" treatment pendingInventionSwap
+    // gets just above.
+    setMerchantTileId(null)
+    setMerchantHolderId(null)
+    setPendingMerchantPlacement(null)
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -4307,6 +4405,11 @@ function App() {
     const restoredMetropolisVertexIds = snapshot.metropolisVertexIds ?? { science: null, trade: null, politics: null }
     setMetropolisHolders(restoredMetropolisHolders)
     setMetropolisVertexIds(restoredMetropolisVertexIds)
+    // Cities & Knights Merchant (Task 13) — same optional/backward-compatible
+    // `?? null` treatment as metropolisHolders/metropolisVertexIds above:
+    // absent on any snapshot saved before this feature existed.
+    setMerchantTileId(snapshot.merchantTileId ?? null)
+    setMerchantHolderId(snapshot.merchantHolderId ?? null)
     setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
     setHasRolledThisTurn(snapshot.hasRolledThisTurn)
@@ -4344,6 +4447,7 @@ function App() {
     setMerchantFleetRate(null)
     setPendingGuildDues(null)
     setPendingEspionage(null)
+    setPendingMerchantPlacement(null)
     setDiscardSelection([])
     // Progress-card hand-limit queue — unlike discardPlayerIds (recomputed
     // below from restored resource counts) this genuinely IS a persisted
@@ -4496,6 +4600,8 @@ function App() {
       largestArmyHolderId,
       metropolisHolders,
       metropolisVertexIds,
+      merchantTileId,
+      merchantHolderId,
       devCardPlayedThisTurn,
       freeRoadsRemaining,
       hasRolledThisTurn,
@@ -4531,6 +4637,8 @@ function App() {
     largestArmyHolderId,
     metropolisHolders,
     metropolisVertexIds,
+    merchantTileId,
+    merchantHolderId,
     devCardPlayedThisTurn,
     freeRoadsRemaining,
     hasRolledThisTurn,
@@ -4580,6 +4688,14 @@ function App() {
     // after" shape Invention itself already uses for its board-tile pick.
     guildDues: playGuildDues,
     espionage: playEspionage,
+    // Cities & Knights Merchant (Task 13) — fits the plain click-to-play
+    // shape too, same "target/argument resolved AFTER the click" reasoning
+    // guildDues/espionage's own comment gives just above: playMerchant only
+    // spends the card and arms MerchantLayer's placement mode (rendered
+    // straight on the 3D board, not via a GameHud picker), so it needs no
+    // dedicated "own small argument-picker UI" the way Alchemy/Invention/
+    // Merchant Fleet above do.
+    merchant: playMerchant,
   }
 
   // Recomputed every render (cheap — one VP-comparison filter over
@@ -4671,6 +4787,23 @@ function App() {
             active={pendingInventionSwap?.playerId === localPlayer.id}
             firstTileId={pendingInventionSwap?.firstTileId ?? null}
             onSelectTile={handleInventionTileSelect}
+          />
+          {/* Cities & Knights Merchant (Task 13) — sibling to RobberLayer/
+              TileSwapLayer, same Canvas. placingPlayerId is scoped to the
+              LOCAL client's own view: pendingMerchantPlacement is local-only
+              state, so the eligible-tile picker only ever renders for
+              whichever browser actually played the card (same reasoning
+              TileSwapLayer's own `active` prop comment gives for Invention).
+              The standing marker itself (wherever merchantTileId currently
+              is) always renders for every client, regardless of who's
+              placing. */}
+          <MerchantLayer
+            tiles={tiles}
+            merchantTileId={merchantTileId}
+            placingPlayerId={pendingMerchantPlacement === localPlayer.id ? pendingMerchantPlacement : null}
+            settlements={settlements}
+            vertexTileIds={graph.vertexTileIds}
+            onSelectTile={handleMerchantTileSelect}
           />
           <PortMarkers ports={ports} />
           {diceDisplayMode === 'physics' ? (
@@ -4772,6 +4905,7 @@ function App() {
         largestArmyHolderId={largestArmyHolderId}
         metropolisHolders={metropolisHolders}
         metropolisVertexIds={metropolisVertexIds}
+        merchantHolderId={merchantHolderId}
         pendingMetropolisTrack={
           pendingMetropolisClaim && pendingMetropolisClaim.playerId === localPlayer.id
             ? pendingMetropolisClaim.track

@@ -321,6 +321,18 @@ export interface DiplomacyPlayedPayload {
   ownerId: number
 }
 
+// Cities & Knights Merchant (Task 13) — moves the Merchant piece to a new
+// land hex adjacent to one of the placing player's buildings. Like
+// MetropolisClaimedPayload above, this is sent ALREADY-RESOLVED: the acting
+// client only ever offers this tile as a click target once it's already
+// confirmed land+adjacency locally (MerchantLayer's own filtered tile set),
+// so every other client just applies tileId/holderId directly — same
+// trusted-apply model, no independent re-validation.
+export interface MerchantMovedPayload {
+  tileId: string
+  holderId: number
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -521,6 +533,9 @@ export interface RoomChannelHandlers {
   // Guild Dues/Espionage do).
   onCommercialHarborPlayed?: (payload: CommercialHarborPlayedPayload) => void
   onDiplomacyPlayed?: (payload: DiplomacyPlayedPayload) => void
+  // Cities & Knights Merchant (Task 13) — see MerchantMovedPayload's own
+  // comment above for the trusted-apply reasoning.
+  onMerchantMoved?: (payload: MerchantMovedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -752,6 +767,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<DiplomacyPlayedPayload>('broadcast', { event: 'DIPLOMACY_PLAYED' }, ({ payload }) => {
       handlersRef.current.onDiplomacyPlayed?.(payload)
     })
+    channel.on<MerchantMovedPayload>('broadcast', { event: 'MERCHANT_MOVED' }, ({ payload }) => {
+      handlersRef.current.onMerchantMoved?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -978,6 +996,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastDiplomacyPlayed = (payload: DiplomacyPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'DIPLOMACY_PLAYED', payload })
   }
+  const broadcastMerchantMoved = (payload: MerchantMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'MERCHANT_MOVED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1027,6 +1048,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastEspionageTaken,
     broadcastCommercialHarborPlayed,
     broadcastDiplomacyPlayed,
+    broadcastMerchantMoved,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

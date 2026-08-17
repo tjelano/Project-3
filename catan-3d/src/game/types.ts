@@ -437,25 +437,28 @@ export interface ScoreBreakdown {
   largestArmy: number
   metropolis: number
   progressCardVP: number
+  merchantVP: number
   total: number
 }
 
 // Authoritative score breakdown: 1 per settlement, 2 per city, 1 per hidden
 // Victory Point development card, +2 for holding Longest Road, +2 for
-// holding Largest Army, and +2 per improvement track this player holds the
-// Metropolis for (Cities & Knights, so 0 unless that house rule is on).
-// Trophy holders are tracked as App-level state (see trophies.ts) rather
-// than recomputed here, since "current holder" depends on transfer history
-// (a tie doesn't unseat the incumbent), not just an instantaneous max —
-// metropolisHolders is App-level state for the same reason (see
+// holding Largest Army, +2 per improvement track this player holds the
+// Metropolis for (Cities & Knights, so 0 unless that house rule is on), and
+// +1 for holding the Merchant piece (also Cities & Knights). Trophy holders
+// are tracked as App-level state (see trophies.ts) rather than recomputed
+// here, since "current holder" depends on transfer history (a tie doesn't
+// unseat the incumbent), not just an instantaneous max — metropolisHolders/
+// merchantHolderId are App-level state for the same reason (see
 // metropolisHolderAfterPurchase in cityImprovements.ts, where arrival order
-// decides control).
+// decides control, and MerchantLayer's own placement flow).
 export function getScoreBreakdown(
   player: Player,
   settlements: Record<string, Building>,
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
   metropolisHolders: MetropolisHolders,
+  merchantHolderId: number | null,
 ): ScoreBreakdown {
   let settlementCount = 0
   let cityCount = 0
@@ -469,6 +472,7 @@ export function getScoreBreakdown(
   const longestRoad = player.id === longestRoadHolderId ? LONGEST_ROAD_VP : 0
   const largestArmy = player.id === largestArmyHolderId ? LARGEST_ARMY_VP : 0
   const metropolis = IMPROVEMENT_TRACK_ORDER.filter((track) => metropolisHolders[track] === player.id).length * 2
+  const merchantVP = player.id === merchantHolderId ? 1 : 0
   return {
     settlements: settlementCount,
     cities: cityCount,
@@ -477,7 +481,9 @@ export function getScoreBreakdown(
     largestArmy,
     metropolis,
     progressCardVP,
-    total: settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis + progressCardVP,
+    merchantVP,
+    total:
+      settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis + progressCardVP + merchantVP,
   }
 }
 
@@ -487,8 +493,10 @@ export function getPlayerScore(
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
   metropolisHolders: MetropolisHolders,
+  merchantHolderId: number | null,
 ): number {
-  return getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders).total
+  return getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId)
+    .total
 }
 
 // The score everyone at the table can legitimately see. Victory Point
@@ -503,8 +511,9 @@ export function getPublicScore(
   longestRoadHolderId: number | null,
   largestArmyHolderId: number | null,
   metropolisHolders: MetropolisHolders,
+  merchantHolderId: number | null,
 ): number {
-  const score = getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders)
+  const score = getScoreBreakdown(player, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId)
   return score.total - score.victoryPointCards
 }
 

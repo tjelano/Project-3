@@ -25,6 +25,13 @@ const EDGE_HITBOX_HEIGHT = 0.14
 // hitboxes at either end — keeps hover/click targets from overlapping.
 const EDGE_LENGTH_SCALE = 0.82
 
+// City wall placeholder — a low stone-colored ring sitting flush around the
+// city model's base, per this plan's Global Constraints (placeholder art
+// before commissioned art).
+const CITY_WALL_COLOR = '#8a7f6b'
+const CITY_WALL_RADIUS = 0.22
+const CITY_WALL_HEIGHT = 0.05
+
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
 
@@ -82,6 +89,7 @@ const VertexSlot = memo(function VertexSlot({
   building,
   ownerColorToken,
   isMetropolis,
+  hasWall,
   onBuild,
   locked,
   remoteHighlighted,
@@ -92,6 +100,7 @@ const VertexSlot = memo(function VertexSlot({
   building: Building | undefined
   ownerColorToken: PlayerColorToken | undefined
   isMetropolis: boolean
+  hasWall: boolean
   onBuild: (vertexId: string) => void
   locked: boolean
   remoteHighlighted: boolean
@@ -128,6 +137,12 @@ const VertexSlot = memo(function VertexSlot({
           <CityModel colorToken={colorToken} isMetropolis={isMetropolis} />
         ) : (
           <SettlementModel colorToken={colorToken} />
+        )}
+        {hasWall && building.type === 'city' && (
+          <mesh position={[0, -CITY_WALL_HEIGHT / 2, 0]}>
+            <cylinderGeometry args={[CITY_WALL_RADIUS, CITY_WALL_RADIUS, CITY_WALL_HEIGHT, 8, 1, true]} />
+            <meshStandardMaterial color={CITY_WALL_COLOR} side={2 /* THREE.DoubleSide */} />
+          </mesh>
         )}
       </group>
     )
@@ -306,6 +321,11 @@ interface BoardInteractionsProps {
   // Metropolis marker — Task 6's App.tsx state, threaded down one more hop
   // so VertexSlot can render the visual on the exact right city.
   metropolisVertexIds: Record<ImprovementTrack, string | null>
+  // Cities & Knights City Walls — vertex ids of every city currently
+  // carrying a wall. Threaded down one more hop so VertexSlot can render
+  // the ring on the exact right city, same shape as metropolisVertexIds
+  // just above.
+  cityWalls: ReadonlySet<string>
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
   locked?: boolean
@@ -328,6 +348,7 @@ export const BoardInteractions = memo(function BoardInteractions({
   roads,
   players,
   metropolisVertexIds,
+  cityWalls,
   onBuildSettlement,
   onBuildRoad,
   locked = false,
@@ -358,6 +379,7 @@ export const BoardInteractions = memo(function BoardInteractions({
               : undefined
           }
           isMetropolis={IMPROVEMENT_TRACK_ORDER.some((track) => metropolisVertexIds[track] === vertex.id)}
+          hasWall={cityWalls.has(vertex.id)}
           onBuild={onBuildSettlement}
           locked={locked}
           remoteHighlighted={remoteHover.vertexId === vertex.id}

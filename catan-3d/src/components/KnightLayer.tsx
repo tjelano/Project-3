@@ -20,9 +20,9 @@ const KNIGHT_HEIGHT_PER_STRENGTH = 0.1
 // much harder to read/click at this scale.
 const KNIGHT_INACTIVE_OPACITY = 0.55
 
-const RECRUIT_TARGET_COLOR = '#f2c14e' // same "you can place this" gold TileSwapLayer uses
+const RECRUIT_TARGET_COLOR = '#8a5cf6' // distinct from TileSwapLayer's gold and RobberLayer's red — see Task 5 fix round 1
 const MOVE_TARGET_COLOR = '#7fe7ff' // same cyan BoardInteractions' own settlement ghost uses
-const DISPLACE_TARGET_COLOR = '#d64545' // same "this is a threat" red RobberLayer uses
+const DISPLACE_TARGET_COLOR = '#e0457a' // distinct from TileSwapLayer's gold and RobberLayer's red — see Task 5 fix round 1
 
 function KnightToken({ knight, colorToken }: { knight: KnightPiece; colorToken: PlayerColorToken }) {
   const height = KNIGHT_BASE_HEIGHT + KNIGHT_HEIGHT_PER_STRENGTH * (KNIGHT_STRENGTH_VALUE[knight.strength] - 1)

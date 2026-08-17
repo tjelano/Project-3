@@ -2069,9 +2069,15 @@ function App() {
   // than reusing autoDiscardCounts (that function is resource/commodity-
   // typed, not applicable here; this fallback doesn't need "spread the
   // loss" sophistication, arbitrary order is fine for an unresponsive
-  // player).
+  // player). Two SEPARATE guards, same as the resource-discard timeout
+  // above — `isEffectiveHost` alone is FALSE for local Pass & Play
+  // (isEffectiveHost's own definition starts `if (!onlineInfo) return
+  // false`), so folding it into the first check would silently disable
+  // this timeout for local play entirely. The second check only bails when
+  // we're online AND not the effective host; local play always proceeds.
   useEffect(() => {
-    if (progressCardOverLimitPlayerIds.length === 0 || !isEffectiveHost) return
+    if (progressCardOverLimitPlayerIds.length === 0) return
+    if (onlineInfo && !isEffectiveHost) return
     const timer = setTimeout(() => {
       for (const playerId of progressCardOverLimitPlayerIds) {
         const player = playerById.get(playerId)

@@ -20,8 +20,8 @@ export function PlayerTargetPicker({ players, selectedPlayerId, onSelect }: Play
             key={player.id}
             type="button"
             onClick={() => onSelect(player.id)}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
-              selected ? 'border-white/60 bg-white/10 text-white' : 'border-white/20 text-white/70 hover:border-white/40'
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[11px] transition-colors ${
+              selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/75'
             }`}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: PLAYER_COLORS[player.colorToken] }} />

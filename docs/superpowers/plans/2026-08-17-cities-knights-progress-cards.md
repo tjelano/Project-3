@@ -41,9 +41,22 @@ Merchant piece. A new `ProgressCardsPanel` HUD component (separate from
 - **House rules stay independently toggleable.**
   `citiesAndKnightsProgressCards: boolean`, default `false`, no
   UI-level gating on `citiesAndKnightsCommodities` (verified: no existing
-  dependent-checkbox pattern in `HouseRulesDropdown.tsx` to reuse; the
-  feature is naturally inert without commodities since no
-  `cityImprovements[track]` ever exceeds 0).
+  dependent-checkbox pattern in `HouseRulesDropdown.tsx` to reuse).
+  **Correction found during the final whole-branch review — the original
+  text here was wrong and caused a real Critical bug (shipped, then
+  fixed):** this section previously claimed the feature was "naturally
+  inert without commodities since no `cityImprovements[track]` ever
+  exceeds 0." That reasoning only covers `citiesAndKnightsCommodities`
+  OFF. It never addresses **commodities ON + progress cards OFF** — the
+  exact configuration every existing Phase A game/group is already in,
+  where `cityImprovements[track]` regularly DOES exceed 0. In that
+  configuration the draw logic (event die + `resolveEventDieDraws`) has
+  no rule check at all and fires unconditionally, silently drawing hidden
+  cards and silently awarding VP (Printing/Constitution) in games that
+  never opted into this phase. **The event-die draw resolution, and the
+  event-die HUD indicator, MUST explicitly gate on
+  `gameRules.citiesAndKnightsProgressCards` — inertness must never be
+  assumed from an unrelated flag's state, it must be checked directly.**
 - Event die: 6 faces, 3 ship (Phase C, no-op here) + 1 science + 1 trade
   + 1 politics. Rolled with the 2 production dice every turn, resolved
   BEFORE production.

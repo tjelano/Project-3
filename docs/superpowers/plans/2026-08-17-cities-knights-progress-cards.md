@@ -1194,9 +1194,20 @@ function is resource/commodity-typed, not applicable here; this
 fallback doesn't need "spread the loss" sophistication, arbitrary order
 is fine for an unresponsive player):
 
+**Correction found during Task 6's review:** the guard below originally
+checked `!isEffectiveHost` unconditionally — but `isEffectiveHost` starts
+with `if (!onlineInfo) return false`, so in LOCAL Pass & Play (no
+`onlineInfo`) that check is always true and the effect always bails
+early, meaning an unresponsive local player's over-limit queue NEVER
+auto-resolves. The resource-discard timeout effect this mirrors
+(`App.tsx:2046-2048`) gates the host check separately, only when
+`onlineInfo` exists — match that exact 2-check shape, not a single
+combined condition:
+
 ```ts
 useEffect(() => {
-  if (progressCardOverLimitPlayerIds.length === 0 || !isEffectiveHost) return
+  if (progressCardOverLimitPlayerIds.length === 0) return
+  if (onlineInfo && !isEffectiveHost) return
   const timer = setTimeout(() => {
     for (const playerId of progressCardOverLimitPlayerIds) {
       const player = playerById.get(playerId)

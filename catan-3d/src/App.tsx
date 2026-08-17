@@ -747,12 +747,46 @@ function App() {
     }
   }
 
-  // Cities & Knights Trade Monopoly — sibling to applyMonopolyEffect just
-  // above, but takes only 1 of the announced commodity per player (not
-  // all of it — Resource Monopoly's base-game-derived take-all shape is
-  // deliberately NOT reused here, since the physical Trade Monopoly card
-  // text caps it at 1). Shared by the local actor
-  // (resolveDevCardCommodityPicker, below) and the receiving client
+  // Cities & Knights Resource Monopoly — a SEPARATE effect from base-game
+  // Monopoly's applyMonopolyEffect just above, NOT a reuse of it. The card
+  // text is "2 of that resource if they have them (or their last one if
+  // they only have 1)" — capped, not take-all — so reusing
+  // applyMonopolyEffect verbatim would over-collect (a real rules bug, not
+  // a cosmetic naming difference; caught in this task's own review).
+  // Shared by the local actor (resolveDevCardPicker's resourceMonopolyProgress
+  // branch, below) and the receiving client (onResourceMonopolyPlayed),
+  // same trust model as every other progress-card effect in this file.
+  const applyResourceMonopolyProgressEffect = (playerId: number, resource: ResourceType) => {
+    let collected = 0
+    const victimNotes: string[] = []
+    setPlayers((prev) => {
+      const next = prev.map((p) => {
+        if (p.id === playerId || p.resources[resource] <= 0) return p
+        const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
+        victimNotes.push(`${take} from ${p.name}`)
+        collected += take
+        return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - take } }
+      })
+      return next.map((p) =>
+        p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + collected } } : p,
+      )
+    })
+    const player = playerById.get(playerId)
+    if (player) {
+      inform(
+        collected > 0
+          ? `${player.name} monopolized ${RESOURCE_LABELS[resource]} — seized ${collected} card${collected === 1 ? '' : 's'} (${victimNotes.join(', ')})!`
+          : `${player.name} played Resource Monopoly on ${RESOURCE_LABELS[resource]}, but no one had any.`,
+      )
+    }
+  }
+
+  // Cities & Knights Trade Monopoly — sibling to applyMonopolyEffect and
+  // applyResourceMonopolyProgressEffect above, but takes only 1 of the
+  // announced commodity per player (matching the physical card's "1 of
+  // that commodity if they have it" text — neither base Monopoly's
+  // take-all nor Resource Monopoly's take-2-or-fewer). Shared by the local
+  // actor (resolveDevCardCommodityPicker, below) and the receiving client
   // (onTradeMonopolyPlayed), same trust model as every other progress-card
   // effect in this file.
   const applyTradeMonopolyEffect = (playerId: number, commodity: CommodityType) => {
@@ -1059,7 +1093,10 @@ function App() {
           p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p,
         ),
       )
-      applyMonopolyEffect(payload.playerId, payload.resource)
+      // applyResourceMonopolyProgressEffect, NOT applyMonopolyEffect — see
+      // that function's own comment for why Resource Monopoly's take-2-or-
+      // fewer effect can't reuse base Monopoly's take-all one.
+      applyResourceMonopolyProgressEffect(payload.playerId, payload.resource)
     },
     onTradeMonopolyPlayed: (payload) => {
       if (!COMMODITY_ORDER.includes(payload.commodity)) {
@@ -2955,18 +2992,21 @@ function App() {
     if (type === 'monopoly') return playMonopoly()
   }
 
-  // Cities & Knights Resource Monopoly — mirrors playMonopoly above almost
-  // verbatim: spends the card and opens the SAME DevCardResourcePicker
-  // (via the widened DevCardPickerMode) that base-game Monopoly uses, since
-  // resolveDevCardPicker's resourceMonopolyProgress branch calls the exact
-  // same applyMonopolyEffect. Unlike playMonopoly (reached only through
-  // ResourcePanel's dev-card buttons, which are already isMyTurn-gated),
-  // this is dispatched through progressCardPlayHandlers/ProgressCardsPanel
-  // — guarded directly anyway per this plan's "guard even when the UI
-  // already blocks it" convention (buyDevCard's own comment), since
-  // resolveDevCardPicker is a SHARED function also used by the base-game
-  // Monopoly/Year-of-Plenty dev cards and the panel-level gate alone isn't
-  // enough to stop a stale click from reaching it.
+  // Cities & Knights Resource Monopoly — mirrors playMonopoly above for the
+  // spend-then-open-picker SHAPE only: it spends the card and opens the
+  // SAME DevCardResourcePicker (via the widened DevCardPickerMode) that
+  // base-game Monopoly uses, but resolveDevCardPicker's
+  // resourceMonopolyProgress branch calls a SEPARATE effect function,
+  // applyResourceMonopolyProgressEffect (take-2-or-fewer per player, not
+  // base Monopoly's take-all — see that function's own comment). Unlike
+  // playMonopoly (reached only through ResourcePanel's dev-card buttons,
+  // which are already isMyTurn-gated), this is dispatched through
+  // progressCardPlayHandlers/ProgressCardsPanel — guarded directly anyway
+  // per this plan's "guard even when the UI already blocks it" convention
+  // (buyDevCard's own comment), since resolveDevCardPicker is a SHARED
+  // function also used by the base-game Monopoly/Year-of-Plenty dev cards
+  // and the panel-level gate alone isn't enough to stop a stale click from
+  // reaching it.
   const playResourceMonopoly = () => {
     if (!isMyTurn) {
       warn("It's not your turn.")
@@ -3472,15 +3512,17 @@ function App() {
     if (mode === 'tradeMonopolyProgress') return
 
     const resource = picks[0]
-    applyMonopolyEffect(player.id, resource)
     if (mode === 'resourceMonopolyProgress') {
-      // Identical resource-steal math to base Monopoly (applyMonopolyEffect,
-      // reused verbatim) — only the broadcast event name differs, so the
-      // event log / receiving clients can tell which card actually triggered
-      // it (Resource Monopoly vs. base-game Monopoly).
+      // A SEPARATE effect function from base Monopoly's applyMonopolyEffect
+      // (take-2-or-fewer, not take-all) — see applyResourceMonopolyProgressEffect's
+      // own comment for why these can't share an implementation. The
+      // broadcast event name also differs, so the event log / receiving
+      // clients can tell which card actually triggered it.
+      applyResourceMonopolyProgressEffect(player.id, resource)
       if (onlineInfo) broadcastResourceMonopolyPlayed({ playerId: player.id, resource })
       return
     }
+    applyMonopolyEffect(player.id, resource)
     if (onlineInfo) broadcastMonopolyPlayed({ playerId: player.id, resource })
   }
 

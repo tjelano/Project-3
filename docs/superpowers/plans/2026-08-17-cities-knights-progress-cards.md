@@ -59,6 +59,28 @@ Merchant piece. A new `ProgressCardsPanel` HUD component (separate from
 - `ProgressCardType` is a wholly separate type from `DevCardType` — do
   not merge "Road Building" progress card into the existing `roadBuilding`
   dev card type. Use `progressRoadBuilding`.
+- **Correction found during Task 7's review — binding on EVERY `playX`
+  progress-card handler in this plan (Tasks 7-15), not just Task 7's
+  own:** every `playX` function's code shown in this plan reads
+  `const player = players[currentPlayerIndex]` with NO turn-ownership
+  check. `App.tsx` already has an established, repeatedly-applied
+  convention for exactly this shape — `rollDice`, `canPlayDevCardNow`
+  (covering `playKnight`/`playRoadBuilding`/`playYearOfPlenty`/
+  `playMonopoly`), and `buyDevCard` all explicitly guard with
+  `if (!isMyTurn) { warn(...); return }` before acting on
+  `players[currentPlayerIndex]`, even in cases where the UI already
+  blocks the button (`buyDevCard`'s own comment: "pure defense-in-depth
+  to match the rest of this file"). Every `playX` handler in this plan
+  MUST add this same guard — it is not optional polish, it is the
+  established codebase convention this plan failed to carry forward.
+  Additionally, `ProgressCardsPanel`'s Play buttons must be `disabled`
+  when `!isMyTurn` (mirroring `GameHud.tsx`'s existing
+  `canPlayDevCards`-gated dev-card buttons) as a single point-of-failure
+  defense — without it, a non-turn player could act on the ACTUAL
+  turn-holder's hand/resources through completely normal UI use (no
+  payload forgery needed), confirmed as a live, reachable Critical bug
+  for `playIrrigation`/`playMining` the moment Task 7 populated real
+  handlers into what had been an inert Task-5 scaffold.
 
 ## Reused Patterns (verified against current code, exact citations)
 

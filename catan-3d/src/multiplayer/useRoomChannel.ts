@@ -288,6 +288,39 @@ export interface EspionageTakenPayload {
   cardIndex: number
 }
 
+// Cities & Knights Commercial Harbor (Task 12) — the plan's own sequential
+// simplification (App.tsx's applyCommercialHarborEffect): one resource type,
+// walked once across every other player in turn order. turnOrderIds is
+// carried explicitly rather than re-derived from currentPlayerIndex on the
+// receiver — the announcer's client computed it at a specific moment, and
+// re-deriving independently risks a different currentPlayerIndex if a race
+// with turn advancement occurs. Otherwise deterministic given just these 3
+// values plus already-synced player resource/commodity state, so — like
+// Irrigation/Mining/Sabotage/Wedding — this gets ONE broadcast, applied via
+// the same applyCommercialHarborEffect function shared by the local actor
+// and every receiver (no separate generic ProgressCardPlayedPayload needed
+// first, unlike Invention/Guild Dues/Espionage's two-broadcast split).
+export interface CommercialHarborPlayedPayload {
+  playerId: number
+  resource: ResourceType
+  turnOrderIds: number[]
+}
+
+// Cities & Knights Diplomacy (Task 12) — removes one open road (see
+// isOpenRoad's own comment in App.tsx for the plan's directly-computable-half
+// simplification). ownerId is the road's owner BEFORE removal (the announcer,
+// for their own road, or an opponent) — sent explicitly, trusted-apply, same
+// reasoning as MetropolisClaimedPayload/GuildDuesTakenPayload above: the
+// receiver's applyDiplomacyRemoval returns the road to the right player's
+// supply (or grants the announcer's own free rebuild) directly from this
+// value plus already-synced roads/player state, no independent re-resolution
+// needed.
+export interface DiplomacyPlayedPayload {
+  playerId: number
+  edgeId: string
+  ownerId: number
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -481,6 +514,13 @@ export interface RoomChannelHandlers {
   // onProgressCardPlayed's 'invention' branch.
   onGuildDuesTaken?: (payload: GuildDuesTakenPayload) => void
   onEspionageTaken?: (payload: EspionageTakenPayload) => void
+  // Cities & Knights Commercial Harbor/Diplomacy (Task 12) — each is its own
+  // single, self-contained broadcast (see CommercialHarborPlayedPayload/
+  // DiplomacyPlayedPayload's own comments above for why neither needs a
+  // separate preceding onProgressCardPlayed broadcast the way Invention/
+  // Guild Dues/Espionage do).
+  onCommercialHarborPlayed?: (payload: CommercialHarborPlayedPayload) => void
+  onDiplomacyPlayed?: (payload: DiplomacyPlayedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -706,6 +746,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, ({ payload }) => {
       handlersRef.current.onEspionageTaken?.(payload)
     })
+    channel.on<CommercialHarborPlayedPayload>('broadcast', { event: 'COMMERCIAL_HARBOR_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onCommercialHarborPlayed?.(payload)
+    })
+    channel.on<DiplomacyPlayedPayload>('broadcast', { event: 'DIPLOMACY_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onDiplomacyPlayed?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -926,6 +972,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastEspionageTaken = (payload: EspionageTakenPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ESPIONAGE_TAKEN', payload })
   }
+  const broadcastCommercialHarborPlayed = (payload: CommercialHarborPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'COMMERCIAL_HARBOR_PLAYED', payload })
+  }
+  const broadcastDiplomacyPlayed = (payload: DiplomacyPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'DIPLOMACY_PLAYED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -973,6 +1025,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCommodityTraded,
     broadcastGuildDuesTaken,
     broadcastEspionageTaken,
+    broadcastCommercialHarborPlayed,
+    broadcastDiplomacyPlayed,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

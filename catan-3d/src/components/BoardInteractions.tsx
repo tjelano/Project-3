@@ -193,6 +193,7 @@ const EdgeSlot = memo(function EdgeSlot({
   ownerColorToken,
   onBuild,
   locked,
+  pickerActive,
   remoteHighlighted,
   remoteColor,
   onHoverChange,
@@ -204,6 +205,14 @@ const EdgeSlot = memo(function EdgeSlot({
   ownerColorToken: PlayerColorToken | undefined
   onBuild: (edgeId: string) => void
   locked: boolean
+  // Cities & Knights Diplomacy — true while the LOCAL viewer has an active
+  // road-picker open (App.tsx's pendingDiplomacyRemoval). Ordinary road
+  // building never needs to click an ALREADY-BUILT road, so the "owner
+  // exists" branch below normally renders with no hitbox at all; this prop
+  // re-opens exactly that one hitbox for Diplomacy's pick, reusing the same
+  // onBuild callback ordinary road placement already uses rather than a
+  // second callback prop.
+  pickerActive: boolean
   remoteHighlighted: boolean
   remoteColor: string | undefined
   onHoverChange: (target: HoverTarget) => void
@@ -213,13 +222,27 @@ const EdgeSlot = memo(function EdgeSlot({
   const angle = Math.atan2(b.x - a.x, b.z - a.z)
 
   // A road has already been built here — render it permanently in the
-  // owner's color instead of a hoverable hitbox.
+  // owner's color instead of a hoverable hitbox, UNLESS a Diplomacy pick is
+  // active, in which case it also gets an (invisible) clickable hitbox so
+  // App.tsx's buildRoadRaw can route the click to playDiplomacy instead of
+  // the ordinary build flow.
   if (ownerId != null) {
     // Same data-integrity-only fallback as VertexSlot above.
     const colorToken = ownerColorToken ?? 'player-1'
     return (
       <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
         <RoadModel colorToken={colorToken} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        {pickerActive && !locked && (
+          <mesh
+            onClick={(event: ThreeEvent<MouseEvent>) => {
+              event.stopPropagation()
+              onBuild(edge.id)
+            }}
+          >
+            <boxGeometry args={[EDGE_HITBOX_WIDTH, EDGE_HITBOX_HEIGHT, length * EDGE_LENGTH_SCALE]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
+        )}
       </group>
     )
   }
@@ -286,6 +309,12 @@ interface BoardInteractionsProps {
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
   locked?: boolean
+  // Cities & Knights Diplomacy — see EdgeSlot's own `pickerActive` comment.
+  // Scoped to the LOCAL viewer only (App.tsx passes
+  // pendingDiplomacyRemoval?.playerId === localPlayer.id), same "only the
+  // acting client's own screen enters picker mode" reasoning TileSwapLayer's
+  // `active` prop already uses for Invention.
+  roadPickerActive?: boolean
   // The active player's live hover, mirrored from another online client
   // (App.tsx), and the callback that broadcasts THIS client's own hover in
   // the other direction — see the HoverTarget type above.
@@ -302,6 +331,7 @@ export const BoardInteractions = memo(function BoardInteractions({
   onBuildSettlement,
   onBuildRoad,
   locked = false,
+  roadPickerActive = false,
   remoteHover,
   onHoverChange,
 }: BoardInteractionsProps) {
@@ -345,6 +375,7 @@ export const BoardInteractions = memo(function BoardInteractions({
           ownerColorToken={roads[edge.id] != null ? colorTokenByPlayerId.get(roads[edge.id]!) : undefined}
           onBuild={onBuildRoad}
           locked={locked}
+          pickerActive={roadPickerActive}
           remoteHighlighted={remoteHover.edgeId === edge.id}
           remoteColor={remoteColor}
           onHoverChange={onHoverChange}

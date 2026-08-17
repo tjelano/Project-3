@@ -207,6 +207,20 @@ interface GameHudProps {
   // and (below) whether the Commodities trade tab is reachable even short of
   // Trade level 3, when the named type is a commodity.
   merchantFleetRate: { playerId: number; type: ResourceType | CommodityType } | null
+  // Cities & Knights Commercial Harbor (Task 12) — same exception as
+  // Merchant Fleet just above: needs a RESOURCE type (never a commodity —
+  // this card only ever GIVES resources, in exchange for a commodity, unlike
+  // Merchant Fleet's rate which can name either) picked before it can be
+  // played, so it gets its own small picker UI too.
+  onPlayCommercialHarbor: (resource: ResourceType) => void
+  // Cities & Knights Diplomacy (Task 12) — same exception as Invention: no
+  // argument picker of its own here, the actual road pick happens on the
+  // board itself (BoardInteractions' EdgeSlot, App.tsx's
+  // pendingDiplomacyRemoval), so this is just a spend-and-arm button plus a
+  // flag for whether the viewer's own road pick is currently in progress
+  // (hides the Play button / shows a hint, same shape as inventionSwapActive).
+  onPlayDiplomacy: () => void
+  diplomacyPickerActive: boolean
   // Cities & Knights Guild Dues — null until the viewer's own OWN play
   // spends the card (App.tsx's playGuildDues), local-only like
   // pendingInventionSwap/merchantFleetType above (only ever set on the
@@ -325,6 +339,9 @@ export function GameHud({
   inventionSwapActive,
   onPlayMerchantFleet,
   merchantFleetRate,
+  onPlayCommercialHarbor,
+  onPlayDiplomacy,
+  diplomacyPickerActive,
   pendingGuildDues,
   guildDuesEligibleTargets,
   onSelectGuildDuesTarget,
@@ -360,6 +377,10 @@ export function GameHud({
   // Cities & Knights Merchant Fleet's own type picker (Play button near Roll
   // Dice, below) — same local-UI-state treatment as alchemyD1/alchemyD2.
   const [merchantFleetType, setMerchantFleetType] = useState<ResourceType | CommodityType>(RESOURCE_ORDER[0])
+  // Cities & Knights Commercial Harbor's own type picker (Task 12) — same
+  // local-UI-state treatment as merchantFleetType, but RESOURCE_ORDER-only
+  // (see onPlayCommercialHarbor's own comment for why).
+  const [commercialHarborResource, setCommercialHarborResource] = useState<ResourceType>(RESOURCE_ORDER[0])
   // devCardPicker takes priority — the two are mutually exclusive in
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
@@ -740,6 +761,57 @@ export function GameHud({
                   : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
               </span>
             )}
+          </div>
+        )}
+        {/* Cities & Knights Commercial Harbor (Task 12) — a 1-RESOURCE-type
+            picker, same shape as Merchant Fleet's own picker just above but
+            resource-only (this card only ever gives resources, never
+            commodities). No pre-roll restriction. */}
+        {citiesAndKnightsProgressCards && isMyTurn && currentPlayer.progressCards.includes('commercialHarbor') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Commercial Harbor: Offer a Resource</span>
+            <select
+              value={commercialHarborResource}
+              onChange={(e) => setCommercialHarborResource(e.target.value as ResourceType)}
+              className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+            >
+              {RESOURCE_ORDER.map((resource) => (
+                <option key={resource} value={resource}>
+                  {RESOURCE_LABELS[resource]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onPlayCommercialHarbor(commercialHarborResource)}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+            >
+              Play
+            </button>
+          </div>
+        )}
+        {/* Cities & Knights Diplomacy (Task 12) — no argument picker of its
+            own (the actual road pick happens on the board itself), so this
+            is just a spend-and-arm button, same shape as Invention's own
+            block above: hidden once diplomacyPickerActive so a second
+            Diplomacy can't be spent mid-pick from here (App.tsx's
+            activateDiplomacy guards this too), a "pick a road" hint taking
+            its place instead. */}
+        {citiesAndKnightsProgressCards && isMyTurn && !diplomacyPickerActive && currentPlayer.progressCards.includes('diplomacy') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
+            <button
+              type="button"
+              onClick={onPlayDiplomacy}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+            >
+              Play
+            </button>
+          </div>
+        )}
+        {citiesAndKnightsProgressCards && isMyTurn && diplomacyPickerActive && (
+          <div className="pointer-events-auto animate-gold-pulse rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-center font-body text-[10px] text-gold uppercase">
+            Pick an open road on the board
           </div>
         )}
       </div>

@@ -332,6 +332,18 @@ function App() {
   // targeting is unrestricted ("another player," not VP-gated) and the take
   // itself is optional ("you may take 1") — see confirmEspionage.
   const [pendingEspionage, setPendingEspionage] = useState<{ targetId: number } | null>(null)
+  // Cities & Knights Diplomacy (Task 12) — set by activateDiplomacy (which
+  // only checks the card is held, WITHOUT spending it yet — unlike
+  // pendingInventionSwap/pendingGuildDues above, the actual card spend lives
+  // inside applyDiplomacyRemoval, only reached once an eligible road is
+  // actually clicked, same "resolve-and-spend in one step" shape
+  // applyIrrigationEffect/applySabotageEffect use). Resolved by playDiplomacy
+  // via buildRoadRaw's own special-mode-first check (mirrors
+  // pendingMetropolisClaim's branch in buildSettlementRaw), which routes
+  // BoardInteractions' edge clicks here instead of the ordinary build flow
+  // while this is set. Local-only, like every other pending*-picker state
+  // above — only ever non-null on the acting client's own screen.
+  const [pendingDiplomacyRemoval, setPendingDiplomacyRemoval] = useState<{ playerId: number } | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
   const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
   const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
@@ -1073,6 +1085,8 @@ function App() {
     broadcastProgressDiscardConfirmed,
     broadcastGuildDuesTaken,
     broadcastEspionageTaken,
+    broadcastCommercialHarborPlayed,
+    broadcastDiplomacyPlayed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1425,6 +1439,35 @@ function App() {
     // out on an out-of-range index or a VP card, so no separate validation
     // is needed here beyond that.
     onEspionageTaken: (payload) => applyEspionageTake(payload.takerId, payload.targetId, payload.cardIndex),
+    // Cities & Knights Commercial Harbor — validated against RESOURCE_ORDER
+    // membership before ever being used as a resources[] key/arithmetic
+    // operand inside applyCommercialHarborEffect, same malformed-enum guard
+    // shape as onBankTrade above. turnOrderIds needs no separate validation:
+    // it's derived from the SAME players roster every client already
+    // shares (this game has no mid-match player removal), so any id in it
+    // already resolves to a real player on the receiver too.
+    onCommercialHarborPlayed: (payload) => {
+      if (!RESOURCE_ORDER.includes(payload.resource)) {
+        console.error('[Catan] Ignoring malformed commercial-harbor payload:', payload)
+        return
+      }
+      applyCommercialHarborEffect(payload.playerId, payload.resource, payload.turnOrderIds)
+    },
+    // Cities & Knights Diplomacy — ownerId is bounded against this
+    // receiver's OWN already-synced roads state rather than trusted
+    // outright, same "re-derive/bound against already-synced state, don't
+    // trust wire quantities" principle onGuildDuesTaken's own comment
+    // describes: a malformed/stale ownerId that doesn't match who this
+    // client already believes owns edgeId would otherwise return the WRONG
+    // player's road to their supply on this client only, permanently
+    // desyncing roadsRemaining from every other client.
+    onDiplomacyPlayed: (payload) => {
+      if (roads[payload.edgeId] !== payload.ownerId) {
+        console.error('[Catan] Ignoring malformed diplomacy-played payload:', payload)
+        return
+      }
+      applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId)
+    },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
     // back to their own sender by default, so this only ever fires on
@@ -1885,7 +1928,208 @@ function App() {
     if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
   }
 
+  // Cities & Knights Commercial Harbor — deliberate scope simplification
+  // (see this task's own plan notes): the physical card's per-player
+  // sequential offer/response becomes ONE resource type, walked once across
+  // every other player in turn order. 1 unit of `resource` moves
+  // announcer -> them, 1 commodity (auto-selected, most-held first — same
+  // convention as Sabotage/Wedding's own auto-pick) moves them -> announcer;
+  // a player holding no commodities is skipped entirely (announcer keeps
+  // that unit), and the walk stops early the instant the announcer runs out
+  // of `resource` (checked BEFORE each trade, so it can never go negative).
+  // Trusted-apply — shared by the local actor (playCommercialHarbor, below,
+  // which also broadcasts) and the receiving client (onCommercialHarborPlayed):
+  // both replay the IDENTICAL sequential reduction from the same 3 values
+  // (announcerId, resource, turnOrderIds) plus already-synced player state,
+  // same reasoning ProgressCardPlayedPayload's siblings already establish.
+  //
+  // Declared here (next to buildSettlementRaw/buildRoadRaw) rather than
+  // alongside its Guild Dues/Espionage siblings further down, so
+  // buildRoadRaw's own pendingDiplomacyRemoval branch just below can call
+  // playDiplomacy directly — a plain top-level const referencing another
+  // plain top-level const declared LATER in this same component function
+  // trips this project's react-hooks lint config (unlike the onXPlayed
+  // callbacks passed into the useRoomChannel(...) handlers object above,
+  // which are only ever invoked well after the whole component body has
+  // finished running once).
+  const applyCommercialHarborEffect = (announcerId: number, resource: ResourceType, otherIdsInOrder: number[]) => {
+    setPlayers((prev) => {
+      let next = prev.map((p) =>
+        p.id === announcerId ? { ...p, progressCards: removeOne(p.progressCards, 'commercialHarbor') } : p,
+      )
+      for (const targetId of otherIdsInOrder) {
+        const announcer = next.find((p) => p.id === announcerId)!
+        if (announcer.resources[resource] <= 0) break
+        const target = next.find((p) => p.id === targetId)!
+        const heldCommodities = COMMODITY_ORDER.filter((c) => target.commodities[c] > 0).sort(
+          (a, b) => target.commodities[b] - target.commodities[a],
+        )
+        if (heldCommodities.length === 0) continue
+        const commodity = heldCommodities[0]
+        next = next.map((p) => {
+          if (p.id === announcerId) {
+            return {
+              ...p,
+              resources: { ...p.resources, [resource]: p.resources[resource] - 1 },
+              commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + 1 },
+            }
+          }
+          if (p.id === targetId) {
+            return {
+              ...p,
+              resources: { ...p.resources, [resource]: p.resources[resource] + 1 },
+              commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 },
+            }
+          }
+          return p
+        })
+      }
+      return next
+    })
+  }
+
+  const playCommercialHarbor = (resource: ResourceType) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('commercialHarbor')) {
+      warn('No Commercial Harbor card to play.')
+      return
+    }
+    const turnOrderIds = [
+      ...players.slice(currentPlayerIndex).map((p) => p.id),
+      ...players.slice(0, currentPlayerIndex).map((p) => p.id),
+    ].filter((id) => id !== player.id)
+    applyCommercialHarborEffect(player.id, resource, turnOrderIds)
+    inform(`${player.name} played Commercial Harbor — offered ${RESOURCE_LABELS[resource]} around the table for a commodity.`)
+    if (onlineInfo) broadcastCommercialHarborPlayed({ playerId: player.id, resource, turnOrderIds })
+  }
+
+  // Cities & Knights Diplomacy — simplified "open" check (this task's own
+  // scope note, flagged for the reviewer): only the DIRECTLY computable half
+  // of the physical card's "open" definition — neither endpoint touches a
+  // building (any owner's, not just this player's own — the card's
+  // definition is about ANY adjacent building). Does NOT verify the other
+  // half of the official text ("not part of a continuous route between two
+  // buildings/knights"): calculateLongestRoad (game/trophies.ts) only
+  // computes ONE specific player's own longest chain length from their own
+  // owned edges — it has no per-edge/any-owner "is this edge part of a
+  // through-route between 2 buildings" query to reuse, and building that
+  // traversal from scratch is out of this task's scope (see the plan's own
+  // note). This codebase also has no concept of a "knight standing on a
+  // road" for the road-graph to consult either way.
+  const isOpenRoad = (edgeId: string): boolean => {
+    const edge = edgeById.get(edgeId)
+    if (!edge) return false
+    return !settlements[edge.a] && !settlements[edge.b]
+  }
+
+  // Trusted-apply for the actual removal — shared by the local actor
+  // (playDiplomacy, below, which also validates/broadcasts) and the
+  // receiving client (onDiplomacyPlayed). Spends the card as part of this
+  // same update (unlike pendingDiplomacyRemoval's arming step, see that
+  // state's own comment) so a receiver just needs these 3 values plus
+  // already-synced roads/player state — same single-broadcast trust model
+  // CommercialHarborPlayedPayload's own comment describes.
+  const applyDiplomacyRemoval = (playerId: number, edgeId: string, ownerId: number) => {
+    const actor = playerById.get(playerId)
+    const owner = playerById.get(ownerId)
+    setRoads((prev) => {
+      const next = { ...prev }
+      delete next[edgeId]
+      return next
+    })
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
+        // Returned to the OWNER's own supply, never the announcer's — a
+        // removed road just goes back to whoever built it, same as any
+        // other "un-build" (the announcer only gets something extra when
+        // the removed road was their OWN, via the free-rebuild branch below,
+        // not via this counter).
+        if (p.id === ownerId && ownerId !== playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
+        return p
+      }),
+    )
+    // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
+    // counter Road Building/setup free roads already use (buildRoadRaw
+    // checks it directly) — not a second, parallel "free road" concept.
+    if (ownerId === playerId) setFreeRoadsRemaining((prev) => prev + 1)
+    if (actor) {
+      inform(
+        ownerId === playerId
+          ? `${actor.name} played Diplomacy — removed their own road for a free rebuild.`
+          : `${actor.name} played Diplomacy — removed ${owner?.name ?? "an opponent's"} road.`,
+      )
+    }
+  }
+
+  const playDiplomacy = (edgeId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('diplomacy')) return
+    if (!isOpenRoad(edgeId)) {
+      warn('That road is not open — it touches a building.')
+      return
+    }
+    const ownerId = roads[edgeId]
+    if (ownerId == null) {
+      warn('That edge has no road to remove.')
+      return
+    }
+    applyDiplomacyRemoval(player.id, edgeId, ownerId)
+    setPendingDiplomacyRemoval(null)
+    if (onlineInfo) broadcastDiplomacyPlayed({ playerId: player.id, edgeId, ownerId })
+  }
+
+  // Only spends nothing yet and opens the road-picker (a single board click,
+  // routed through buildRoadRaw's own special-mode-first check below) — same
+  // "needs its own small UI, so keyless in progressCardPlayHandlers" reasoning
+  // Alchemy/Invention/Merchant Fleet already established, since GameHud
+  // needs a dedicated affordance for this rather than the generic
+  // click-to-play ProgressCardsPanel drives for no-picker cards.
+  const activateDiplomacy = () => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('diplomacy')) {
+      warn('No Diplomacy card to play.')
+      return
+    }
+    if (pendingDiplomacyRemoval) {
+      warn('Finish choosing a road first.')
+      return
+    }
+    setPendingDiplomacyRemoval({ playerId: player.id })
+    inform(`${player.name} played Diplomacy — choose an open road to remove.`)
+  }
+
   const buildRoadRaw = (edgeId: string) => {
+    // Cities & Knights Diplomacy — check special mode FIRST, same shape as
+    // buildSettlementRaw's pendingMetropolisClaim branch above: while the
+    // road-picker is active, every edge click (even one that already carries
+    // a road — EdgeSlot only exposes a hitbox there while this mode is
+    // active, see its own pickerActive prop) resolves the Diplomacy removal
+    // instead of the ordinary build flow below, and runs BEFORE
+    // canInteract()/the roll-first check, since choosing which road to
+    // remove isn't gated by "has this player rolled yet" any more than
+    // Metropolis placement is.
+    if (pendingDiplomacyRemoval) {
+      if (players[currentPlayerIndex].id !== pendingDiplomacyRemoval.playerId) {
+        warn('Only the player who played Diplomacy can choose a road.')
+        return
+      }
+      playDiplomacy(edgeId)
+      return
+    }
+
     if (!canInteract()) return
 
     const player = players[currentPlayerIndex]
@@ -2542,6 +2786,20 @@ function App() {
     // permanently losing the swap's second tile with no way to resume it.
     if (pendingInventionSwap && pendingInventionSwap.playerId === players[currentPlayerIndex]?.id) {
       warn('Finish your Invention tile swap first.')
+      return
+    }
+    // Cities & Knights Diplomacy — same defense-in-depth as the Invention
+    // guard just above: unlike pendingInventionSwap, the card itself isn't
+    // spent yet at this point (see pendingDiplomacyRemoval's own comment), so
+    // letting the turn advance wouldn't strand a spent card — but it WOULD
+    // leave pendingDiplomacyRemoval permanently set to this player's id,
+    // silently reactivating the picker (with no card having been played)
+    // if this same player ever becomes the current player again on some
+    // later turn. Blocking here, rather than just clearing it silently,
+    // keeps this consistent with Metropolis/Invention's own "forced choice,
+    // finish it before ending your turn" precedent.
+    if (pendingDiplomacyRemoval && pendingDiplomacyRemoval.playerId === players[currentPlayerIndex]?.id) {
+      warn('Choose a road to remove with Diplomacy first.')
       return
     }
     endTurn()
@@ -4296,6 +4554,16 @@ function App() {
   // the generic no-argument click-to-play this object drives — leaving them
   // keyless here means their cards in the panel render disabled, so they
   // can't ALSO be reached via a plain click that would skip the picker.
+  // Commercial Harbor and Diplomacy (Task 12) join that same excluded set,
+  // for the same reason: Commercial Harbor needs a resource type chosen
+  // BEFORE the initial click (playCommercialHarbor, same shape as Merchant
+  // Fleet's own type picker), and Diplomacy needs its own board-click picker
+  // armed first (activateDiplomacy/onPlayDiplomacy, same shape as Invention's
+  // own board-tile picker) — the plan's own Step 3 note to add these two
+  // here was written before this file's real progressCardPlayHandlers
+  // pattern was checked against Alchemy/Invention/Merchant Fleet's own
+  // established precedent just above; following that precedent instead of
+  // the plan's literal wording keeps every argument-needing card consistent.
   const progressCardPlayHandlers: ProgressCardPlayHandlers = {
     irrigation: playIrrigation,
     mining: playMining,
@@ -4371,6 +4639,13 @@ function App() {
             // stops a non-active online player from placing something only
             // their own screen would ever see, not real network sync.
             locked={!!winner || !isMyTurn}
+            // Cities & Knights Diplomacy — see BoardInteractions' own
+            // roadPickerActive comment. Scoped to the local viewer only, same
+            // reasoning TileSwapLayer's `active` prop below uses for
+            // Invention (pendingDiplomacyRemoval is local-only state, never
+            // broadcast, so this only ever renders active on the acting
+            // client's own screen).
+            roadPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
             remoteHover={remoteHover}
             onHoverChange={onHoverChange}
           />
@@ -4517,6 +4792,9 @@ function App() {
         inventionSwapActive={pendingInventionSwap !== null}
         onPlayMerchantFleet={playMerchantFleet}
         merchantFleetRate={merchantFleetRate}
+        onPlayCommercialHarbor={playCommercialHarbor}
+        onPlayDiplomacy={activateDiplomacy}
+        diplomacyPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
         pendingGuildDues={pendingGuildDues}
         guildDuesEligibleTargets={guildDuesEligibleTargets}
         onSelectGuildDuesTarget={selectGuildDuesTarget}

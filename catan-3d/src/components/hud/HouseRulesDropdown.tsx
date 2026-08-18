@@ -7,7 +7,7 @@ import { WINNING_SCORE, type GameRules } from '../../game/types'
 const VP_TARGET_MIN = 3
 const VP_TARGET_MAX = 50
 
-// 8 checkbox rules, laid out in a 2-column grid that grows its own rows —
+// 9 checkbox rules, laid out in a 2-column grid that grows its own rows —
 // currently 4 rows, the last holding a single rule with an empty cell beside
 // it. Nothing here is hardcoded to a row count: add or remove a rule and the
 // grid (and the divider logic in the render below, which suppresses the

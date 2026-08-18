@@ -539,18 +539,39 @@ export function GameHud({
     isMyTurn
   // Cities & Knights city walls (Task 12) — ownCities is every vertex where
   // the viewer owns a city (a wall can only ever go on one of THEIR OWN
-  // cities), and totalWallsOnBoard mirrors App.tsx's own buildCityWall
-  // derivation exactly (players.reduce over cityWalls.length) so this
-  // button-enabled check and the real spend-time gate never drift apart —
-  // same "identical derivation on both sides" reasoning canBuyImprovement
-  // below already relies on for its own CityImprovementsPanel gate.
+  // cities), sorted by vertex id so the buttons below render in a stable
+  // order (ResourcePanel labels them by that order — "Wall 1", "Wall 2",
+  // etc. — so this determinism is what keeps a given city's button from
+  // jumping position across renders). totalWallsOnBoard mirrors App.tsx's
+  // own buildCityWall derivation exactly (players.reduce over
+  // cityWalls.length) so this button-enabled check and the real spend-time
+  // gate never drift apart — same "identical derivation on both sides"
+  // reasoning canBuyImprovement below already relies on for its own
+  // CityImprovementsPanel gate.
   const ownCities = citiesAndKnightsKnights
     ? Object.entries(settlements)
         .filter(([, b]) => b.ownerId === viewer.id && b.type === 'city')
         .map(([vertexId]) => vertexId)
+        .sort()
     : []
   const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
-  const canBuildWallAt = (vertexId: string) => canBuildCityWall(viewer, vertexId, settlements, totalWallsOnBoard)
+  // Folds in the SAME action-gate set every sibling derivation in this file
+  // applies (canTrade/canBuyDevCard/canPlayDevCards/canBuyImprovement all
+  // nearby) before ever calling canBuildCityWall — CodeRabbit already
+  // caught this exact omission once on the progress-card play widgets (see
+  // canPlayProgressCards' own comment below); without it the Wall button
+  // would render clickable off-turn, mid-roll, or during a blocked trade/
+  // picker state, only to bounce off buildCityWall's own isMyTurn check in
+  // App.tsx with a toast instead of simply being disabled like every other
+  // control in this panel.
+  const canBuildWallAt = (vertexId: string) =>
+    gamePhase === 'playing' &&
+    !isRolling &&
+    gameActive &&
+    !tradeBlocked &&
+    !pickerBlocked &&
+    isMyTurn &&
+    canBuildCityWall(viewer, vertexId, settlements, totalWallsOnBoard)
   // Mirrors canBuyDevCard's derivation above — city improvements are also
   // only purchasable during your own action phase, after rolling (same
   // "roll before you build/buy" rule buildSettlementRaw/buyDevCard/bankTrade

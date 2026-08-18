@@ -140,24 +140,31 @@ export function ResourcePanel({
       </button>
 
       {/* Cities & Knights city walls (Task 12) — no board picker: one button
-          per city the viewer already owns, each independently gated by
-          canBuildWallAt (ownership/no-existing-wall/board-wide cap/
-          affordability, all checked in game/knights.ts's canBuildCityWall).
-          Only rendered once the viewer actually has a city to wall, so a
-          fresh match never shows an empty row. */}
+          per city the viewer already owns (ownCities arrives pre-sorted by
+          vertex id, GameHud.tsx), each independently gated by
+          canBuildWallAt (the same action-gate set every other button in
+          this panel applies, folded around ownership/no-existing-wall/
+          board-wide-cap/affordability from game/knights.ts's
+          canBuildCityWall). Labeled by ordinal position ("Wall 1", "Wall
+          2", ...) with the actual vertex id as a title tooltip — with 2+
+          un-walled cities (a normal midgame state) bare "Wall" text on
+          every button would give no way to tell them apart. Only rendered
+          once the viewer actually has a city to wall, so a fresh match
+          never shows an empty row. */}
       {citiesAndKnightsKnights && ownCities.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">City Walls</span>
           <div className="flex gap-1">
-            {ownCities.map((vertexId) => (
+            {ownCities.map((vertexId, index) => (
               <button
                 key={vertexId}
                 type="button"
+                title={vertexId}
                 disabled={!canBuildWallAt(vertexId)}
                 onClick={() => onBuildWall(vertexId)}
-                className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-white/20 disabled:opacity-40"
+                className="flex-1 rounded-full border border-glass-border bg-white/5 py-1 font-body text-[9px] tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
               >
-                Wall
+                Wall {index + 1}
               </button>
             ))}
           </div>

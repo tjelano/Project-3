@@ -7,13 +7,17 @@ import { WINNING_SCORE, type GameRules } from '../../game/types'
 const VP_TARGET_MIN = 3
 const VP_TARGET_MAX = 50
 
-// 7 checkbox rules, laid out in a 2-column grid that grows its own rows —
+// 8 checkbox rules, laid out in a 2-column grid that grows its own rows —
 // currently 4 rows, the last holding a single rule with an empty cell beside
 // it. Nothing here is hardcoded to a row count: add or remove a rule and the
 // grid (and the divider logic in the render below, which suppresses the
 // hairline under the LAST ROW rather than under the last entry) adjusts on
 // its own.
-const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards' | 'citiesAndKnightsKnights'; label: string }[] = [
+//
+// citiesAndKnightsBarbarians is the ONE rule here with a hard cross-rule
+// dependency (on citiesAndKnightsKnights) — see the `disabled` computation
+// and the setRule special case below. Every other entry is fully independent.
+const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards' | 'citiesAndKnightsKnights' | 'citiesAndKnightsBarbarians'; label: string }[] = [
   { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
   { key: 'friendlyRobber', label: 'Friendly robber' },
   { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only' },
@@ -22,6 +26,7 @@ const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allow
   { key: 'citiesAndKnightsCommodities', label: 'Commodities & city improvements' },
   { key: 'citiesAndKnightsProgressCards', label: 'Progress cards' },
   { key: 'citiesAndKnightsKnights', label: 'Knights & city walls' },
+  { key: 'citiesAndKnightsBarbarians', label: 'Barbarian attacks' },
 ]
 
 // hiddenTiles is 4-way, not a plain boolean — its own segmented-control row
@@ -79,16 +84,18 @@ function RuleRow({
   onToggle,
   showDivider,
   animationDelay,
+  disabled,
 }: {
   label: string
   checked: boolean
   onToggle: (checked: boolean) => void
   showDivider: boolean
   animationDelay: string
+  disabled?: boolean
 }) {
   return (
     <label
-      className="flex cursor-pointer items-center animate-house-rules-row-in"
+      className={`flex items-center animate-house-rules-row-in ${disabled ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}
       style={{
         gap: ROW_RING_GAP_PX,
         paddingTop: ROW_VERTICAL_PADDING_PX,
@@ -97,7 +104,13 @@ function RuleRow({
         animationDelay,
       }}
     >
-      <input type="checkbox" checked={checked} onChange={(event) => onToggle(event.target.checked)} className="sr-only" />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onToggle(event.target.checked)}
+        disabled={disabled}
+        className="sr-only"
+      />
       <img
         src={checked ? toggleOnUrl : toggleOffUrl}
         alt=""
@@ -141,6 +154,13 @@ export function HouseRulesDropdown({
       onChange({ ...rules, citiesAndKnightsCommodities: true, victoryPointTarget: 13 })
       return
     }
+    // Barbarian attacks hard-depends on Knights & city walls — never leave
+    // the rules with Barbarians true while Knights is false, even
+    // transiently, so turning Knights off force-clears Barbarians too.
+    if (key === 'citiesAndKnightsKnights' && value === false) {
+      onChange({ ...rules, citiesAndKnightsKnights: false, citiesAndKnightsBarbarians: false })
+      return
+    }
     onChange({ ...rules, [key]: value })
   }
 
@@ -171,6 +191,7 @@ export function HouseRulesDropdown({
               onToggle={(checked) => setRule(rule.key, checked)}
               showDivider={index < FIRST_INDEX_IN_LAST_GRID_ROW}
               animationDelay={`${index * STAGGER_STEP_MS}ms`}
+              disabled={rule.key === 'citiesAndKnightsBarbarians' && !rules.citiesAndKnightsKnights}
             />
           ))}
         </div>

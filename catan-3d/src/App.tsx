@@ -510,6 +510,15 @@ function App() {
 
   const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
 
+  // Cities & Knights robber activation — starts inert (robber behaves as
+  // base-game: always movable on a rolled 7). Permanently flips true the
+  // first time a barbarian attack resolves (Task 4), regardless of
+  // outcome. Until then, a 7 still forces discard but the robber never
+  // moves and nothing is stolen — CN3087 p.7: "The robber does not
+  // activate until after it has been placed on the desert following the
+  // first barbarian attack."
+  const [robberActive, setRobberActive] = useState(false)
+
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
   // category as robberTileId just above, not a per-player field: the piece
   // sits on one tile and is controlled by at most one player at a time,
@@ -1122,7 +1131,18 @@ function App() {
     const remaining = discardPlayerIds.filter((id) => id !== playerId)
     setDiscardPlayerIds(remaining)
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
-    if (remaining.length === 0) setGamePhase('moveRobber')
+    // Cities & Knights barbarian-track gate (Task 3) — before the first
+    // barbarian attack resolves, the robber stays inert: discard still
+    // happens (above), but arming moveRobber is skipped and control
+    // returns straight to play, same as applyRollResult's own no-discard
+    // branch below.
+    if (remaining.length === 0) {
+      if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
+        setGamePhase('moveRobber')
+      } else {
+        setGamePhase('playing')
+      }
+    }
   }
 
   // Trusted state mutation for one player's progress-card hand-limit
@@ -2273,9 +2293,16 @@ function App() {
     // the phase go"), and splitting them would make the log unreachable —
     // a render-phase setState re-renders before effects flush, so an Effect
     // guarded on gamePhase === 'discard' would never see the discard phase.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setGamePhase('moveRobber')
-  }, [gamePhase, validDiscardPlayerIds, discardPlayerIds])
+    // Cities & Knights barbarian-track gate (Task 3) — same reasoning as
+    // applyDiscard's queue-empty branch above: before the first barbarian
+    // attack resolves, skip arming moveRobber and return straight to play.
+    if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGamePhase('moveRobber')
+    } else {
+      setGamePhase('playing')
+    }
+  }, [gamePhase, validDiscardPlayerIds, discardPlayerIds, gameRules.citiesAndKnightsBarbarians, robberActive])
 
   // Does this player have a road touching the given intersection? Used for
   // both road and settlement connectivity checks.
@@ -3059,9 +3086,17 @@ function App() {
           setDiscardSelection([])
           setGamePhase('discard')
           inform('Rolled 7 — players over their card limit must discard half.')
-        } else {
+        } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
           inform('Rolled 7 — move the Robber.')
           setGamePhase('moveRobber')
+        } else {
+          // Cities & Knights barbarian-track gate (Task 3) — before the
+          // first barbarian attack resolves, the robber stays inert: CN3087
+          // p.7's "does not activate until after it has been placed on the
+          // desert following the first barbarian attack." No robber move,
+          // no steal — control returns straight to play.
+          inform('Rolled 7 — the Robber has not activated yet.')
+          setGamePhase('playing')
         }
       }
       return doublesCount
@@ -5736,6 +5771,12 @@ function App() {
       console.error('[Catan] Generated board has no desert tile — placing the robber on the first tile instead:', freshTiles[0]?.id)
     }
     setRobberTileId((desertTile ?? freshTiles[0]).id)
+    // Cities & Knights barbarian-track gate (Task 3) — same "always reset on
+    // a fresh game" treatment as every other single-shot C&K flag below: a
+    // leftover `true` from a PREVIOUS match's resolved barbarian attack would
+    // let the robber move on the very first 7 of a brand-new match, even
+    // with a from-scratch barbarian track that hasn't had a first attack yet.
+    setRobberActive(false)
     setPlayerCount(count)
     // Who goes first, randomized instead of always seat 0 (the host).
     // Online reuses the SAME seed the board itself was just built from —

@@ -29,6 +29,8 @@ export function ResourcePanel({
   ownCities,
   canBuildWallAt,
   onBuildWall,
+  freeWallActive,
+  onResolveFreeWall,
 }: {
   resources: Resources
   // Commodities (Cities & Knights house rule) — counted toward the
@@ -58,6 +60,16 @@ export function ResourcePanel({
   ownCities: string[]
   canBuildWallAt: (vertexId: string) => boolean
   onBuildWall: (vertexId: string) => void
+  // Cities & Knights Engineering (Task 13) — true only while the viewer's
+  // own free-wall pick (App.tsx's pendingFreeCityWall) is in progress. The
+  // buttons below stay the SAME "Wall N" buttons Task 12 already renders —
+  // Engineering doesn't get its own picker, just this affordance made free —
+  // so this only changes which of onBuildWall/onResolveFreeWall the click
+  // resolves through; canBuildWallAt (GameHud.tsx) already folds this same
+  // flag into its own derivation, so the disabled state needs no separate
+  // free-path prop here.
+  freeWallActive: boolean
+  onResolveFreeWall: (vertexId: string) => void
 }) {
   // Same single rule App.tsx's discard pipeline measures against — see
   // discardHandSize (game/discard.ts) on why this must not be re-inlined.
@@ -150,7 +162,16 @@ export function ResourcePanel({
           un-walled cities (a normal midgame state) bare "Wall" text on
           every button would give no way to tell them apart. Only rendered
           once the viewer actually has a city to wall, so a fresh match
-          never shows an empty row. */}
+          never shows an empty row.
+
+          Cities & Knights Engineering (Task 13) reuses this SAME row for its
+          free wall rather than a dedicated picker: onClick branches on
+          freeWallActive between the normal paid onBuildWall and
+          onResolveFreeWall, but the label/tooltip/disabled-state derivation
+          are untouched — canBuildWallAt already folds freeWallActive into
+          its own gate (GameHud.tsx), so a free wall is exactly as
+          unclickable off-turn/mid-roll/blocked as a paid one, and still
+          reads "Wall N", never a bare "Wall". */}
       {citiesAndKnightsKnights && ownCities.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">City Walls</span>
@@ -161,7 +182,7 @@ export function ResourcePanel({
                 type="button"
                 title={vertexId}
                 disabled={!canBuildWallAt(vertexId)}
-                onClick={() => onBuildWall(vertexId)}
+                onClick={() => (freeWallActive ? onResolveFreeWall(vertexId) : onBuildWall(vertexId))}
                 className="flex-1 rounded-full border border-glass-border bg-white/5 py-1 font-body text-[9px] tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
               >
                 Wall {index + 1}

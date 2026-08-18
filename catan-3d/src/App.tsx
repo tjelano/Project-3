@@ -519,6 +519,16 @@ function App() {
   // between the card being spent and the single tile click that resolves it.
   const [pendingMerchantPlacement, setPendingMerchantPlacement] = useState<number | null>(null)
 
+  // Cities & Knights Engineering (Task 13) — non-null only on the acting
+  // client's own screen while a free-wall pick is in progress, same
+  // local-only treatment pendingMerchantPlacement just above gets. Carries
+  // the playing player's id (compared against ResourcePanel's `viewer.id` in
+  // GameHud to derive `freeWallActive`, which reuses Task 12's own Wall
+  // buttons rather than a dedicated picker — see playEngineering's own
+  // comment below), not an object, same "nothing else to track between the
+  // card being spent and the single click that resolves it" reasoning.
+  const [pendingFreeCityWall, setPendingFreeCityWall] = useState<number | null>(null)
+
   // Cities & Knights knight recruit — non-null only on the acting client's
   // own screen while a placement is in progress, same local-only treatment
   // pendingMerchantPlacement/pendingInventionSwap already get.
@@ -1278,6 +1288,8 @@ function App() {
     broadcastKnightDisplaced,
     broadcastKnightDeactivatedAfterChase,
     broadcastCityWallBuilt,
+    broadcastSmithingPlayed,
+    broadcastEncouragementPlayed,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1844,13 +1856,59 @@ function App() {
     // Cities & Knights city walls (Task 12) — same trusted-apply reasoning
     // as onKnightDeactivatedAfterChase above: the sending client already
     // validated ownership/no-existing-wall/board-wide-cap/affordability
-    // locally (canBuildCityWall) before ever broadcasting.
+    // locally (canBuildCityWall) before ever broadcasting. isFree (Task 13)
+    // skips the deduction for Engineering's free wall — see
+    // CityWallBuiltPayload.isFree's own comment in useRoomChannel.ts.
     onCityWallBuilt: (payload) => {
       setPlayers((prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
-            : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, payload.vertexId] },
+            : {
+                ...p,
+                resources: payload.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST),
+                cityWalls: [...p.cityWalls, payload.vertexId],
+              },
+        ),
+      )
+    },
+    // Cities & Knights Smithing (Task 13) — same trusted-apply reasoning as
+    // onCityWallBuilt above, but re-derives each promoted knight's new
+    // strength LOCALLY via nextKnightStrength rather than trusting a
+    // newStrength per knight in the payload (see SmithingPlayedPayload's own
+    // comment in useRoomChannel.ts for why) — a knight whose current
+    // strength no longer has a next rung (already mighty, or missing) is
+    // simply skipped rather than trusting the sender's knightIds list blindly.
+    onSmithingPlayed: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id !== payload.playerId) return p
+          let supply = { ...p.knightSupply }
+          const knightPieces = p.knightPieces.map((k) => {
+            if (!payload.knightIds.includes(k.id)) return k
+            const next = nextKnightStrength(k.strength)
+            if (!next) return k
+            supply = { ...supply, [k.strength]: supply[k.strength] + 1, [next]: supply[next] - 1 }
+            return { ...k, strength: next }
+          })
+          return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
+        }),
+      )
+      setKnightsPromotedThisTurn((prev) => {
+        const next = new Set(prev)
+        for (const knightId of payload.knightIds) next.add(knightId)
+        return next
+      })
+    },
+    // Cities & Knights Encouragement (Task 13) — same trusted-apply reasoning
+    // as onSmithingPlayed above: the sending client already validated the
+    // card was in hand before ever broadcasting.
+    onEncouragementPlayed: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== payload.playerId
+            ? p
+            : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
         ),
       )
     },
@@ -3312,6 +3370,14 @@ function App() {
       warn('Place the Merchant on a hex first.')
       return
     }
+    // Cities & Knights Engineering (Task 13) — identical reasoning to the
+    // Merchant guard just above: playEngineering spends the card the instant
+    // pendingFreeCityWall is set, so ending the turn before resolveFreeCityWall
+    // runs would strand a spent card with its free wall never placed.
+    if (pendingFreeCityWall != null && pendingFreeCityWall === players[currentPlayerIndex]?.id) {
+      warn('Choose a city for your free wall first.')
+      return
+    }
     endTurn()
   }
 
@@ -4648,7 +4714,159 @@ function App() {
           : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, vertexId] },
       ),
     )
-    if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId })
+    if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId, isFree: false })
+  }
+
+  // Cities & Knights Engineering (Task 13) — spends the card up front, then
+  // arms Task 12's own ResourcePanel Wall buttons for a FREE build instead of
+  // opening a dedicated picker (Engineering just needs the same "click one of
+  // my eligible cities" affordance those buttons already offer, made free).
+  // The eligibility check below reuses canBuildCityWall against a throwaway
+  // clone of the player with brick set absurdly high — a deliberate trick to
+  // reuse its ownership/no-existing-wall/board-wide-cap checks without its
+  // resource-affordability half, without duplicating those 3 checks inline;
+  // the clone is a local variable only, never written back to state.
+  const playEngineering = () => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('engineering')) {
+      warn('No Engineering card to play.')
+      return
+    }
+    const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
+    const hasEligibleCity = Object.entries(settlements).some(
+      ([vertexId, b]) =>
+        b.ownerId === player.id &&
+        b.type === 'city' &&
+        canBuildCityWall({ ...player, resources: { ...player.resources, brick: 999 } }, vertexId, settlements, totalWallsOnBoard),
+    )
+    if (!hasEligibleCity) {
+      warn('No eligible city for a free wall.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'engineering') } : p)),
+    )
+    setPendingFreeCityWall(player.id)
+    inform(`${player.name} played Engineering — choose a city for a free wall.`)
+  }
+
+  // Resolves the single Wall-button click ResourcePanel offers while
+  // pendingFreeCityWall is set (freeWallActive branch, GameHud/ResourcePanel).
+  // Re-validates ownership/no-existing-wall/board-wide-cap here (rather than
+  // trusting the button's own disabled state) for the same reason every other
+  // resolve-a-picker handler in this file does: the board state this button
+  // was rendered against can be stale by the time the click lands.
+  const resolveFreeCityWall = (vertexId: string) => {
+    if (pendingFreeCityWall == null) return
+    const playerId = pendingFreeCityWall
+    const player = playerById.get(playerId)!
+    const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
+    const building = settlements[vertexId]
+    if (
+      !building ||
+      building.ownerId !== playerId ||
+      building.type !== 'city' ||
+      player.cityWalls.includes(vertexId) ||
+      totalWallsOnBoard >= 3
+    ) {
+      warn('Not a valid free wall target.')
+      return
+    }
+    setPlayers((prev) => prev.map((p) => (p.id !== playerId ? p : { ...p, cityWalls: [...p.cityWalls, vertexId] })))
+    setPendingFreeCityWall(null)
+    // isFree: true — unlike buildCityWall's own broadcast just above, this
+    // never deducted CITY_WALL_COST locally, so every other client's
+    // onCityWallBuilt receiver must be told not to either (see
+    // CityWallBuiltPayload.isFree's own comment in useRoomChannel.ts for why
+    // reusing the plain paid event here would desync resources).
+    if (onlineInfo) broadcastCityWallBuilt({ playerId, vertexId, isFree: true })
+  }
+
+  // Cities & Knights Smithing (Task 13) — promotes up to 2 of the player's
+  // OWN knights for free. knightsPromotedThisTurn (Task 8) is respected on
+  // BOTH sides here: eligible knights already promoted this turn are
+  // excluded from `promotable` below, and every knight Smithing itself
+  // promotes is added to that same tracker afterward — a second, parallel
+  // per-card tracking mechanism would let a knight be promoted twice in one
+  // turn via promoteKnight + Smithing, or Smithing + Smithing across two
+  // cards. The throwaway-clone trick (wool/ore set absurdly high) mirrors
+  // playEngineering's own above: reuses canPromoteKnight's supply/politics-
+  // track checks without its resource-affordability half.
+  const playSmithing = () => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('smithing')) {
+      warn('No Smithing card to play.')
+      return
+    }
+    const promotable = player.knightPieces.filter(
+      (k) =>
+        nextKnightStrength(k.strength) != null &&
+        canPromoteKnight({ ...player, resources: { ...player.resources, wool: 999, ore: 999 } }, k) &&
+        !knightsPromotedThisTurn.has(k.id),
+    )
+    if (promotable.length === 0) {
+      warn('No knights eligible to promote.')
+      return
+    }
+    const toPromote = promotable.slice(0, 2)
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id !== player.id) return p
+        let supply = { ...p.knightSupply }
+        const knightPieces = p.knightPieces.map((k) => {
+          const promoting = toPromote.find((t) => t.id === k.id)
+          if (!promoting) return k
+          const next = nextKnightStrength(k.strength)!
+          supply = { ...supply, [k.strength]: supply[k.strength] + 1, [next]: supply[next] - 1 }
+          return { ...k, strength: next }
+        })
+        return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
+      }),
+    )
+    setKnightsPromotedThisTurn((prev) => {
+      const next = new Set(prev)
+      for (const k of toPromote) next.add(k.id)
+      return next
+    })
+    inform(`${player.name} played Smithing — promoted ${toPromote.length} knight(s).`)
+    if (onlineInfo) broadcastSmithingPlayed({ playerId: player.id, knightIds: toPromote.map((k) => k.id) })
+  }
+
+  // Cities & Knights Encouragement (Task 13) — activates every one of the
+  // player's OWN knights for free (no per-knight cost/eligibility check
+  // needed: unlike activateKnight, there's nothing to be ineligible for
+  // besides already being active, and re-activating an already-active
+  // knight is a harmless no-op).
+  const playEncouragement = () => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('encouragement')) {
+      warn('No Encouragement card to play.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id !== player.id
+          ? p
+          : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
+      ),
+    )
+    inform(`${player.name} played Encouragement — all knights activated.`)
+    if (onlineInfo) broadcastEncouragementPlayed({ playerId: player.id })
   }
 
   // Shared VP-comparison helper — both Sabotage and Wedding need "every
@@ -4951,11 +5169,13 @@ function App() {
 
   const cancelEspionage = () => setPendingEspionage(null)
 
-  // Cities & Knights — 6 knight-dependent stub cards that need the Knights
-  // & Barbarians system (Phase C) to actually function. For now, they warn
-  // and stay in hand unchanged — matching the design spec's "returns the
-  // card to the player's hand unchanged" requirement and existing
-  // precedent.
+  // Cities & Knights — 3 of the original 6 knight-dependent stub cards
+  // (Intrigue, Treason, Taxation) still need later Phase C work before they
+  // can function; Engineering/Smithing/Encouragement were unstubbed in Task
+  // 13 (see playEngineering/playSmithing/playEncouragement above) and no
+  // longer route through here. For now, the remaining three warn and stay
+  // in hand unchanged — matching the design spec's "returns the card to the
+  // player's hand unchanged" requirement and existing precedent.
   const playStubProgressCard = (card: ProgressCardType) => {
     warn(`${PROGRESS_CARD_LABELS[card]} isn't implemented yet (needs Knights & Barbarians) — kept in hand.`)
   }
@@ -5223,6 +5443,10 @@ function App() {
     setMerchantTileId(null)
     setMerchantHolderId(null)
     setPendingMerchantPlacement(null)
+    // Cities & Knights Engineering (Task 13) — same "always reset on a fresh
+    // game" treatment pendingMerchantPlacement just above gets; local-only
+    // UI state, never persisted/broadcast.
+    setPendingFreeCityWall(null)
     // Cities & Knights knight recruit/move/displace — both are local-only UI
     // state (never persisted/broadcast), same "always reset on a fresh
     // game" treatment pendingMerchantPlacement gets just above. players'
@@ -5636,11 +5860,16 @@ function App() {
     // dedicated "own small argument-picker UI" the way Alchemy/Invention/
     // Merchant Fleet above do.
     merchant: playMerchant,
-    // Cities & Knights stub cards (Task 15) — knight-dependent cards that
-    // need Phase C implementation. For now they warn and stay in hand.
-    engineering: () => playStubProgressCard('engineering'),
-    smithing: () => playStubProgressCard('smithing'),
-    encouragement: () => playStubProgressCard('encouragement'),
+    // Cities & Knights Engineering/Smithing/Encouragement (Task 13) — fit the
+    // same plain click-to-play shape guildDues/espionage/merchant above do:
+    // each just spends the card and either arms an existing affordance
+    // (Engineering reuses Task 12's Wall buttons) or resolves immediately
+    // (Smithing/Encouragement), with no argument needed BEFORE the click.
+    engineering: playEngineering,
+    smithing: playSmithing,
+    encouragement: playEncouragement,
+    // Cities & Knights remaining stub cards — knight-dependent cards that
+    // still need later Phase C work. For now they warn and stay in hand.
     intrigue: () => playStubProgressCard('intrigue'),
     treason: () => playStubProgressCard('treason'),
     taxation: () => playStubProgressCard('taxation'),
@@ -5914,6 +6143,8 @@ function App() {
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         onBuildWall={buildCityWall}
+        pendingFreeCityWall={pendingFreeCityWall}
+        onResolveFreeWall={resolveFreeCityWall}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,
           trade: progressCardDecks.trade.length,

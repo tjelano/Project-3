@@ -232,6 +232,16 @@ interface GameHudProps {
   // `viewer` concept it doesn't have). Only onBuildWall itself needs to
   // come from App.tsx, since building a wall touches shared match state.
   onBuildWall: (vertexId: string) => void
+  // Cities & Knights Engineering (Task 13) — non-null (and equal to
+  // viewer.id) while the VIEWER's own free-wall pick is in progress; reuses
+  // the SAME Wall buttons just above (canBuildWallAt below branches on it
+  // internally) rather than a dedicated picker, since Engineering only needs
+  // the SAME "click one of my eligible cities" affordance those buttons
+  // already offer, made free. App.tsx-owned (local-only pending state,
+  // never broadcast), same treatment pendingMerchantPlacement/
+  // pendingGuildDues etc. get elsewhere in this file's own props.
+  pendingFreeCityWall: number | null
+  onResolveFreeWall: (vertexId: string) => void
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -414,6 +424,8 @@ export function GameHud({
   armedKnightId,
   knightsPromotedThisTurn,
   onBuildWall,
+  pendingFreeCityWall,
+  onResolveFreeWall,
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
@@ -555,6 +567,13 @@ export function GameHud({
         .sort()
     : []
   const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
+  // Cities & Knights Engineering (Task 13) — true only while THIS viewer's
+  // own free-wall pick is in progress. Read by canBuildWallAt below (so the
+  // free path shares the exact same action-gate derivation as the paid
+  // path — see that gate's own comment just below for why that must not
+  // drift) and by the button row's onClick branch, threaded straight to
+  // ResourcePanel.
+  const freeWallActive = pendingFreeCityWall === viewer.id
   // Folds in the SAME action-gate set every sibling derivation in this file
   // applies (canTrade/canBuyDevCard/canPlayDevCards/canBuyImprovement all
   // nearby) before ever calling canBuildCityWall — CodeRabbit already
@@ -563,7 +582,11 @@ export function GameHud({
   // would render clickable off-turn, mid-roll, or during a blocked trade/
   // picker state, only to bounce off buildCityWall's own isMyTurn check in
   // App.tsx with a toast instead of simply being disabled like every other
-  // control in this panel.
+  // control in this panel. freeWallActive branches ONLY the eligibility
+  // check's resource-affordability half (same throwaway-clone trick
+  // playEngineering's own comment in App.tsx describes) — every gate above
+  // it still applies identically either way, so a free wall is exactly as
+  // unclickable off-turn/mid-roll/blocked as a paid one.
   const canBuildWallAt = (vertexId: string) =>
     gamePhase === 'playing' &&
     !isRolling &&
@@ -571,7 +594,12 @@ export function GameHud({
     !tradeBlocked &&
     !pickerBlocked &&
     isMyTurn &&
-    canBuildCityWall(viewer, vertexId, settlements, totalWallsOnBoard)
+    canBuildCityWall(
+      freeWallActive ? { ...viewer, resources: { ...viewer.resources, brick: 999 } } : viewer,
+      vertexId,
+      settlements,
+      totalWallsOnBoard,
+    )
   // Mirrors canBuyDevCard's derivation above — city improvements are also
   // only purchasable during your own action phase, after rolling (same
   // "roll before you build/buy" rule buildSettlementRaw/buyDevCard/bankTrade
@@ -769,6 +797,8 @@ export function GameHud({
         ownCities={ownCities}
         canBuildWallAt={canBuildWallAt}
         onBuildWall={onBuildWall}
+        freeWallActive={freeWallActive}
+        onResolveFreeWall={onResolveFreeWall}
       />
       {isTradeOpen && (
         <TradeModal

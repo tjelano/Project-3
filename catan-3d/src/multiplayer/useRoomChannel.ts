@@ -421,6 +421,36 @@ export interface KnightDeactivatedAfterChasePayload {
 export interface CityWallBuiltPayload {
   playerId: number
   vertexId: string
+  // Whether this wall came from Engineering's free-build effect rather than
+  // being paid for — same "actor has to say so explicitly" reasoning
+  // RoadBuiltPayload.isFreeRoad above already uses for Road Building. Task
+  // 12's own buildCityWall always deducts CITY_WALL_COST on receipt; without
+  // this flag, Engineering's resolveFreeCityWall (Task 13, which never
+  // deducts anything locally) would desync every OTHER client's copy of the
+  // builder's resources by wrongly charging them for a wall that was free.
+  isFree: boolean
+}
+
+// Cities & Knights Smithing (Task 13) — sent ALREADY-RESOLVED, same
+// trusted-apply model KnightPromotedPayload's own comment above describes,
+// but for up to 2 knights at once. knightIds only (not each knight's new
+// strength): a receiving client re-derives `nextKnightStrength` from each
+// knight's OWN current strength locally, the same pure function the acting
+// client used, rather than trusting a `newStrength` per knight in the
+// payload — a malformed/tampered payload could otherwise claim an
+// impossible strength jump for a knight it never actually validated.
+export interface SmithingPlayedPayload {
+  playerId: number
+  knightIds: string[]
+}
+
+// Cities & Knights Encouragement (Task 13) — sent ALREADY-RESOLVED, same
+// trusted-apply model SmithingPlayedPayload above describes: the acting
+// client already validated the card was in hand before ever broadcasting,
+// so every other client just activates every one of that player's knights
+// directly.
+export interface EncouragementPlayedPayload {
+  playerId: number
 }
 
 export interface NewGamePayload {
@@ -648,6 +678,11 @@ export interface RoomChannelHandlers {
   // Cities & Knights city walls (Task 12) — see CityWallBuiltPayload's own
   // comment above for the trusted-apply reasoning.
   onCityWallBuilt?: (payload: CityWallBuiltPayload) => void
+  // Cities & Knights Smithing/Encouragement (Task 13) — see
+  // SmithingPlayedPayload/EncouragementPlayedPayload's own comments above
+  // for the trusted-apply reasoning.
+  onSmithingPlayed?: (payload: SmithingPlayedPayload) => void
+  onEncouragementPlayed?: (payload: EncouragementPlayedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -903,6 +938,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<CityWallBuiltPayload>('broadcast', { event: 'CITY_WALL_BUILT' }, ({ payload }) => {
       handlersRef.current.onCityWallBuilt?.(payload)
     })
+    channel.on<SmithingPlayedPayload>('broadcast', { event: 'SMITHING_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onSmithingPlayed?.(payload)
+    })
+    channel.on<EncouragementPlayedPayload>('broadcast', { event: 'ENCOURAGEMENT_PLAYED' }, ({ payload }) => {
+      handlersRef.current.onEncouragementPlayed?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1153,6 +1194,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastCityWallBuilt = (payload: CityWallBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'CITY_WALL_BUILT', payload })
   }
+  const broadcastSmithingPlayed = (payload: SmithingPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'SMITHING_PLAYED', payload })
+  }
+  const broadcastEncouragementPlayed = (payload: EncouragementPlayedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'ENCOURAGEMENT_PLAYED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1210,6 +1257,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastKnightDisplaced,
     broadcastKnightDeactivatedAfterChase,
     broadcastCityWallBuilt,
+    broadcastSmithingPlayed,
+    broadcastEncouragementPlayed,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

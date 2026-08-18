@@ -8,7 +8,7 @@ import {
   type DevCardType,
   type Resources,
 } from '../../game/types'
-import { discardHandSize } from '../../game/discard'
+import { discardHandSize, discardThreshold } from '../../game/discard'
 import { CollapsibleSection } from './CollapsibleSection'
 import { CommodityIcon } from './CommodityIcon'
 
@@ -26,6 +26,7 @@ export function ResourcePanel({
   canPlayDevCards,
   onPlayDevCard,
   citiesAndKnightsKnights,
+  cityWallCount,
   ownCities,
   canBuildWallAt,
   onBuildWall,
@@ -54,6 +55,13 @@ export function ResourcePanel({
   // sibling flags keep elsewhere (see e.g. citiesAndKnightsCommodities'
   // comment in GameHud.tsx).
   citiesAndKnightsKnights: boolean
+  // Cities & Knights city walls (Task 12) — the viewer's OWN wall count
+  // (viewer.cityWalls.length, GameHud.tsx), used to raise the "cards in
+  // hand" discard-risk threshold below via discardThreshold. Only ever
+  // applied while citiesAndKnightsKnights is on (see atDiscardRisk), same
+  // "flag gates whether the derived value even applies" split every other
+  // Cities & Knights prop pair in this file already keeps.
+  cityWallCount: number
   // Vertex ids of every city the viewer owns — a wall can only ever go on
   // one of THEIR OWN cities, so each gets its own button rather than a
   // board picker.
@@ -74,8 +82,17 @@ export function ResourcePanel({
   // Same single rule App.tsx's discard pipeline measures against — see
   // discardHandSize (game/discard.ts) on why this must not be re-inlined.
   const handSize = discardHandSize(resources, commodities, countsCommodities)
-  // Catan discards half your hand on a 7 once you hold more than seven.
-  const atDiscardRisk = handSize > 7
+  // Catan discards half your hand on a 7 once you hold more than seven —
+  // but CN3087 p.8 raises that threshold by 2 per city wall the viewer
+  // owns, so this must read the SAME discardThreshold (game/discard.ts)
+  // the actual forced-discard enforcement elsewhere in the app measures
+  // against, not a hardcoded 7, or this indicator falsely flags "at risk"
+  // for a walled player who isn't. Wall count only counts while
+  // citiesAndKnightsKnights is on, matching every other call site's own
+  // "pass 0 when the house rule is off" convention (discardThreshold's own
+  // comment).
+  const threshold = discardThreshold(citiesAndKnightsKnights ? cityWallCount : 0)
+  const atDiscardRisk = handSize > threshold
 
   const devCardCounts = DEV_CARD_ORDER.map((type) => ({
     type,
@@ -102,7 +119,9 @@ export function ResourcePanel({
         <span className="font-data text-sm tabular-nums">{handSize}</span>
       </div>
       {atDiscardRisk && (
-        <span className="px-1 font-body text-[10px] text-player-1/80">Over 7 — a rolled 7 costs you half.</span>
+        <span className="px-1 font-body text-[10px] text-player-1/80">
+          Over {threshold} — a rolled 7 costs you half.
+        </span>
       )}
 
       {/* Same reasoning as the "Cards in hand" total above: the commodity

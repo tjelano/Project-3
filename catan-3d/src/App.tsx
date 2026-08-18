@@ -4921,6 +4921,16 @@ function App() {
       warn("It's not your turn.")
       return
     }
+    // Progress Cards can be on with Knights off (an ordinary, fully
+    // supported combination — see gameRules.citiesAndKnightsKnights's own
+    // comment) and Engineering has no knightPieces/target-knights set to
+    // naturally self-guard against like Smithing/Intrigue/Treason do — so
+    // without this it would spend the card and append a "ghost" wall for
+    // zero effect. Must run before the card is spent below.
+    if (!gameRules.citiesAndKnightsKnights) {
+      warn('Enable the Knights & City Walls house rule to play this card.')
+      return
+    }
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('engineering')) {
       warn('No Engineering card to play.')
@@ -5043,6 +5053,16 @@ function App() {
     if (!canPlayProgressCardNow()) return
     if (!isMyTurn) {
       warn("It's not your turn.")
+      return
+    }
+    // Progress Cards can be on with Knights off (an ordinary, fully
+    // supported combination — see gameRules.citiesAndKnightsKnights's own
+    // comment) and Encouragement has no knightPieces to naturally self-guard
+    // against like Smithing/Intrigue/Treason do — without this it would
+    // spend the card for a no-op map over an empty knights array and still
+    // show a success toast. Must run before the card is spent below.
+    if (!gameRules.citiesAndKnightsKnights) {
+      warn('Enable the Knights & City Walls house rule to play this card.')
       return
     }
     const player = players[currentPlayerIndex]
@@ -5417,6 +5437,17 @@ function App() {
       warn('No Intrigue card to play.')
       return
     }
+    // Intrigue resolves through the SAME two click handlers in KnightLayer
+    // (vertex-click/knight-click) that armKnightRecruit/armKnightMove/
+    // armKnightDisplace's own armedKnightAction arms — without this, arming
+    // one of those and then playing Intrigue would leave both pending
+    // states live, with the loser silently stranded. Mirrors the guard
+    // those arm* functions already use against each other, just in the
+    // other direction (see their own comments).
+    if (pendingKnightRecruit != null || armedKnightAction) {
+      warn('Finish the current knight action first.')
+      return
+    }
     // Refuse outright rather than clobber an in-progress pick — same
     // reasoning playInvention's own pendingInventionSwap guard uses. Real
     // risk here, not hypothetical: Intrigue's deck count is 2 (Politics),
@@ -5462,6 +5493,14 @@ function App() {
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('treason')) {
       warn('No Treason card to play.')
+      return
+    }
+    // Treason resolves through the SAME two click handlers in KnightLayer
+    // (vertex-click/knight-click) that armKnightRecruit/armKnightMove/
+    // armKnightDisplace's own armedKnightAction arms — same guard, and same
+    // reasoning, as playIntrigue's own copy of this check above.
+    if (pendingKnightRecruit != null || armedKnightAction) {
+      warn('Finish the current knight action first.')
       return
     }
     // Refuse outright rather than clobber an in-progress placement — same

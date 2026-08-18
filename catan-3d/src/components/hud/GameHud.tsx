@@ -830,6 +830,7 @@ export function GameHud({
         canPlayDevCards={canPlayDevCards}
         onPlayDevCard={onPlayDevCard}
         citiesAndKnightsKnights={citiesAndKnightsKnights}
+        cityWallCount={viewer.cityWalls.length}
         ownCities={ownCities}
         canBuildWallAt={canBuildWallAt}
         onBuildWall={onBuildWall}

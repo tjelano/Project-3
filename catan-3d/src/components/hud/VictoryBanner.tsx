@@ -74,7 +74,7 @@ export function VictoryBanner({
         <p className="mt-3 font-body text-sm text-white/60">Final Score: {winnerScore} Victory Points</p>
 
         <div className="mt-8 overflow-x-auto rounded-xl border border-glass-border">
-          <div className="grid min-w-[33rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2rem_2rem_2.75rem] items-center gap-x-2 bg-white/5 px-4 py-2 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
+          <div className="grid min-w-[35.5rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2rem_2rem_2rem_2.75rem] items-center gap-x-2 bg-white/5 px-4 py-2 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase">
             <span />
             <span className="text-left">Player</span>
             <span>Set</span>
@@ -92,6 +92,9 @@ export function VictoryBanner({
                 stops adding up to the shown Score. */}
             <span title="Progress Card Victory Points">Prog</span>
             <span title="Merchant">Mrch</span>
+            {/* Same reasoning again, for Defender of Catan (Task 1/9): the
+                barbarian-attack soloist's VP is already in score.total. */}
+            <span title="Defender of Catan">DoC</span>
             <span>Score</span>
           </div>
           {ranked.map(({ player, score }, index) => {
@@ -99,7 +102,7 @@ export function VictoryBanner({
             return (
               <div
                 key={player.id}
-                className={`grid min-w-[33rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2rem_2rem_2.75rem] items-center gap-x-2 border-t border-glass-border px-4 py-2.5 font-body text-sm ${
+                className={`grid min-w-[35.5rem] grid-cols-[1.5rem_1fr_2rem_2rem_2rem_1.75rem_1.75rem_2.25rem_2rem_2rem_2rem_2.75rem] items-center gap-x-2 border-t border-glass-border px-4 py-2.5 font-body text-sm ${
                   isWinner ? 'bg-gold/10' : ''
                 }`}
               >
@@ -127,6 +130,9 @@ export function VictoryBanner({
                 </span>
                 <span className={score.merchantVP ? 'text-gold' : 'text-white/25'}>
                   {score.merchantVP ? `+${score.merchantVP}` : '–'}
+                </span>
+                <span className={score.defenderOfCatanVP ? 'text-gold' : 'text-white/25'}>
+                  {score.defenderOfCatanVP ? `+${score.defenderOfCatanVP}` : '–'}
                 </span>
                 <span className={`font-display font-semibold ${isWinner ? 'text-gold' : 'text-white/80'}`}>
                   {score.total}

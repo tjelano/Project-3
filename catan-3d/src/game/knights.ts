@@ -235,3 +235,113 @@ export function knightDisplaceTargets(
     (target) => KNIGHT_STRENGTH_VALUE[target.strength] < KNIGHT_STRENGTH_VALUE[knight.strength],
   )
 }
+
+// CN3087's barbarian track has 7 positions (confirmed against the
+// rulebook's own component art, page 3 — web sources disagreed between
+// 7 and 8, likely an edition difference). Position 0 is the start;
+// reaching position 6 (the 7th position) triggers an attack.
+export const BARBARIAN_TRACK_LENGTH = 7
+
+export interface BarbarianPillageTarget {
+  playerId: number
+  eligibleCityVertexIds: string[]
+}
+
+export interface BarbarianAttackWinner {
+  playerId: number
+  // true when tied for highest — a tied winner draws a progress card
+  // instead of receiving the Defender of Catan VP (only a SOLE highest
+  // contributor gets the VP).
+  tied: boolean
+}
+
+export interface BarbarianAttackResult {
+  barbarianStrength: number
+  defenderStrength: number
+  defendersWin: boolean
+  // Empty when defenders win.
+  pillageTargets: BarbarianPillageTarget[]
+  // Empty when barbarians win.
+  winners: BarbarianAttackWinner[]
+}
+
+// CN3087 pp.11: barbarian strength = total cities (incl. metropolises) on
+// the board; defender strength = sum of ACTIVE knight strengths, all
+// players. Ties favor defenders.
+export function resolveBarbarianAttack(
+  players: Player[],
+  settlements: Record<string, Building>,
+): BarbarianAttackResult {
+  const barbarianStrength = Object.values(settlements).filter((b) => b.type === 'city').length
+
+  const activeKnightStrengthByPlayer = new Map<number, number>()
+  for (const player of players) {
+    const strength = player.knightPieces
+      .filter((k) => k.active)
+      .reduce((sum, k) => sum + KNIGHT_STRENGTH_VALUE[k.strength], 0)
+    activeKnightStrengthByPlayer.set(player.id, strength)
+  }
+  const defenderStrength = [...activeKnightStrengthByPlayer.values()].reduce((a, b) => a + b, 0)
+
+  const defendersWin = defenderStrength >= barbarianStrength
+
+  if (defendersWin) {
+    const maxStrength = Math.max(...activeKnightStrengthByPlayer.values())
+    const topContributors = players.filter((p) => activeKnightStrengthByPlayer.get(p.id) === maxStrength)
+    const tied = topContributors.length > 1
+    return {
+      barbarianStrength,
+      defenderStrength,
+      defendersWin: true,
+      pillageTargets: [],
+      winners: topContributors.map((p) => ({ playerId: p.id, tied })),
+    }
+  }
+
+  // Cities owned per player, in a stable vertex-id order (for a
+  // deterministic eligible-target list — the actual CHOICE of which one
+  // to pillage is the player's own, per the design's UI section).
+  const citiesByPlayer = new Map<number, string[]>()
+  for (const [vertexId, building] of Object.entries(settlements)) {
+    if (building.type !== 'city') continue
+    const list = citiesByPlayer.get(building.ownerId)
+    if (list) list.push(vertexId)
+    else citiesByPlayer.set(building.ownerId, [vertexId])
+  }
+  for (const list of citiesByPlayer.values()) list.sort()
+
+  // Immune: no cities at all, since a metropolis-only player already has
+  // no PILLAGEABLE city either way — this module has no metropolis
+  // concept of its own (that lives in cityImprovements.ts / App.tsx's
+  // metropolisVertexIds), so "immune" here is simply "no city in
+  // citiesByPlayer for this player id" — App.tsx's own metropolis
+  // bookkeeping must exclude metropolis vertices from `settlements`
+  // entries counted as pillageable before calling this function, OR
+  // (simpler, decide during implementation) this function is extended
+  // with an explicit metropolisVertexIds param it filters out of
+  // citiesByPlayer before use. Confirm the exact call-site shape against
+  // App.tsx's real metropolisVertexIds structure before wiring Task 4.
+  const strengthTiers = [...new Set([...activeKnightStrengthByPlayer.values()])].sort((a, b) => a - b)
+
+  let pillageTargets: BarbarianPillageTarget[] = []
+  for (const tierValue of strengthTiers) {
+    const tierPlayerIds = players
+      .filter((p) => activeKnightStrengthByPlayer.get(p.id) === tierValue)
+      .map((p) => p.id)
+    const nonImmune = tierPlayerIds.filter((id) => (citiesByPlayer.get(id)?.length ?? 0) > 0)
+    if (nonImmune.length === 0) continue // whole tier immune, move to next tier up
+    pillageTargets = nonImmune.map((playerId) => ({
+      playerId,
+      eligibleCityVertexIds: citiesByPlayer.get(playerId)!,
+    }))
+    break
+  }
+
+  return {
+    barbarianStrength,
+    defenderStrength,
+    defendersWin: false,
+    pillageTargets,
+    winners: [],
+  }
+}

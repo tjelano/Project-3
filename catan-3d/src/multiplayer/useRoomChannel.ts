@@ -412,6 +412,17 @@ export interface KnightDeactivatedAfterChasePayload {
   knightId: string
 }
 
+// Cities & Knights city walls (Task 12) — sent ALREADY-RESOLVED, same
+// trusted-apply model KnightActivatedPayload/KnightPromotedPayload's own
+// comment above describes: the acting client already validated ownership/
+// no-existing-wall/board-wide-cap/affordability locally (canBuildCityWall)
+// before ever broadcasting, so every other client just applies the deduct-
+// and-append effect directly.
+export interface CityWallBuiltPayload {
+  playerId: number
+  vertexId: string
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -634,6 +645,9 @@ export interface RoomChannelHandlers {
   // KnightDeactivatedAfterChasePayload's own comment above for the
   // trusted-apply reasoning and why this is a separate event.
   onKnightDeactivatedAfterChase?: (payload: KnightDeactivatedAfterChasePayload) => void
+  // Cities & Knights city walls (Task 12) — see CityWallBuiltPayload's own
+  // comment above for the trusted-apply reasoning.
+  onCityWallBuilt?: (payload: CityWallBuiltPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -886,6 +900,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<KnightDeactivatedAfterChasePayload>('broadcast', { event: 'KNIGHT_DEACTIVATED_AFTER_CHASE' }, ({ payload }) => {
       handlersRef.current.onKnightDeactivatedAfterChase?.(payload)
     })
+    channel.on<CityWallBuiltPayload>('broadcast', { event: 'CITY_WALL_BUILT' }, ({ payload }) => {
+      handlersRef.current.onCityWallBuilt?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1133,6 +1150,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastKnightDeactivatedAfterChase = (payload: KnightDeactivatedAfterChasePayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_DEACTIVATED_AFTER_CHASE', payload })
   }
+  const broadcastCityWallBuilt = (payload: CityWallBuiltPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_WALL_BUILT', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1189,6 +1209,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastKnightMoved,
     broadcastKnightDisplaced,
     broadcastKnightDeactivatedAfterChase,
+    broadcastCityWallBuilt,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

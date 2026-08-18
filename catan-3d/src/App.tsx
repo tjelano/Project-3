@@ -52,6 +52,7 @@ import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
   CITY_COST,
+  CITY_WALL_COST,
   COMMODITY_FOR_BIOME,
   COMMODITY_FOR_TRACK,
   COMMODITY_LABELS,
@@ -102,6 +103,7 @@ import {
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import {
   canActivateKnight,
+  canBuildCityWall,
   canPromoteKnight,
   canRecruitKnight,
   knightDisplaceTargets,
@@ -1275,6 +1277,7 @@ function App() {
     broadcastKnightMoved,
     broadcastKnightDisplaced,
     broadcastKnightDeactivatedAfterChase,
+    broadcastCityWallBuilt,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1835,6 +1838,19 @@ function App() {
           p.id !== payload.playerId
             ? p
             : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: false } : k)) },
+        ),
+      )
+    },
+    // Cities & Knights city walls (Task 12) — same trusted-apply reasoning
+    // as onKnightDeactivatedAfterChase above: the sending client already
+    // validated ownership/no-existing-wall/board-wide-cap/affordability
+    // locally (canBuildCityWall) before ever broadcasting.
+    onCityWallBuilt: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== payload.playerId
+            ? p
+            : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, payload.vertexId] },
         ),
       )
     },
@@ -4607,6 +4623,34 @@ function App() {
     if (onlineInfo) broadcastKnightPromoted({ playerId: player.id, knightId, newStrength: next })
   }
 
+  // Cities & Knights city walls — no board picker needed: the target is one
+  // of the player's OWN existing cities, chosen via a HUD button
+  // (ResourcePanel's "City Walls" row), not a 3D click. Same immediate-
+  // resolve shape activateKnight/promoteKnight use above — canBuildCityWall
+  // (game/knights.ts) already checks ownership/no-existing-wall/board-wide
+  // cap/affordability, so this handler just calls it directly rather than
+  // re-deriving those checks inline.
+  const buildCityWall = (vertexId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
+    if (!canBuildCityWall(player, vertexId, settlements, totalWallsOnBoard)) {
+      warn('Cannot build a city wall there.')
+      return
+    }
+    setPlayers((prev) =>
+      prev.map((p) =>
+        p.id !== player.id
+          ? p
+          : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, vertexId] },
+      ),
+    )
+    if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId })
+  }
+
   // Shared VP-comparison helper — both Sabotage and Wedding need "every
   // player whose VP compares a certain way to the announcer." Sabotage
   // uses 'gte' (AS MANY OR MORE VPs than the announcer triggers a forced
@@ -5869,6 +5913,7 @@ function App() {
         canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(robberTileId)}
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
+        onBuildWall={buildCityWall}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,
           trade: progressCardDecks.trade.length,

@@ -16,7 +16,7 @@ import {
   type ResourceType,
 } from '../../game/types'
 import { evaluateMetropolisPurchase } from '../../game/cityImprovements'
-import { canPromoteKnight } from '../../game/knights'
+import { canBuildCityWall, canPromoteKnight } from '../../game/knights'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
@@ -223,6 +223,15 @@ interface GameHudProps {
   // because canPromote below needs to check membership per-knight, not
   // once for the whole panel.
   knightsPromotedThisTurn: Set<string>
+  // Cities & Knights city walls (Task 12) — no board picker: the target is
+  // one of the viewer's own cities, chosen via ResourcePanel's own "City
+  // Walls" button row (ownCities/canBuildWallAt below are derived right
+  // here from `viewer`/`settlements`/`players`, same "computed locally from
+  // props this file already has" treatment `canBuildWallAt`'s sibling
+  // `canPromote` gets above, rather than App.tsx pre-deriving them for a
+  // `viewer` concept it doesn't have). Only onBuildWall itself needs to
+  // come from App.tsx, since building a wall touches shared match state.
+  onBuildWall: (vertexId: string) => void
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -404,6 +413,7 @@ export function GameHud({
   canChaseRobber,
   armedKnightId,
   knightsPromotedThisTurn,
+  onBuildWall,
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
@@ -527,6 +537,20 @@ export function GameHud({
     !pickerBlocked &&
     !devCardPlayedThisTurn &&
     isMyTurn
+  // Cities & Knights city walls (Task 12) — ownCities is every vertex where
+  // the viewer owns a city (a wall can only ever go on one of THEIR OWN
+  // cities), and totalWallsOnBoard mirrors App.tsx's own buildCityWall
+  // derivation exactly (players.reduce over cityWalls.length) so this
+  // button-enabled check and the real spend-time gate never drift apart —
+  // same "identical derivation on both sides" reasoning canBuyImprovement
+  // below already relies on for its own CityImprovementsPanel gate.
+  const ownCities = citiesAndKnightsKnights
+    ? Object.entries(settlements)
+        .filter(([, b]) => b.ownerId === viewer.id && b.type === 'city')
+        .map(([vertexId]) => vertexId)
+    : []
+  const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
+  const canBuildWallAt = (vertexId: string) => canBuildCityWall(viewer, vertexId, settlements, totalWallsOnBoard)
   // Mirrors canBuyDevCard's derivation above — city improvements are also
   // only purchasable during your own action phase, after rolling (same
   // "roll before you build/buy" rule buildSettlementRaw/buyDevCard/bankTrade
@@ -720,6 +744,10 @@ export function GameHud({
         onBuyDevCard={onBuyDevCard}
         canPlayDevCards={canPlayDevCards}
         onPlayDevCard={onPlayDevCard}
+        citiesAndKnightsKnights={citiesAndKnightsKnights}
+        ownCities={ownCities}
+        canBuildWallAt={canBuildWallAt}
+        onBuildWall={onBuildWall}
       />
       {isTradeOpen && (
         <TradeModal

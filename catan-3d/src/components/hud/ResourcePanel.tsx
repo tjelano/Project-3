@@ -25,6 +25,10 @@ export function ResourcePanel({
   onBuyDevCard,
   canPlayDevCards,
   onPlayDevCard,
+  citiesAndKnightsKnights,
+  ownCities,
+  canBuildWallAt,
+  onBuildWall,
 }: {
   resources: Resources
   // Commodities (Cities & Knights house rule) — counted toward the
@@ -42,6 +46,18 @@ export function ResourcePanel({
   onBuyDevCard: () => void
   canPlayDevCards: boolean
   onPlayDevCard: (type: DevCardType) => void
+  // Cities & Knights city walls (Task 12) — gates whether the "City Walls"
+  // button row below renders at all, same "derived from GameRules, not
+  // folded into an existing flag" precedent citiesAndKnightsKnights' own
+  // sibling flags keep elsewhere (see e.g. citiesAndKnightsCommodities'
+  // comment in GameHud.tsx).
+  citiesAndKnightsKnights: boolean
+  // Vertex ids of every city the viewer owns — a wall can only ever go on
+  // one of THEIR OWN cities, so each gets its own button rather than a
+  // board picker.
+  ownCities: string[]
+  canBuildWallAt: (vertexId: string) => boolean
+  onBuildWall: (vertexId: string) => void
 }) {
   // Same single rule App.tsx's discard pipeline measures against — see
   // discardHandSize (game/discard.ts) on why this must not be re-inlined.
@@ -122,6 +138,31 @@ export function ResourcePanel({
         Buy Dev Card
         <span className="font-data text-[9px] text-white/50">({devCards.length})</span>
       </button>
+
+      {/* Cities & Knights city walls (Task 12) — no board picker: one button
+          per city the viewer already owns, each independently gated by
+          canBuildWallAt (ownership/no-existing-wall/board-wide cap/
+          affordability, all checked in game/knights.ts's canBuildCityWall).
+          Only rendered once the viewer actually has a city to wall, so a
+          fresh match never shows an empty row. */}
+      {citiesAndKnightsKnights && ownCities.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">City Walls</span>
+          <div className="flex gap-1">
+            {ownCities.map((vertexId) => (
+              <button
+                key={vertexId}
+                type="button"
+                disabled={!canBuildWallAt(vertexId)}
+                onClick={() => onBuildWall(vertexId)}
+                className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-white/20 disabled:opacity-40"
+              >
+                Wall
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-2">
         <CollapsibleSection icon="🃏" label="Play a Card">

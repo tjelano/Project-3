@@ -40,7 +40,7 @@ function knightsByVertexOf(knights: KnightPiece[]): Map<string, KnightPiece> {
   return new Map(knights.map((k) => [k.vertexId, k]))
 }
 
-function playerWithCities(id: number, cityVertexIds: string[], activeKnights: KnightPiece[] = []): Player {
+function playerWithCities(id: number, activeKnights: KnightPiece[] = []): Player {
   const [p] = createInitialPlayers(1)
   return { ...p, id, knightPieces: activeKnights }
 }
@@ -314,8 +314,8 @@ describe('BARBARIAN_TRACK_LENGTH', () => {
 
 describe('resolveBarbarianAttack', () => {
   it('barbarians win when strictly stronger; weakest non-immune contributor is pillaged', () => {
-    const p1 = playerWithCities(1, [], [{ id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'X' }]) // strength 1
-    const p2 = playerWithCities(2, [], []) // strength 0 — weakest, has 0 active knights
+    const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'X' }]) // strength 1
+    const p2 = playerWithCities(2, []) // strength 0 — weakest, has 0 active knights
     const settlements = settlementsFor([
       { vertexId: 'A', ownerId: 1, type: 'city' },
       { vertexId: 'B', ownerId: 2, type: 'city' },
@@ -330,8 +330,8 @@ describe('resolveBarbarianAttack', () => {
   })
 
   it('defenders win on a tie; single highest contributor gets the VP', () => {
-    const p1 = playerWithCities(1, [], [{ id: 'k1', ownerId: 1, strength: 'mighty', active: true, vertexId: 'X' }]) // 3
-    const p2 = playerWithCities(2, [], [{ id: 'k2', ownerId: 2, strength: 'basic', active: true, vertexId: 'Y' }]) // 1
+    const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'mighty', active: true, vertexId: 'X' }]) // 3
+    const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'basic', active: true, vertexId: 'Y' }]) // 1
     const settlements = settlementsFor([{ vertexId: 'A', ownerId: 1, type: 'city' }, { vertexId: 'B', ownerId: 1, type: 'city' }, { vertexId: 'C', ownerId: 1, type: 'city' }, { vertexId: 'D', ownerId: 1, type: 'city' }]) // 4 cities === 4 defense? no, defense is 3+1=4, barbarian=4, tie -> defenders win
     const result = resolveBarbarianAttack([p1, p2], settlements)
     expect(result.barbarianStrength).toBe(4)
@@ -342,8 +342,8 @@ describe('resolveBarbarianAttack', () => {
   })
 
   it('a tie for highest contributor awards no VP — both are marked tied, each draws a card instead', () => {
-    const p1 = playerWithCities(1, [], [{ id: 'k1', ownerId: 1, strength: 'strong', active: true, vertexId: 'X' }]) // 2
-    const p2 = playerWithCities(2, [], [{ id: 'k2', ownerId: 2, strength: 'strong', active: true, vertexId: 'Y' }]) // 2
+    const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'strong', active: true, vertexId: 'X' }]) // 2
+    const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'strong', active: true, vertexId: 'Y' }]) // 2
     const settlements = settlementsFor([{ vertexId: 'A', ownerId: 1, type: 'city' }]) // barbarian strength 1, defense 4, defenders win easily
     const result = resolveBarbarianAttack([p1, p2], settlements)
     expect(result.defendersWin).toBe(true)
@@ -356,7 +356,7 @@ describe('resolveBarbarianAttack', () => {
   })
 
   it('inactive knights do not count toward defender strength', () => {
-    const p1 = playerWithCities(1, [], [{ id: 'k1', ownerId: 1, strength: 'mighty', active: false, vertexId: 'X' }])
+    const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'mighty', active: false, vertexId: 'X' }])
     const settlements = settlementsFor([{ vertexId: 'A', ownerId: 1, type: 'city' }])
     const result = resolveBarbarianAttack([p1], settlements)
     expect(result.defenderStrength).toBe(0)
@@ -365,8 +365,8 @@ describe('resolveBarbarianAttack', () => {
   })
 
   it('a player with 0 active knights automatically counts as lowest, even with cities', () => {
-    const p1 = playerWithCities(1, [], [{ id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'X' }])
-    const p2 = playerWithCities(2, [], []) // 0 active knights
+    const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'X' }])
+    const p2 = playerWithCities(2, []) // 0 active knights
     const settlements = settlementsFor([
       { vertexId: 'A', ownerId: 1, type: 'city' },
       { vertexId: 'B', ownerId: 2, type: 'city' },
@@ -376,28 +376,37 @@ describe('resolveBarbarianAttack', () => {
   })
 
   it('skips a metropolis-only or cityless player when they are the lowest tier, cascading to the next tier', () => {
-    // p1: metropolis only, 0 active knights (would be "lowest" but immune).
-    // p2: 1 basic active knight (strength 1) — the next-lowest, non-immune, gets pillaged.
-    // p3: 1 mighty active knight (strength 3) — strongest defender.
-    const p1 = playerWithCities(1, [], [])
-    const p2 = playerWithCities(2, [], [{ id: 'k2', ownerId: 2, strength: 'basic', active: true, vertexId: 'Y' }])
-    const p3 = playerWithCities(3, [], [{ id: 'k3', ownerId: 3, strength: 'mighty', active: true, vertexId: 'Z' }])
+    // p1: cityless, 0 active knights (would be "lowest" but immune — the
+    // rule text treats "no cities" and "only metropolises" identically,
+    // and cityless is simpler to construct than a metropolis fixture,
+    // since this module has no metropolis concept of its own).
+    // p2: 1 basic active knight (strength 1), 2 cities — the next-lowest
+    // tier, non-immune, gets pillaged (both of its cities are eligible).
+    // p3: 1 mighty active knight (strength 3), 3 cities — strongest
+    // defender, must NOT appear in pillageTargets even though non-immune,
+    // since it's a higher tier than p2's.
+    // Total board cities (5) must exceed total defender strength (4) for
+    // barbarians to win at all — with only p2/p3's original 1 city each
+    // (2 total) defenders would win outright (4 >= 2) and pillageTargets
+    // would be empty before the tier-cascade logic ever runs; the extra
+    // cities below exist purely to make the arithmetic reach that branch.
+    const p1 = playerWithCities(1, [])
+    const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'basic', active: true, vertexId: 'Y' }])
+    const p3 = playerWithCities(3, [{ id: 'k3', ownerId: 3, strength: 'mighty', active: true, vertexId: 'Z' }])
     const settlements = settlementsFor([
-      // p1's city has a metropolis marker via a 4th param — since Building
-      // doesn't carry metropolis info directly in this module's signature,
-      // model metropolis-immunity via metropolisVertexIds instead (see
-      // Step 3's exact signature) — this test passes an empty
-      // metropolisVertexIds set deliberately and instead gives p1 ZERO
-      // cities to exercise the "cityless is also immune" path, since
-      // that's simpler to construct than a metropolis fixture and the
-      // rule text treats both cases identically ("no cities, or only
-      // metropolises").
-      { vertexId: 'B', ownerId: 2, type: 'city' },
-      { vertexId: 'C', ownerId: 3, type: 'city' },
+      { vertexId: 'B1', ownerId: 2, type: 'city' },
+      { vertexId: 'B2', ownerId: 2, type: 'city' },
+      { vertexId: 'C1', ownerId: 3, type: 'city' },
+      { vertexId: 'C2', ownerId: 3, type: 'city' },
+      { vertexId: 'C3', ownerId: 3, type: 'city' },
     ])
     const result = resolveBarbarianAttack([p1, p2, p3], settlements)
+    expect(result.barbarianStrength).toBe(5)
+    expect(result.defenderStrength).toBe(4)
+    expect(result.defendersWin).toBe(false)
     // p1 has 0 cities (immune, skipped even though "lowest" at 0 active knights).
     // p2 is next-lowest among the REMAINING (non-immune) players and is pillaged.
-    expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B'] }])
+    // p3, though non-immune, is a separate (higher) tier and is untouched.
+    expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B1', 'B2'] }])
   })
 })

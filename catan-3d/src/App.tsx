@@ -14,6 +14,7 @@ import { RobberLayer } from './components/RobberLayer'
 import { TileSwapLayer } from './components/TileSwapLayer'
 import { MerchantLayer } from './components/MerchantLayer'
 import { KnightLayer } from './components/KnightLayer'
+import { PillageLayer } from './components/PillageLayer'
 import { PortMarkers } from './components/PortMarkers'
 import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dice3D'
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
@@ -1194,6 +1195,25 @@ function App() {
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
+  // Trusted state mutation for one player's barbarian-pillage resolution —
+  // shared by the local actor (handlePillageTargetSelect, below, which also
+  // broadcasts) and receiving clients (onPillageResolved), same trusted-apply
+  // split as applyScienceFreeResourcePick above. CN3087 p.11: a pillaged city
+  // is reduced to a settlement (never destroyed outright) and loses any city
+  // wall it had.
+  const applyPillage = (vertexId: string, playerId: number) => {
+    const owner = playerById.get(playerId)
+    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+    setPlayers((prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, cityWalls: p.cityWalls.filter((v) => v !== vertexId) } : p)),
+    )
+    if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
+    // Filtered by playerId, not sliced off the front — activePillageTarget
+    // (Task 5) means resolution doesn't necessarily happen in queue order
+    // online, where every affected player can act independently.
+    setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
+  }
+
   // Trusted state mutation for a city improvement purchase — shared by the
   // local actor (buyCityImprovement, below, which also broadcasts) and
   // receiving clients (onCityImprovementPurchased). Recomputes the cost from
@@ -1334,6 +1354,7 @@ function App() {
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
+    broadcastPillageResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
@@ -1420,6 +1441,17 @@ function App() {
         inform('The barbarians have landed — the robber is now active.')
       }
       applyBarbarianAttackResult(payload.result)
+    },
+    // Cities & Knights barbarian pillage (Task 6) — trusted-apply from the
+    // choosing player's own client, which already validated vertexId
+    // against its own activePillageTarget.eligibleCityVertexIds before
+    // sending this. This receiver has no local copy of that validation to
+    // re-run (it isn't the acting player), so it applies the payload
+    // directly through the SAME applyPillage helper the local actor uses —
+    // safe because applyPillage filters pillageQueue by playerId rather
+    // than assuming queue order.
+    onPillageResolved: (payload) => {
+      applyPillage(payload.vertexId, payload.playerId)
     },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
@@ -2222,25 +2254,73 @@ function App() {
     ? (winnerDrawQueue.includes(onlineInfo.localPlayerId) ? onlineInfo.localPlayerId : null)
     : (winnerDrawQueue[0] ?? null)
 
-  // Barbarian attack modal's "small banner" text (Task 5 owns only this
-  // label — Tasks 6-7 add the actual per-item picker UI as siblings). Reads
-  // activePillageTarget/activeWinnerDrawPlayerId, never a queue index, for
-  // "is it MY choice" — and only .length (never an index) for "is anyone
-  // still choosing," so this never reads any specific OTHER player's
-  // pending entry, matching the ownership rule above. Local Pass & Play
-  // never falls into the "waiting" branches: activePillageTarget/
-  // activeWinnerDrawPlayerId always resolve to the (only) front-of-queue
-  // entry there whenever a queue is non-empty, per the design spec's "no
-  // waiting state at all" rule for local play quoted above.
-  const pendingChoiceLabel = activePillageTarget
-    ? 'Choose a city to pillage.'
+  // Resolves the active barbarian-pillage choice with the vertex the player
+  // clicked on the board. Only ever reachable by the local actor whose id
+  // matches activePillageTarget.playerId — see that derivation above for
+  // why this can be a different player than currentPlayerIndex, and why it
+  // must be read through activePillageTarget rather than pillageQueue[0]
+  // (Task 5's IMPORTANT note): online, ANY connected client could otherwise
+  // call this for the front-of-queue player with no ownership check.
+  const handlePillageTargetSelect = (vertexId: string) => {
+    const current = activePillageTarget
+    if (!current) return
+    if (!current.eligibleCityVertexIds.includes(vertexId)) {
+      warn('Not a valid pillage target.')
+      return
+    }
+    applyPillage(vertexId, current.playerId)
+    if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
+  }
+
+  // Barbarian attack modal's "small banner" text. Distinguishes "it's MY
+  // choice" (activePillageTarget non-null) from "someone else is still
+  // choosing" (pillageQueue non-empty but activePillageTarget null —
+  // reachable only online, for a client not itself in the queue) — the
+  // design spec's required online-only waiting state (see Task 5's
+  // IMPORTANT note). Local Pass & Play never falls into the "waiting"
+  // branch: activePillageTarget always resolves to the (only)
+  // front-of-queue entry there whenever pillageQueue is non-empty, matching
+  // the spec's "no waiting state at all" rule for local play. The waiting
+  // branch's `pillageQueue[0]` read is display-only — a name for the
+  // banner text, not a target for any action — so it doesn't need
+  // activePillageTarget's ownership check the way the resolve handler,
+  // PillageLayer's render gate, and the auto-skip effect do.
+  // TEMPORARY: the winnerDrawQueue branch below still uses Task 5's
+  // generic (non-name-distinguishing) copy — Task 7 owns upgrading it to
+  // the same "it's my choice" vs. "waiting on Player X" split this task
+  // just gave the pillage branch above it.
+  const pendingChoiceLabel = pillageQueue.length > 0
+    ? activePillageTarget
+      ? `Choose which city to pillage — ${playerById.get(activePillageTarget.playerId)?.name ?? ''}`
+      : `Waiting on ${playerById.get(pillageQueue[0].playerId)?.name ?? 'another player'} to choose a pillage target`
     : activeWinnerDrawPlayerId != null
       ? 'Choose a progress card deck to draw from.'
-      : pillageQueue.length > 0
-        ? 'Waiting for other players to choose a pillage target…'
-        : winnerDrawQueue.length > 0
-          ? 'Waiting for other players to choose a progress card deck…'
-          : null
+      : winnerDrawQueue.length > 0
+        ? 'Waiting for other players to choose a progress card deck…'
+        : null
+
+  // Auto-skip the picker when the active player has exactly one eligible
+  // city — CN3087 p.11 doesn't require a click when there's no real choice
+  // to make. Watches activePillageTarget (never pillageQueue[0] — Task 5's
+  // IMPORTANT note), so this naturally fires only on the correct client in
+  // each mode: online, activePillageTarget is non-null only on the
+  // affected player's OWN screen; local Pass & Play only ever has the
+  // front-of-queue player "up," so no extra gating is needed here.
+  // activePillageTarget's object identity is stable across unrelated
+  // re-renders (pillageQueue's entries are the same references until
+  // actually filtered), so this dependency array won't re-fire spuriously.
+  useEffect(() => {
+    if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
+      // Cascades into applyPillage's setSettlements/setPlayers/setPillageQueue
+      // calls, same deliberate "self-heal" shape as the discard-queue effect
+      // above (setGamePhase('moveRobber')) — there's no user gesture to hang
+      // this resolution off of when there's only one legal target, so the
+      // effect has to trigger it itself.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      handlePillageTargetSelect(activePillageTarget.eligibleCityVertexIds[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlePillageTargetSelect is read fresh via closure; only activePillageTarget changing should re-fire this.
+  }, [activePillageTarget])
 
   // The personal camera-anchored hand shows YOUR OWN cards in an online
   // match — not whoever's turn it currently is, which is what
@@ -6667,6 +6747,20 @@ function App() {
               onSelectKnight={handleKnightSelect}
             />
           )}
+          {/* Cities & Knights barbarian pillage (Task 6) — sibling to
+              KnightLayer, same Canvas. Gated on activePillageTarget, NOT
+              pillageQueue.length: the latter would render the picker (with
+              some OTHER player's eligible cities) on every connected
+              client online — see activePillageTarget's own derivation
+              above (Task 5's IMPORTANT note) for why only the affected
+              player's own screen may ever have this non-null. */}
+          {activePillageTarget && (
+            <PillageLayer
+              eligibleVertexIds={activePillageTarget.eligibleCityVertexIds}
+              vertexById={graph.vertexById}
+              onSelectVertex={handlePillageTargetSelect}
+            />
+          )}
           <PortMarkers ports={ports} />
           {diceDisplayMode === 'physics' ? (
             <PhysicsDice3D roll={physicsRoll} onSettled={handlePhysicsSettled} />
@@ -6843,20 +6937,27 @@ function App() {
       {activeBarbarianAttack && (
         <>
           <BarbarianAttackModal result={activeBarbarianAttack} players={players} pendingChoiceLabel={pendingChoiceLabel} />
-          {/* TEMPORARY — Task 6/7 replace this with real pillage/draw resolution UI */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-20 z-50 flex justify-center">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveBarbarianAttack(null)
-                setPillageQueue([])
-                setWinnerDrawQueue([])
-              }}
-              className="pointer-events-auto rounded-lg bg-gradient-to-b from-gold to-gold-deep px-6 py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
-            >
-              Continue (temporary)
-            </button>
-          </div>
+          {/* TEMPORARY — Task 7 replaces this with real winner-draw resolution
+              UI and removes it entirely. Pillage now resolves for real via
+              PillageLayer/handlePillageTargetSelect above, so this no longer
+              force-clears pillageQueue — it's gated on pillageQueue.length
+              === 0 (nothing left to pick via the board picker) and only
+              still owns clearing winnerDrawQueue, which Task 7 hasn't wired
+              a real picker for yet. */}
+          {pillageQueue.length === 0 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-20 z-50 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveBarbarianAttack(null)
+                  setWinnerDrawQueue([])
+                }}
+                className="pointer-events-auto rounded-lg bg-gradient-to-b from-gold to-gold-deep px-6 py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                Continue (temporary)
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -140,6 +140,19 @@ export interface BarbarianAttackResolvedPayload {
   robberActivated: boolean
 }
 
+// Cities & Knights barbarian pillage (Task 6) — one affected player's own
+// chosen pillage target, sent ALREADY-RESOLVED (same trusted-apply model as
+// ScienceFreeResourcePickedPayload below): the choosing player's own client
+// is the only one that validates vertexId against their own
+// activePillageTarget.eligibleCityVertexIds before sending this; every
+// other client just applies vertexId/playerId directly through the shared
+// applyPillage helper (App.tsx), which is safe because it filters
+// pillageQueue by playerId rather than assuming any particular queue order.
+export interface PillageResolvedPayload {
+  vertexId: string
+  playerId: number
+}
+
 export interface KnightPlayedPayload {
   playerId: number
 }
@@ -651,6 +664,10 @@ export interface RoomChannelHandlers {
   // comments above for the trusted-apply reasoning.
   onBarbarianShipAdvanced?: (payload: BarbarianShipAdvancedPayload) => void
   onBarbarianAttackResolved?: (payload: BarbarianAttackResolvedPayload) => void
+  // Cities & Knights barbarian pillage (Task 6) — fires once per affected
+  // player, same "independent per-player queue" shape as
+  // onScienceFreeResourcePicked below.
+  onPillageResolved?: (payload: PillageResolvedPayload) => void
   onKnightPlayed?: (payload: KnightPlayedPayload) => void
   onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
   onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
@@ -917,6 +934,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<BarbarianAttackResolvedPayload>('broadcast', { event: 'BARBARIAN_ATTACK_RESOLVED' }, ({ payload }) => {
       handlersRef.current.onBarbarianAttackResolved?.(payload)
     })
+    channel.on<PillageResolvedPayload>('broadcast', { event: 'PILLAGE_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onPillageResolved?.(payload)
+    })
     channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, ({ payload }) => {
       handlersRef.current.onKnightPlayed?.(payload)
     })
@@ -1182,6 +1202,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastBarbarianAttackResolved = (payload: BarbarianAttackResolvedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_ATTACK_RESOLVED', payload })
   }
+  const broadcastPillageResolved = (payload: PillageResolvedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PILLAGE_RESOLVED', payload })
+  }
   const broadcastKnightPlayed = (payload: KnightPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PLAYED', payload })
   }
@@ -1326,6 +1349,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
+    broadcastPillageResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,

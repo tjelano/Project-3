@@ -180,6 +180,12 @@ export interface Player {
   // (checked across all players' cityWalls combined, not enforced by this
   // field's shape alone).
   cityWalls: string[]
+  // Cumulative, non-transferable Defender of Catan VP count — unlike
+  // longestRoadHolderId/largestArmyHolderId (single current holder, can
+  // change hands), a token once awarded is never taken back and multiple
+  // players can hold one or more. Unlimited (no cap at the physical
+  // component count of 6 — confirmed with the user).
+  defenderOfCatanCount: number
 }
 
 export type BuildingType = 'settlement' | 'city'
@@ -393,6 +399,13 @@ export interface GameRules {
   // interaction, matching the "provably inert when its dependency is off"
   // bar every Phase A/B feature already had to clear.
   citiesAndKnightsKnights: boolean
+  // Cities & Knights barbarian track & attacks: unlike every other C&K
+  // flag, this one hard-requires citiesAndKnightsKnights — without
+  // knights, defender strength is always 0, so every attack would be an
+  // unwinnable auto-pillage with no possible defense. Enforced in
+  // HouseRulesDropdown.tsx's UI (Task 11), not just documented here. See
+  // docs/superpowers/specs/2026-08-18-cities-knights-barbarian-attacks-design.md.
+  citiesAndKnightsBarbarians: boolean
 }
 
 export const DEFAULT_GAME_RULES: GameRules = {
@@ -406,6 +419,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
   citiesAndKnightsCommodities: false,
   citiesAndKnightsProgressCards: false,
   citiesAndKnightsKnights: false,
+  citiesAndKnightsBarbarians: false,
 }
 
 // A victoryPointTarget set above WINNING_SCORE needs proportionally more of
@@ -502,6 +516,7 @@ export function createInitialPlayers(
     knightPieces: [],
     knightSupply: { ...KNIGHT_STARTING_SUPPLY },
     cityWalls: [],
+    defenderOfCatanCount: 0,
   }))
 }
 
@@ -527,6 +542,7 @@ export interface ScoreBreakdown {
   metropolis: number
   progressCardVP: number
   merchantVP: number
+  defenderOfCatanVP: number
   total: number
 }
 
@@ -571,8 +587,9 @@ export function getScoreBreakdown(
     metropolis,
     progressCardVP,
     merchantVP,
+    defenderOfCatanVP: player.defenderOfCatanCount,
     total:
-      settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis + progressCardVP + merchantVP,
+      settlementCount + cityCount * 2 + victoryPointCards + longestRoad + largestArmy + metropolis + progressCardVP + merchantVP + player.defenderOfCatanCount,
   }
 }
 

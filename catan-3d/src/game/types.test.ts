@@ -316,3 +316,24 @@ describe('createInitialPlayers — knights & city walls', () => {
     }
   })
 })
+
+describe('createInitialPlayers — defenderOfCatanCount', () => {
+  it('starts every player at 0 Defender of Catan tokens', () => {
+    const players = createInitialPlayers(3)
+    for (const player of players) {
+      expect(player.defenderOfCatanCount).toBe(0)
+    }
+  })
+})
+
+describe('getScoreBreakdown — defenderOfCatanVP', () => {
+  it('counts defenderOfCatanCount as public VP, unmodified', () => {
+    const [player] = createInitialPlayers(1)
+    player.defenderOfCatanCount = 2
+    const breakdown = getScoreBreakdown(player, {}, null, null, { science: null, trade: null, politics: null }, null)
+    expect(breakdown.defenderOfCatanVP).toBe(2)
+    expect(breakdown.total).toBeGreaterThanOrEqual(2)
+    const publicScore = getPublicScore(player, {}, null, null, { science: null, trade: null, politics: null }, null)
+    expect(publicScore).toBeGreaterThanOrEqual(2) // NOT subtracted, unlike hidden dev-card VP
+  })
+})

@@ -537,6 +537,14 @@ function App() {
   // TURN_PASSED receiver" reasoning, not handleEndTurn, which only guards
   // and delegates to endTurn -> applyTurnAdvance.
   const [knightsPromotedThisTurn, setKnightsPromotedThisTurn] = useState<Set<string>>(new Set())
+  // Cities & Knights "Chase Away the Robber" (Task 11) — which knight is
+  // mid-action while gamePhase is 'moveRobber' via THIS entry point (as
+  // opposed to a rolled 7). Local-only, cleared once moveRobber resolves —
+  // also cleared in applyTurnAdvance below for defense-in-depth consistency
+  // with pendingKnightRecruit/armedKnightAction just above, even though
+  // moveRobber always resolves synchronously within the same interaction
+  // that arms it and so never needs to survive to a turn boundary.
+  const [chasingRobberKnightId, setChasingRobberKnightId] = useState<string | null>(null)
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -667,6 +675,12 @@ function App() {
     // pay for) a knight on the outgoing player's behalf.
     setPendingKnightRecruit(null)
     setArmedKnightAction(null)
+    // Cities & Knights "Chase Away the Robber" (Task 11) — chasingRobberKnightId
+    // is local-only and always cleared synchronously within moveRobber's own
+    // body before this function could ever run for the same action, so this
+    // is defense-in-depth only (matching pendingKnightRecruit/armedKnightAction
+    // just above), not a fix for an observed exploit.
+    setChasingRobberKnightId(null)
     // Cities & Knights knight promote (Task 8) — same turn-boundary exploit
     // pendingKnightRecruit's own comment above describes: without this, a
     // stale knightsPromotedThisTurn entry from the OUTGOING player would
@@ -1260,6 +1274,7 @@ function App() {
     broadcastKnightPromoted,
     broadcastKnightMoved,
     broadcastKnightDisplaced,
+    broadcastKnightDeactivatedAfterChase,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1808,6 +1823,19 @@ function App() {
           }
           return p
         }),
+      )
+    },
+    // Cities & Knights "Chase Away the Robber" (Task 11) — same trusted-apply
+    // reasoning as onKnightDisplaced above: the sending client already
+    // validated the knight's adjacency to the robber's hex locally
+    // (armChaseRobber) before ever broadcasting.
+    onKnightDeactivatedAfterChase: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== payload.playerId
+            ? p
+            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: false } : k)) },
+        ),
       )
     },
     // The active player's live vertex/edge hover, mirrored so spectators
@@ -3170,6 +3198,30 @@ function App() {
 
     applyRobberMove(tileId, thief.id, victimId, stolenResource)
     if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenResource })
+
+    // Cities & Knights "Chase Away the Robber" (Task 11) — only set when
+    // this resolution was armed via armChaseRobber (a rolled 7 never sets
+    // chasingRobberKnightId), so a plain 7-triggered move is unaffected.
+    // applyRobberMove just above already returned gamePhase to 'playing'
+    // (it's the shared helper both this local path and the onRobberMoved
+    // network receiver call — see its own comment), so this simply appends
+    // to moveRobber's tail rather than needing to precede a
+    // setGamePhase('playing') call of moveRobber's own (moveRobber has none;
+    // it delegates that transition to applyRobberMove). `thief` is the SAME
+    // binding computed above, reused here rather than redeclared — a knight
+    // action can only ever be armed by the current turn's player (armChaseRobber
+    // enforces isMyTurn, like every other knight handler), so the knight's
+    // owner and this thief are always the same player.
+    if (chasingRobberKnightId) {
+      const chaserId = chasingRobberKnightId
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== thief.id ? p : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === chaserId ? { ...k, active: false } : k)) },
+        ),
+      )
+      setChasingRobberKnightId(null)
+      if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
+    }
   }
 
   // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
@@ -4296,6 +4348,39 @@ function App() {
     setArmedKnightAction({ knightId, mode: 'displace' })
   }
 
+  // Cities & Knights "Chase Away the Robber" (Task 11) — an active knight
+  // adjacent to the robber's hex triggers the SAME robber-move-and-steal
+  // flow a rolled 7 already uses (gamePhase = 'moveRobber', resolved by
+  // clicking a tile in RobberLayer). A knight action can only ever be taken
+  // by the current turn's player (every other knight handler above already
+  // enforces this via isMyTurn), so the knight owner and moveRobber's own
+  // `thief` are always the same player — chasingRobberKnightId just
+  // remembers WHICH knight initiated it, so moveRobber's tail can deactivate
+  // it once the move resolves.
+  const armChaseRobber = (knightId: string) => {
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (gamePhase !== 'playing') {
+      warn('Cannot chase the robber right now.')
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !knight.active) {
+      warn('That knight cannot chase the robber.')
+      return
+    }
+    const adjacentTileIds = new Set(graph.vertexTileIds.get(knight.vertexId) ?? [])
+    if (!adjacentTileIds.has(robberTileId)) {
+      warn('That knight is not next to the robber.')
+      return
+    }
+    setChasingRobberKnightId(knightId)
+    setGamePhase('moveRobber')
+  }
+
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
   // Move handler extends this with a branch checking armedKnightAction
   // instead of pendingKnightRecruit, rather than a second handler.
@@ -5101,6 +5186,10 @@ function App() {
     // createInitialPlayers, so no separate reset is needed for those.
     setPendingKnightRecruit(null)
     setArmedKnightAction(null)
+    // Cities & Knights "Chase Away the Robber" (Task 11) — same "always
+    // reset on a fresh game" treatment pendingKnightRecruit/armedKnightAction
+    // just above get; local-only UI state, never persisted/broadcast.
+    setChasingRobberKnightId(null)
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -5776,6 +5865,8 @@ function App() {
         onPromoteKnight={promoteKnight}
         onArmKnightMove={armKnightMove}
         onArmKnightDisplace={armKnightDisplace}
+        onArmChaseRobber={armChaseRobber}
+        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(robberTileId)}
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         progressCardDeckCounts={{

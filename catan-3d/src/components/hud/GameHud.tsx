@@ -10,6 +10,7 @@ import {
   type CommodityType,
   type DevCardType,
   type ImprovementTrack,
+  type KnightPiece,
   type MetropolisHolders,
   type Player,
   type ResourceType,
@@ -205,6 +206,15 @@ interface GameHudProps {
   // armedKnightAction" shape onArmKnightMove's own comment above describes,
   // just with mode: 'displace' instead of 'move'.
   onArmKnightDisplace: (knightId: string) => void
+  // Cities & Knights "Chase Away the Robber" (Task 11) — same "arms App.tsx's
+  // own local state" shape onArmKnightMove/onArmKnightDisplace's own comments
+  // above describe, but arms chasingRobberKnightId (and gamePhase =
+  // 'moveRobber') instead of armedKnightAction. canChaseRobber is computed in
+  // App.tsx (needs graph.vertexTileIds/robberTileId, neither of which this
+  // component otherwise receives), unlike canPromote below which is computed
+  // right here from a plain imported pure function.
+  onArmChaseRobber: (knightId: string) => void
+  canChaseRobber: (knight: KnightPiece) => boolean
   armedKnightId: string | null
   // Once per turn, per knight INSTANCE — gates the Promote button
   // alongside canPromoteKnight's own cost/supply/track checks, since that
@@ -390,6 +400,8 @@ export function GameHud({
   onPromoteKnight,
   onArmKnightMove,
   onArmKnightDisplace,
+  onArmChaseRobber,
+  canChaseRobber,
   armedKnightId,
   knightsPromotedThisTurn,
   progressCardDeckCounts,
@@ -674,10 +686,8 @@ export function GameHud({
           </>
         )}
         {/* Cities & Knights knights — Recruit (Task 7), Activate/Promote
-            (Task 8), Move (Task 9), and Displace (Task 10) are wired up;
-            Chase Robber is still an inline no-op/false placeholder (Task 11
-            replaces it, same pattern KnightLayer's own displaceTargets/
-            onSelectKnight used before Task 10 wired them). */}
+            (Task 8), Move (Task 9), Displace (Task 10), and Chase Robber
+            (Task 11) are all wired up. */}
         {citiesAndKnightsKnights && (
           <KnightsPanel
             player={viewer}
@@ -687,10 +697,10 @@ export function GameHud({
             onPromote={onPromoteKnight}
             onArmMove={onArmKnightMove}
             onArmDisplace={onArmKnightDisplace}
-            onArmChaseRobber={() => {} /* Task 11 replaces this */}
+            onArmChaseRobber={onArmChaseRobber}
             canRecruit={canRecruitKnight}
             canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}
-            canChaseRobber={() => false /* Task 11 replaces this */}
+            canChaseRobber={canChaseRobber}
             armedKnightId={armedKnightId}
           />
         )}

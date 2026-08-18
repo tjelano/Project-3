@@ -110,6 +110,7 @@ import {
   knightMoveTargets,
   nextKnightStrength,
   recruitableVertices,
+  selectSmithingPromotions,
 } from './game/knights'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
@@ -1879,6 +1880,13 @@ function App() {
     // comment in useRoomChannel.ts for why) — a knight whose current
     // strength no longer has a next rung (already mighty, or missing) is
     // simply skipped rather than trusting the sender's knightIds list blindly.
+    // Unlike playSmithing's own SELECTION step (which must track a running
+    // supply count — see its own comment in App.tsx for why a static
+    // snapshot there can drive knightSupply negative), this handler never
+    // selects anything: payload.knightIds already IS the sender's validated,
+    // running-supply-respecting choice, so sequentially decrementing
+    // `supply` below (same pattern playSmithing's own apply step uses) can't
+    // go negative as long as the sender validated correctly.
     onSmithingPlayed: (payload) => {
       setPlayers((prev) =>
         prev.map((p) => {
@@ -4808,17 +4816,20 @@ function App() {
       warn('No Smithing card to play.')
       return
     }
-    const promotable = player.knightPieces.filter(
-      (k) =>
-        nextKnightStrength(k.strength) != null &&
-        canPromoteKnight({ ...player, resources: { ...player.resources, wool: 999, ore: 999 } }, k) &&
-        !knightsPromotedThisTurn.has(k.id),
+    // selectSmithingPromotions (game/knights.ts) tracks a RUNNING copy of
+    // knightSupply while picking candidates, rather than trusting a single
+    // static check per candidate — see its own comment for why: two knights
+    // eligible for the SAME next tier can't both be selected off a snapshot
+    // showing supply[next] === 1 for both, only off a count that actually
+    // decrements as each candidate is accepted.
+    const toPromote = selectSmithingPromotions(
+      { ...player, resources: { ...player.resources, wool: 999, ore: 999 } },
+      knightsPromotedThisTurn,
     )
-    if (promotable.length === 0) {
+    if (toPromote.length === 0) {
       warn('No knights eligible to promote.')
       return
     }
-    const toPromote = promotable.slice(0, 2)
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id !== player.id) return p

@@ -53,6 +53,42 @@ export function canBuildCityWall(
   return canAfford(player.resources, CITY_WALL_COST)
 }
 
+// Cities & Knights Smithing (Task 13) — selects up to `max` (2, per the
+// card text) of the player's OWN knights to promote for free. Tracks a
+// RUNNING copy of knightSupply (remainingSupply below) as each candidate is
+// accepted, rather than trusting canPromoteKnight's own static read of
+// player.knightSupply across the whole selection: that field is unchanged
+// on `player` for every candidate in one call, so two knights eligible for
+// the SAME next tier would BOTH pass it when supply[next] === 1 for both —
+// only a count that actually decrements between candidates catches that a
+// single tier-slot can't cover two promotions. Left unfixed, the caller's
+// own apply step (which DOES decrement sequentially, once per selected
+// knight) would then drive knightSupply[next] to -1 — reachable in ordinary
+// play, since knight displacement already returns a displaced knight's
+// strength to its owner's supply mid-game, which is exactly how a tier's
+// supply becomes 1 rather than 0.
+//
+// `player` should already have resources overridden to bypass
+// canPromoteKnight's own affordability check (the caller's throwaway-clone
+// trick — see playSmithing's own comment in App.tsx), since Smithing makes
+// every promotion free; canPromoteKnight's track-level/politics check still
+// runs per candidate unmodified, since that doesn't change per-selection.
+export function selectSmithingPromotions(player: Player, alreadyPromotedThisTurn: Set<string>, max = 2): KnightPiece[] {
+  const remainingSupply = { ...player.knightSupply }
+  const selected: KnightPiece[] = []
+  for (const knight of player.knightPieces) {
+    if (selected.length >= max) break
+    if (alreadyPromotedThisTurn.has(knight.id)) continue
+    const next = nextKnightStrength(knight.strength)
+    if (!next) continue
+    if (!canPromoteKnight(player, knight)) continue
+    if (remainingSupply[next] <= 0) continue
+    remainingSupply[next] -= 1
+    selected.push(knight)
+  }
+  return selected
+}
+
 // Builds a vertex adjacency map restricted to edges owned by playerId — the
 // same technique game/trophies.ts's calculateLongestRoad already uses for
 // its own DFS adjacency.

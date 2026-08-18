@@ -550,6 +550,28 @@ export interface TreasonRemovedPayload {
   removedKnight: KnightPiece
 }
 
+// Cities & Knights Taxation (Task 10) — sent ALREADY-RESOLVED (same
+// trusted-apply model as PillageResolvedPayload/BarbarianWinnerDrawResolvedPayload
+// above): the acting client is the only one that rolls each victim's random
+// stolen resource (resolveTaxation, App.tsx), so every other client just
+// replays the SAME `steals` array rather than re-rolling its own — a
+// receiver re-deriving independently would almost certainly disagree with
+// what the acting client's players actually lost. Unlike RobberMovedPayload
+// (one victim, one resource), Taxation can steal from MULTIPLE players in
+// one play, hence the array — each entry's `resource` is null when that
+// particular victim had nothing to steal, same meaning
+// RobberMovedPayload.stolenResource === null already carries. The card
+// itself is removed from the actor's hand separately, via the earlier,
+// generic ProgressCardPlayedPayload broadcast (see onProgressCardPlayed's
+// 'taxation' branch) — same two-broadcast split Guild Dues/Espionage/
+// Intrigue already use, since pendingTaxation (the tile-picker) is
+// local-only UI state on the acting client until a hex is actually clicked.
+export interface TaxationResolvedPayload {
+  playerId: number
+  tileId: string
+  steals: { victimId: number; resource: ResourceType | null }[]
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -800,6 +822,10 @@ export interface RoomChannelHandlers {
   // Commercial Harbor/Diplomacy).
   onIntrigueResolved?: (payload: IntrigueResolvedPayload) => void
   onTreasonRemoved?: (payload: TreasonRemovedPayload) => void
+  // Cities & Knights Taxation (Task 10) — see TaxationResolvedPayload's own
+  // comment above for the trusted-apply reasoning and the two-broadcast
+  // split with the generic ProgressCardPlayedPayload broadcast.
+  onTaxationResolved?: (payload: TaxationResolvedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -1079,6 +1105,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<TreasonRemovedPayload>('broadcast', { event: 'TREASON_REMOVED' }, ({ payload }) => {
       handlersRef.current.onTreasonRemoved?.(payload)
     })
+    channel.on<TaxationResolvedPayload>('broadcast', { event: 'TAXATION_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onTaxationResolved?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1353,6 +1382,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastTreasonRemoved = (payload: TreasonRemovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TREASON_REMOVED', payload })
   }
+  const broadcastTaxationResolved = (payload: TaxationResolvedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TAXATION_RESOLVED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1418,6 +1450,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastEncouragementPlayed,
     broadcastIntrigueResolved,
     broadcastTreasonRemoved,
+    broadcastTaxationResolved,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

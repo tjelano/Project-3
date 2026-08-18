@@ -592,6 +592,17 @@ function App() {
   // that arms it and so never needs to survive to a turn boundary.
   const [chasingRobberKnightId, setChasingRobberKnightId] = useState<string | null>(null)
 
+  // Cities & Knights Taxation (Task 10) — which player armed Taxation and is
+  // now choosing a hex via the SAME RobberLayer/gamePhase='moveRobber' UI a
+  // rolled 7 or chasingRobberKnightId above already use. moveRobber's
+  // leading branch checks this FIRST, so a tile click resolves through
+  // resolveTaxation's multi-victim steal instead of falling through to
+  // applyRobberMove's single-victim one. Local-only, like
+  // chasingRobberKnightId — armTaxation never broadcasts the arm step
+  // itself (nothing needs to know a hex is being chosen until
+  // resolveTaxation's own broadcast lands with the actual result).
+  const [pendingTaxation, setPendingTaxation] = useState<number | null>(null)
+
   // Cities & Knights Intrigue (Task 14) — non-null only on the acting
   // client's own screen while a displace target is being chosen, same
   // local-only "spend up front, resolve on the next click" treatment
@@ -1418,6 +1429,7 @@ function App() {
     broadcastEncouragementPlayed,
     broadcastIntrigueResolved,
     broadcastTreasonRemoved,
+    broadcastTaxationResolved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1752,6 +1764,16 @@ function App() {
         // onIntrigueResolved once the actor picks a knight on the board.
         setPlayers((prev) =>
           prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)),
+        )
+      } else if (payload.card === 'taxation') {
+        // Cities & Knights Taxation (Task 10) — same split as Guild Dues/
+        // Espionage/Intrigue above: pendingTaxation (the hex picker) is
+        // local-only UI state on the acting client, so a receiver just
+        // removes the spent card here; the actual multi-victim steal
+        // arrives separately via onTaxationResolved once the actor picks a
+        // hex on the board.
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)),
         )
       }
     },
@@ -2161,6 +2183,38 @@ function App() {
           return p
         }),
       )
+    },
+    // Cities & Knights Taxation (Task 10) — trusted-apply of resolveTaxation's
+    // own already-resolved `steals` array (same model as onPillageResolved/
+    // onBarbarianWinnerDrawResolved above): the acting client already rolled
+    // every victim's random stolen resource, so this just replays that SAME
+    // result rather than re-deriving it. Each entry's resource is validated
+    // against RESOURCE_ORDER before ever being used as a resources[] key —
+    // same reasoning applyRobberMove's own safeStolenResource guard gives —
+    // and an invalid entry only skips THAT ONE victim's steal (the robber
+    // still moves, and every other victim's steal still applies) rather than
+    // aborting the whole payload. The spent card itself was already removed
+    // via the earlier onProgressCardPlayed 'taxation' branch above.
+    onTaxationResolved: (payload) => {
+      setRobberTileId(payload.tileId)
+      playSfx('robber')
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const steal = payload.steals.find((s) => s.victimId === p.id)
+          if (!steal || steal.resource == null) return p
+          if (!RESOURCE_ORDER.includes(steal.resource)) {
+            console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen resource:', steal.resource)
+            return p
+          }
+          const resource = steal.resource
+          return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - 1 } }
+        }),
+      )
+      const tile = tileById.get(payload.tileId)
+      const actor = playerById.get(payload.playerId)
+      if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
+      setPendingTaxation(null)
+      setGamePhase('playing')
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -3650,11 +3704,92 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the resource-discard timeout effect above (App.tsx:1856): playerById/onlineInfo/inform/applyProgressDiscard/broadcastProgressDiscardConfirmed read fresh via closure.
   }, [progressCardOverLimitPlayerIds, isEffectiveHost])
 
+  // Cities & Knights Taxation (Task 10) — the multi-victim steal Taxation
+  // needs, as opposed to applyRobberMove's own single-victim one: EVERY
+  // player with a building on the chosen hex loses one random card, not
+  // just one randomly-picked victim. Declared here, immediately before
+  // moveRobber (rather than beside armTaxation, further down the file),
+  // for the same "don't reference a later-declared const" reason
+  // canPlayProgressCardNow's own comment gives — moveRobber's leading
+  // branch below calls this directly, so it has to already exist by then.
+  //
+  // Builds each victim's heldResources from `next` — the running copy
+  // INSIDE the setPlayers updater — rather than from the outer-scope
+  // `players`/`playerById` snapshot captured when resolveTaxation started
+  // running. Two things make this matter: first, this loop resolves
+  // MULTIPLE victims in a single pass, and each victim's steal has to see
+  // whatever `next` actually holds at that point in the loop (even though,
+  // in practice, no two victims here ever share resources, so one victim's
+  // mutation never changes what a DIFFERENT victim holds — the real reason
+  // is the second one). Second, and the one that actually matters: `next`
+  // starts as `prev`, the state React hands the updater at the instant it
+  // runs, which is guaranteed CURRENT — unlike the outer-scope `players`
+  // this function closed over back when armTaxation/resolveTaxation were
+  // called, which could already be stale by the time this actually
+  // executes (a trade, another card, or even another victim's own hand
+  // could have changed `players` in between). Reading fresh inside the
+  // updater is what every other setPlayers call in this file that depends
+  // on current resource counts already does, for the exact same reason.
+  const resolveTaxation = (tileId: string) => {
+    const playerId = pendingTaxation
+    if (playerId == null) return
+    if (tileId === robberTileId) {
+      warn('The Robber must move to a new hex!')
+      return
+    }
+    setRobberTileId(tileId)
+    playSfx('robber')
+    const vertexIds = graph.tileVertexIds.get(tileId) ?? []
+    const victimIds = new Set<number>()
+    for (const vertexId of vertexIds) {
+      const building = settlements[vertexId]
+      if (building) victimIds.add(building.ownerId)
+    }
+    const steals: { victimId: number; resource: ResourceType | null }[] = []
+    setPlayers((prev) => {
+      let next = prev
+      for (const victimId of victimIds) {
+        const victim = next.find((p) => p.id === victimId)
+        if (!victim) continue
+        const heldResources: ResourceType[] = []
+        for (const resource of RESOURCE_ORDER) {
+          for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
+        }
+        if (heldResources.length === 0) {
+          steals.push({ victimId, resource: null })
+          continue
+        }
+        const stolenResource = heldResources[Math.floor(Math.random() * heldResources.length)]
+        steals.push({ victimId, resource: stolenResource })
+        next = next.map((p) => (p.id === victimId ? { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] - 1 } } : p))
+      }
+      return next
+    })
+    const tile = tileById.get(tileId)
+    const actor = playerById.get(playerId)
+    if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
+    setPendingTaxation(null)
+    setGamePhase('playing')
+    if (onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals })
+  }
+
   const moveRobber = (tileId: string) => {
     if (winner) return
     if (gamePhase !== 'moveRobber') return
     if (!isMyTurn) {
       warn("It's not your turn.")
+      return
+    }
+    // Cities & Knights Taxation (Task 10) — leading branch, checked BEFORE
+    // the ordinary single-victim body below (a distinct pending flag, same
+    // "leading branch, separate flag" shape pendingTreasonPlacement's own
+    // comment in handleKnightVertexSelect describes), so the two never both
+    // fire for the same click. Does NOT touch applyRobberMove or
+    // chasingRobberKnightId below — Taxation resolves entirely through its
+    // own resolveTaxation instead of falling through to this function's
+    // existing single-victim steal.
+    if (pendingTaxation != null) {
+      resolveTaxation(tileId)
       return
     }
     if (tileId === robberTileId) {
@@ -5723,15 +5858,41 @@ function App() {
 
   const cancelEspionage = () => setPendingEspionage(null)
 
-  // Cities & Knights — Taxation is the LAST knight-dependent stub card left
-  // (it needs Phase C2's barbarian-attack/robber-active gate, out of this
-  // task's scope); Engineering/Smithing/Encouragement were unstubbed in
-  // Task 13 and Intrigue/Treason in Task 14 (playIntrigue/playTreason
-  // below) — none of those route through here anymore. Taxation still
-  // warns and stays in hand unchanged — matching the design spec's "returns
-  // the card to the player's hand unchanged" requirement.
-  const playStubProgressCard = (card: ProgressCardType) => {
-    warn(`${PROGRESS_CARD_LABELS[card]} isn't implemented yet (needs Knights & Barbarians) — kept in hand.`)
+  // Cities & Knights Taxation (Task 10) — the last progress-card stub;
+  // Engineering/Smithing/Encouragement were unstubbed in Task 13 and
+  // Intrigue/Treason in Task 14 (playIntrigue/playTreason below). Gated on
+  // robberActive (Task 3's barbarian-attack trigger) in addition to the
+  // usual canPlayProgressCardNow/isMyTurn checks every other play* handler
+  // has — CN3087 only allows Taxation once the robber is active, a rule
+  // this card alone needs (no other progress card is gated on
+  // robberActive). Spends the card and opens the SAME tile-picker
+  // (gamePhase='moveRobber') a rolled 7 or Chase Away the Robber
+  // (armChaseRobber below) already use; resolveTaxation (declared just
+  // above moveRobber) does the actual multi-victim steal once a hex is
+  // clicked. Same two-broadcast split as Guild Dues/Espionage/Intrigue
+  // (see onProgressCardPlayed's 'taxation' branch) — a receiving client
+  // removes the card from this player's hand right away, and gets the
+  // steal result separately once resolveTaxation's own broadcast lands.
+  const armTaxation = () => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (!robberActive) {
+      warn('Taxation can only be played after the first barbarian attack.')
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('taxation')) {
+      warn('No Taxation card to play.')
+      return
+    }
+    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)))
+    setPendingTaxation(player.id)
+    setGamePhase('moveRobber')
+    inform(`${player.name} played Taxation — choose a hex for the robber.`)
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'taxation' })
   }
 
   // Cities & Knights Intrigue (Task 14) — every opponent knight reachable
@@ -6198,6 +6359,13 @@ function App() {
     // reset on a fresh game" treatment pendingKnightRecruit/armedKnightAction
     // just above get; local-only UI state, never persisted/broadcast.
     setChasingRobberKnightId(null)
+    // Cities & Knights Taxation (Task 10) — same "always reset on a fresh
+    // game" treatment chasingRobberKnightId just above gets; local-only UI
+    // state, never persisted/broadcast. A stranded pendingTaxation would be
+    // just as damaging: moveRobber's leading branch checks it BEFORE the
+    // ordinary single-victim body, so it would hijack every robber-tile
+    // click in the next game.
+    setPendingTaxation(null)
     // Cities & Knights Intrigue/Treason — same "always reset on a fresh
     // game" treatment as the pending flags just above. A stranded
     // pendingTreasonPlacement is the most damaging: handleKnightVertexSelect
@@ -6351,6 +6519,12 @@ function App() {
     // resolves it ahead of every ordinary build check, so it would hijack
     // road placement for the rest of the reconnected session.
     setPendingDiplomacyRemoval(null)
+    // Cities & Knights Taxation (Task 10) — same "always reset on restore"
+    // treatment as the flags just above, same resetGame reasoning: a
+    // stranded pendingTaxation would hijack moveRobber's leading branch
+    // (intercepting every robber-tile click) for the rest of the
+    // reconnected session.
+    setPendingTaxation(null)
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
     // would hijack handleKnightVertexSelect's leading branch (intercepting
@@ -6648,9 +6822,13 @@ function App() {
     // initial click, same reason Alchemy/Invention/Merchant Fleet/
     // Commercial Harbor/Diplomacy above are excluded from this object —
     // see onPlayTreason's own wiring into GameHud instead.
-    // Cities & Knights Taxation — the LAST remaining stub card (needs
-    // Phase C2's barbarian/robber-active gate, out of this task's scope).
-    taxation: () => playStubProgressCard('taxation'),
+    // Cities & Knights Taxation (Task 10) — fits the same plain
+    // click-to-play shape guildDues/espionage/merchant/engineering/
+    // smithing/encouragement/intrigue above do: armTaxation itself needs no
+    // argument before the click (it just spends the card and arms
+    // RobberLayer's existing tile-picker), so it needs no dedicated GameHud
+    // picker UI either, the same reasoning intrigue's own comment gives.
+    taxation: armTaxation,
   }
 
   // Recomputed every render (cheap — one VP-comparison filter over

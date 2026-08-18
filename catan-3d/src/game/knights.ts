@@ -295,7 +295,14 @@ export function resolveBarbarianAttack(
 
   if (defendersWin) {
     const maxStrength = Math.max(...activeKnightStrengthByPlayer.values())
-    const topContributors = players.filter((p) => activeKnightStrengthByPlayer.get(p.id) === maxStrength)
+    // Nobody put a single active knight on the board, so nobody defended
+    // anything — reachable whenever barbarianStrength is 0 (no cities built
+    // yet, which an early enough 7th 'ship' roll makes real), since 0 >= 0
+    // still counts as a defenders' win. Without this every player ties at
+    // maxStrength 0 and each collects a free progress card for doing
+    // nothing.
+    const topContributors =
+      maxStrength === 0 ? [] : players.filter((p) => activeKnightStrengthByPlayer.get(p.id) === maxStrength)
     const tied = topContributors.length > 1
     return {
       barbarianStrength,

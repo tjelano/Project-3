@@ -33,10 +33,11 @@ const PROGRESS_CARD_ART: Record<ProgressCardType, string> = {
 }
 
 // Cards with no Play handler wired yet show this instead of a working
-// button. Of the original 6 knight-dependent no-ops, only Taxation remains
-// (it needs Phase C2's barbarian-attack/robber-active gate) — Engineering/
-// Smithing/Encouragement (Task 13) and Intrigue/Treason (Task 14) are all
-// wired now. Deliberately a Partial — VP cards (printing/constitution) get
+// button. All 6 of the original knight-dependent no-ops are wired now —
+// Engineering/Smithing/Encouragement (Task 13), Intrigue/Treason (Task 14),
+// and Taxation (Phase C2 Task 10, which supplied the barbarian-attack/
+// robber-active gate it was waiting on). Deliberately a Partial — VP cards
+// (printing/constitution) get
 // NO entry at all here, same "no play action, held silently for score"
 // precedent as DEV_CARD_PLAY_LABELS omitting victoryPoint (game/types.ts).
 export type ProgressCardPlayHandlers = Partial<Record<ProgressCardType, () => void>>

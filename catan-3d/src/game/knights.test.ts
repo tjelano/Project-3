@@ -355,6 +355,22 @@ describe('resolveBarbarianAttack', () => {
     )
   })
 
+  it('nobody wins when no player fielded an active knight, even though defenders technically "win"', () => {
+    // Degenerate but reachable: the 7th 'ship' roll can land before anyone
+    // has built a city, so barbarianStrength is 0 and 0 >= 0 is a
+    // defenders' win — but with every player at 0 active knights there is
+    // no contributor to reward, so winners must be empty rather than an
+    // all-tied list handing everyone a free progress card.
+    const p1 = playerWithCities(1, [])
+    const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'mighty', active: false, vertexId: 'Y' }])
+    const result = resolveBarbarianAttack([p1, p2], settlementsFor([]))
+    expect(result.barbarianStrength).toBe(0)
+    expect(result.defenderStrength).toBe(0)
+    expect(result.defendersWin).toBe(true)
+    expect(result.pillageTargets).toEqual([])
+    expect(result.winners).toEqual([])
+  })
+
   it('inactive knights do not count toward defender strength', () => {
     const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'mighty', active: false, vertexId: 'X' }])
     const settlements = settlementsFor([{ vertexId: 'A', ownerId: 1, type: 'city' }])

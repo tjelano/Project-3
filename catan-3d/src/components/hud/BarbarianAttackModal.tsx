@@ -11,6 +11,18 @@ export interface BarbarianAttackModalProps {
   // layout. The winner-draw deck picker below IS a modal-shaped widget
   // though, so Task 7 renders it right here instead.
   pendingChoiceLabel: string | null
+  // True while ANY player still owes a pillage-target choice. The pillage
+  // picker (PillageLayer) lives in the 3D Canvas UNDERNEATH this component,
+  // so the usual full-viewport backdrop below would swallow every click
+  // meant for it — a player with 2+ eligible cities (i.e. one the auto-skip
+  // effect doesn't resolve for them) could never actually pick, and the
+  // modal has no dismiss button until both queues empty, so the table
+  // soft-locked. While this is true the component renders as a small,
+  // pointer-events-none banner instead (the design spec's own wording:
+  // "the modal shrinks to a small 'Choose which city to pillage' banner
+  // while a board overlay highlights only that player's own eligible
+  // cities for a direct click").
+  pillageChoicePending: boolean
   // True while it's the LOCAL player's own turn to pick a progress-card
   // deck to draw from (a tied Defender-of-Catan winner) — gated on
   // App.tsx's activeWinnerDrawPlayerId, never winnerDrawQueue.length, for
@@ -28,20 +40,50 @@ export interface BarbarianAttackModalProps {
 // reads). Same full-screen dialog treatment as TradeOfferPrompt/
 // VictoryBanner — role="dialog"/aria-modal + useModalFocusTrap, no onEscape
 // since (like VictoryBanner) the only way out is significant enough that it
-// shouldn't fire from an accidental Escape press.
+// shouldn't fire from an accidental Escape press — EXCEPT while a pillage
+// choice is outstanding, when it collapses to a non-blocking banner (see
+// pillageChoicePending above).
 export function BarbarianAttackModal({
   result,
   players,
   pendingChoiceLabel,
+  pillageChoicePending,
   winnerDrawActive,
   onDrawFromTrack,
 }: BarbarianAttackModalProps) {
   const outcomeText = result.defendersWin
-    ? result.winners.some((w) => w.tied)
-      ? 'The knights held — but no single defender stood out. Tied contributors each draw a progress card.'
-      : `The knights held! ${players.find((p) => p.id === result.winners[0]?.playerId)?.name ?? 'A player'} is the Defender of Catan.`
+    ? // Empty winners on a defenders' win means nobody fielded an active
+      // knight at all (resolveBarbarianAttack's maxStrength === 0 case) —
+      // the attack was repelled by an empty board, so there's no Defender
+      // of Catan to name.
+      result.winners.length === 0
+      ? 'Catan was spared — but not one knight took the field, so no one is the Defender of Catan.'
+      : result.winners.some((w) => w.tied)
+        ? 'The knights held — but no single defender stood out. Tied contributors each draw a progress card.'
+        : `The knights held! ${players.find((p) => p.id === result.winners[0]?.playerId)?.name ?? 'A player'} is the Defender of Catan.`
     : 'The barbarians are victorious. Catan will be pillaged.'
+  // Called unconditionally (hooks rules) even in the banner branch below,
+  // which never attaches the ref — a focus trap on a non-modal banner that
+  // deliberately leaves the board interactive would be wrong anyway.
   const dialogRef = useModalFocusTrap<HTMLDivElement>()
+
+  // Banner branch — deliberately borrows EventBanner's own positioning and
+  // glass-panel classes rather than inventing new ones, dropped two slots
+  // down the centre column (top-44) so it clears both EventBanner's own
+  // top-20 — applyPillage's inform() raises one at exactly this moment —
+  // and GameHud's top-32 event-die indicator. pointer-events-none is the
+  // whole point: every click has to reach PillageLayer's spheres in the
+  // Canvas below.
+  if (pillageChoicePending) {
+    return (
+      <div
+        role="status"
+        className="pointer-events-none absolute top-44 left-1/2 z-40 -translate-x-1/2 rounded-xl border border-glass-border bg-glass px-4 py-2 text-center font-body text-xs text-white/90 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+      >
+        {pendingChoiceLabel ?? 'Choose which city to pillage'}
+      </div>
+    )
+  }
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/70 backdrop-blur-md">

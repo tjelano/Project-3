@@ -1216,7 +1216,22 @@ function App() {
     const owner = playerById.get(playerId)
     setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
     setPlayers((prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, cityWalls: p.cityWalls.filter((v) => v !== vertexId) } : p)),
+      prev.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              cityWalls: p.cityWalls.filter((v) => v !== vertexId),
+              // Exact reverse of applyCityPlacement's own supply bookkeeping
+              // (settlementsRemaining + 1 / citiesRemaining - 1 when a
+              // settlement becomes a city): the city piece goes back in the
+              // box and a settlement piece comes out to occupy the vertex.
+              // Without this a pillaged player could never rebuild the city
+              // they just lost, since citiesRemaining stayed spent.
+              citiesRemaining: p.citiesRemaining + 1,
+              settlementsRemaining: p.settlementsRemaining - 1,
+            }
+          : p,
+      ),
     )
     if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
     // Filtered by playerId, not sliced off the front — activePillageTarget
@@ -1483,8 +1498,23 @@ function App() {
     // re-run (it isn't the acting player), so it applies the payload
     // directly through the SAME applyPillage helper the local actor uses —
     // safe because applyPillage filters pillageQueue by playerId rather
-    // than assuming queue order.
+    // than assuming queue order. Still shape-checked against THIS client's
+    // own state first, same as onBarbarianWinnerDrawResolved below: the
+    // vertex must actually hold a city owned by payload.playerId, and that
+    // player must still owe a pillage in this client's own pillageQueue —
+    // otherwise a malformed or duplicated message would plant a settlement
+    // at an arbitrary vertex or silently reassign its ownership.
     onPillageResolved: (payload) => {
+      const building = settlements[payload.vertexId]
+      if (
+        !building ||
+        building.type !== 'city' ||
+        building.ownerId !== payload.playerId ||
+        !pillageQueue.some((t) => t.playerId === payload.playerId)
+      ) {
+        console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
+        return
+      }
       applyPillage(payload.vertexId, payload.playerId)
     },
     // Cities & Knights barbarian winner draw (Task 7) — trusted-apply from
@@ -2198,16 +2228,32 @@ function App() {
     onTaxationResolved: (payload) => {
       setRobberTileId(payload.tileId)
       playSfx('robber')
+      // Only the entries that survive RESOURCE_ORDER validation are credited
+      // to the actor, so the actor's gain always matches the victims' loss
+      // on this client — resolveTaxation's own deduct-and-credit pass, kept
+      // in step. (Both sides used to only debit victims, so the two clients
+      // agreed with each other while both silently destroying the cards.)
+      const gained = payload.steals.filter(
+        (s): s is { victimId: number; resource: ResourceType } =>
+          s.resource != null && RESOURCE_ORDER.includes(s.resource),
+      )
       setPlayers((prev) =>
         prev.map((p) => {
           const steal = payload.steals.find((s) => s.victimId === p.id)
-          if (!steal || steal.resource == null) return p
-          if (!RESOURCE_ORDER.includes(steal.resource)) {
-            console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen resource:', steal.resource)
-            return p
+          if (steal && steal.resource != null) {
+            if (!RESOURCE_ORDER.includes(steal.resource)) {
+              console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen resource:', steal.resource)
+              return p
+            }
+            const resource = steal.resource
+            return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - 1 } }
           }
-          const resource = steal.resource
-          return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - 1 } }
+          if (p.id === payload.playerId) {
+            const resources = { ...p.resources }
+            for (const s of gained) resources[s.resource] += 1
+            return { ...p, resources }
+          }
+          return p
         }),
       )
       const tile = tileById.get(payload.tileId)
@@ -3169,9 +3215,19 @@ function App() {
         )
         const winnerPlayer = playerById.get(soleWinner.playerId)
         if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
-      } else {
+      } else if (gameRules.citiesAndKnightsProgressCards) {
         setWinnerDrawQueue(result.winners.map((w) => w.playerId))
       }
+      // else: Knights ON + Barbarians ON + Progress Cards OFF is a
+      // supported configuration (Barbarians hard-depends on Knights only —
+      // see GameHud's own house-rule dependency notes), and the tied-winner
+      // OUTCOME is the one part of this mechanic that needs Progress Cards.
+      // Gated EXPLICITLY rather than relying on the draw being inert, the
+      // same reasoning the event-die draw block below spells out: a drawn
+      // Printing/Constitution scores through getScoreBreakdown's
+      // unconditional progressCardVP, so an ungated draw here would silently
+      // hand +1 VP to a game that never opted into progress cards. With the
+      // rule off, the tie simply stands unresolved for this attack.
     }
     // Every knight on the board becomes inactive, regardless of
     // participation — CN3087 p.11: unconditional, not scoped to only the
@@ -3704,6 +3760,66 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the resource-discard timeout effect above (App.tsx:1856): playerById/onlineInfo/inform/applyProgressDiscard/broadcastProgressDiscardConfirmed read fresh via closure.
   }, [progressCardOverLimitPlayerIds, isEffectiveHost])
 
+  // Same DISCARD_TIMEOUT_MS fallback as the two effects above, for the
+  // barbarian pillage queue (Task 6). Without it a disconnected (or simply
+  // slow) pillage target stalls everyone: the attack modal only offers its
+  // Close button once BOTH queues are empty, and nothing else can clear
+  // this one. Auto-picks each straggler's first eligible city — the list is
+  // already sorted deterministically by resolveBarbarianAttack, and an
+  // unresponsive player doesn't need "pick the least valuable" cleverness,
+  // same arbitrary-but-legal choice the progress-card timeout above makes.
+  // Host-authoritative + the same two separate guards, for the same reason
+  // that effect spells out (isEffectiveHost alone is false for local Pass &
+  // Play, so folding it into one check would disable this locally).
+  useEffect(() => {
+    if (pillageQueue.length === 0) return
+    if (onlineInfo && !isEffectiveHost) return
+    const timer = setTimeout(() => {
+      for (const target of pillageQueue) {
+        const vertexId = target.eligibleCityVertexIds[0]
+        if (!vertexId) continue
+        applyPillage(vertexId, target.playerId)
+        inform(`${playerById.get(target.playerId)?.name ?? 'A player'}'s pillage choice timed out — a city was chosen automatically.`)
+        if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: target.playerId })
+      }
+    }, DISCARD_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the two timeout effects above: playerById/onlineInfo/inform/applyPillage/broadcastPillageResolved are read fresh via closure; only pillageQueue/isEffectiveHost identity should restart the timer.
+  }, [pillageQueue, isEffectiveHost])
+
+  // And the same again for the tied-winner progress-card draw queue (Task
+  // 7), which stalls the modal in exactly the same way. Draws from the
+  // first non-empty deck in IMPROVEMENT_TRACK_ORDER; if all three are
+  // genuinely empty the player is just dropped from the queue with no draw
+  // (handleBarbarianWinnerDraw's own empty-deck branch warns instead, but
+  // there's nobody here to warn). `decks` is a local running copy so a
+  // second straggler in the same sweep doesn't re-draw the card the first
+  // one just took — progressCardDecks itself is only read once, at the
+  // instant this effect last ran, which is the same closure-freshness
+  // tradeoff the two effects above already accept for playerById.
+  useEffect(() => {
+    if (winnerDrawQueue.length === 0) return
+    if (onlineInfo && !isEffectiveHost) return
+    const timer = setTimeout(() => {
+      const decks = { ...progressCardDecks }
+      for (const playerId of winnerDrawQueue) {
+        const track = IMPROVEMENT_TRACK_ORDER.find((t) => decks[t].length > 0)
+        if (!track) {
+          setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+          continue
+        }
+        const [card, ...rest] = decks[track]
+        decks[track] = rest
+        applyBarbarianWinnerDraw(playerId, card)
+        inform(`${playerById.get(playerId)?.name ?? 'A player'}'s Defender of Catan draw timed out — a card was drawn automatically.`)
+        if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
+      }
+      setProgressCardDecks(decks)
+    }, DISCARD_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the two timeout effects above: progressCardDecks/playerById/onlineInfo/inform/applyBarbarianWinnerDraw/broadcastBarbarianWinnerDrawResolved are read fresh via closure; only winnerDrawQueue/isEffectiveHost identity should restart the timer.
+  }, [winnerDrawQueue, isEffectiveHost])
+
   // Cities & Knights Taxation (Task 10) — the multi-victim steal Taxation
   // needs, as opposed to applyRobberMove's own single-victim one: EVERY
   // player with a building on the chosen hex loses one random card, not
@@ -3713,23 +3829,20 @@ function App() {
   // canPlayProgressCardNow's own comment gives — moveRobber's leading
   // branch below calls this directly, so it has to already exist by then.
   //
-  // Builds each victim's heldResources from `next` — the running copy
-  // INSIDE the setPlayers updater — rather than from the outer-scope
-  // `players`/`playerById` snapshot captured when resolveTaxation started
-  // running. Two things make this matter: first, this loop resolves
-  // MULTIPLE victims in a single pass, and each victim's steal has to see
-  // whatever `next` actually holds at that point in the loop (even though,
-  // in practice, no two victims here ever share resources, so one victim's
-  // mutation never changes what a DIFFERENT victim holds — the real reason
-  // is the second one). Second, and the one that actually matters: `next`
-  // starts as `prev`, the state React hands the updater at the instant it
-  // runs, which is guaranteed CURRENT — unlike the outer-scope `players`
-  // this function closed over back when armTaxation/resolveTaxation were
-  // called, which could already be stale by the time this actually
-  // executes (a trade, another card, or even another victim's own hand
-  // could have changed `players` in between). Reading fresh inside the
-  // updater is what every other setPlayers call in this file that depends
-  // on current resource counts already does, for the exact same reason.
+  // The whole steal is computed BEFORE setPlayers, as a pure function of
+  // the outer-scope `players`, then applied by a single side-effect-free
+  // `.map`. Exactly the restructure applyWeddingEffect's and
+  // applyProgressCardDraws' own comments describe, for the same reason:
+  // StrictMode double-invokes updaters in dev, so a `Math.random()` +
+  // `steals.push()` INSIDE the updater ran twice — pushing duplicate
+  // entries into the closure-scoped `steals`, and letting the resource
+  // actually deducted (second invocation) disagree with the one broadcast
+  // to every other client (first invocation's entry). That's a real
+  // actor/peer desync, not a dev-only cosmetic, since broadcastTaxation-
+  // Resolved sends `steals` right after this call. Reading the outer-scope
+  // `players` is safe here for the same reason those two functions give:
+  // this only ever runs from a live click handler (moveRobber's leading
+  // branch), so it IS the current render's state, not a stale snapshot.
   const resolveTaxation = (tileId: string) => {
     const playerId = pendingTaxation
     if (playerId == null) return
@@ -3743,28 +3856,44 @@ function App() {
     const victimIds = new Set<number>()
     for (const vertexId of vertexIds) {
       const building = settlements[vertexId]
-      if (building) victimIds.add(building.ownerId)
+      // The actor is never their own victim — a player with a building on
+      // the hex they taxed used to lose a card to nobody.
+      if (building && building.ownerId !== playerId) victimIds.add(building.ownerId)
     }
     const steals: { victimId: number; resource: ResourceType | null }[] = []
-    setPlayers((prev) => {
-      let next = prev
-      for (const victimId of victimIds) {
-        const victim = next.find((p) => p.id === victimId)
-        if (!victim) continue
-        const heldResources: ResourceType[] = []
-        for (const resource of RESOURCE_ORDER) {
-          for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
-        }
-        if (heldResources.length === 0) {
-          steals.push({ victimId, resource: null })
-          continue
-        }
-        const stolenResource = heldResources[Math.floor(Math.random() * heldResources.length)]
-        steals.push({ victimId, resource: stolenResource })
-        next = next.map((p) => (p.id === victimId ? { ...p, resources: { ...p.resources, [stolenResource]: p.resources[stolenResource] - 1 } } : p))
+    for (const victimId of victimIds) {
+      const victim = players.find((p) => p.id === victimId)
+      if (!victim) continue
+      const heldResources: ResourceType[] = []
+      for (const resource of RESOURCE_ORDER) {
+        for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
       }
-      return next
-    })
+      if (heldResources.length === 0) {
+        steals.push({ victimId, resource: null })
+        continue
+      }
+      steals.push({ victimId, resource: heldResources[Math.floor(Math.random() * heldResources.length)] })
+    }
+    // Taxation is a STEAL, not a burn — CN3087: "steal 1 random resource/
+    // commodity card from each player with a building there." The actor
+    // gains exactly what the victims lose, same as applyRobberMove's own
+    // deduct-and-credit pass; these cards used to just vanish.
+    setPlayers((prev) =>
+      prev.map((p) => {
+        const steal = steals.find((s) => s.victimId === p.id)
+        if (steal?.resource) {
+          return { ...p, resources: { ...p.resources, [steal.resource]: p.resources[steal.resource] - 1 } }
+        }
+        if (p.id === playerId) {
+          const resources = { ...p.resources }
+          for (const s of steals) {
+            if (s.resource) resources[s.resource] += 1
+          }
+          return { ...p, resources }
+        }
+        return p
+      }),
+    )
     const tile = tileById.get(tileId)
     const actor = playerById.get(playerId)
     if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
@@ -5028,6 +5157,16 @@ function App() {
   // remembers WHICH knight initiated it, so moveRobber's tail can deactivate
   // it once the move resolves.
   const armChaseRobber = (knightId: string) => {
+    // Cities & Knights barbarian-track gate (Task 3) — the same "the robber
+    // stays inert until the first barbarian attack" rule the 7-roll path
+    // enforces, applied to this SECOND entry point into moveRobber. Without
+    // it an adjacent active knight could move the robber and steal before
+    // the barbarians ever landed. Same "off is a no-op, on defers to
+    // robberActive" shape as those gates.
+    if (gameRules.citiesAndKnightsBarbarians && !robberActive) {
+      warn('The robber has not activated yet.')
+      return
+    }
     if (!isMyTurn) {
       warn("It's not your turn.")
       return
@@ -5879,7 +6018,13 @@ function App() {
       warn("It's not your turn.")
       return
     }
-    if (!robberActive) {
+    // Reads the house rule directly rather than robberActive alone: with
+    // Barbarians OFF, robberActive can never become true (only the barbarian
+    // attack path ever sets it), so the card would be permanently unplayable
+    // while still occupying 2 politics-deck slots and hand-limit space. Same
+    // "off is a no-op, on defers to robberActive" shape as Task 3's own
+    // robber-move gates.
+    if (gameRules.citiesAndKnightsBarbarians && !robberActive) {
       warn('Taxation can only be played after the first barbarian attack.')
       return
     }
@@ -7201,6 +7346,7 @@ function App() {
             result={activeBarbarianAttack}
             players={players}
             pendingChoiceLabel={pendingChoiceLabel}
+            pillageChoicePending={pillageQueue.length > 0}
             winnerDrawActive={activeWinnerDrawPlayerId != null}
             onDrawFromTrack={handleBarbarianWinnerDraw}
           />

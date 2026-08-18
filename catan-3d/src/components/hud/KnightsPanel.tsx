@@ -47,7 +47,10 @@ export function KnightsPanel({
             className="flex items-center justify-between gap-2 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] text-white/80"
           >
             <span>{KNIGHT_STRENGTH_LABELS[slot.strength]}</span>
-            {!slot.knight && (
+            {/* onRecruit always produces a basic-strength knight (no strength
+                parameter) — showing this on an empty strong/mighty slot would
+                misleadingly suggest clicking it recruits that strength. */}
+            {!slot.knight && slot.strength === 'basic' && (
               <button
                 type="button"
                 disabled={!isMyTurn || !canRecruit}

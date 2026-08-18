@@ -119,13 +119,22 @@ export interface KnightPiece {
   vertexId: string
 }
 
-// 2 basic, 0 strong, 0 mighty — 6 physical tokens total per player (CN3087
-// p.9: "Players each have 6 knights, two of each strength"). Promoting a
-// knight moves 1 unit from this record's source bucket to the next.
+// 2 basic, 2 strong, 2 mighty — all 6 physical tokens per player are
+// available in supply from turn 1 (CN3087 p.9: "Players each have 6
+// knights, two of each strength"). Promoting a knight moves 1 unit from
+// this record's source bucket to the next — that requires strong/mighty
+// buckets to already be nonzero, so they must NOT start at 0 (a basic->
+// strong promotion would otherwise be permanently impossible: the only way
+// strong supply could ever become nonzero would be via a promotion into it,
+// a chicken-and-egg deadlock). What actually restricts RECRUITING to
+// basic-strength only is the separate "You may only recruit basic knights"
+// rule, already enforced by canRecruitKnight (game/knights.ts), which only
+// ever checks/consumes knightSupply.basic — this starting SUPPLY record
+// must not also gate strength availability.
 export const KNIGHT_STARTING_SUPPLY: Record<KnightStrength, number> = {
   basic: 2,
-  strong: 0,
-  mighty: 0,
+  strong: 2,
+  mighty: 2,
 }
 
 // Costs confirmed via rendered rulebook page images (icon-only in this

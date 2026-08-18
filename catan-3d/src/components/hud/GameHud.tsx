@@ -630,6 +630,7 @@ export function GameHud({
     !tradeBlocked &&
     !pickerBlocked &&
     isMyTurn &&
+    hasRolledThisTurn &&
     canBuildCityWall(
       freeWallActive ? { ...viewer, resources: { ...viewer.resources, brick: 999 } } : viewer,
       vertexId,
@@ -663,6 +664,22 @@ export function GameHud({
   // from a hand the screen doesn't even display.
   const canPlayProgressCards =
     citiesAndKnightsProgressCards &&
+    gamePhase === 'playing' &&
+    !isRolling &&
+    gameActive &&
+    !tradeBlocked &&
+    !pickerBlocked &&
+    isMyTurn &&
+    viewer.id === currentPlayer.id
+  // Cities & Knights knights and Progress Cards are independently
+  // toggleable house rules (citiesAndKnightsKnights's own comment near
+  // KnightsPanel's render gate below) — a game with Knights ON and Progress
+  // Cards OFF is fully supported and should still let the viewer recruit/
+  // move/promote knights. Mirrors canPlayProgressCards's exact shape just
+  // above MINUS its citiesAndKnightsProgressCards requirement, so knight
+  // actions share every other turn-gate (roll/blocked/whose-turn) without
+  // also being gated on a house rule knight actions don't depend on.
+  const canPlayKnightActions =
     gamePhase === 'playing' &&
     !isRolling &&
     gameActive &&
@@ -800,7 +817,7 @@ export function GameHud({
         {citiesAndKnightsKnights && (
           <KnightsPanel
             player={viewer}
-            isMyTurn={canPlayProgressCards}
+            isMyTurn={canPlayKnightActions}
             onRecruit={onRecruitKnight}
             onActivate={onActivateKnight}
             onPromote={onPromoteKnight}

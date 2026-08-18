@@ -351,6 +351,17 @@ export interface MerchantMovedPayload {
 // every other client just applies the fully-formed KnightPiece directly.
 export interface KnightRecruitedPayload {
   knight: KnightPiece
+  // Whether this knight came from Treason's free replacement-placement
+  // rather than a paid Recruit — same "actor has to say so explicitly"
+  // reasoning RoadBuiltPayload.isFreeRoad/CityWallBuiltPayload.isFree above
+  // already use. A paid Recruit always deducts KNIGHT_RECRUIT_COST and
+  // always decrements knightSupply.basic (Recruit can only ever place a
+  // basic knight); Treason's placement is free and can place ANY strength
+  // up to the removed knight's strength. Without this flag, every OTHER
+  // client's onKnightRecruited receiver would wrongly charge Treason's free
+  // placement and decrement the wrong knightSupply bucket for any
+  // strong/mighty replacement.
+  isFree: boolean
 }
 
 // Cities & Knights knight activate/promote (Task 8) — sent ALREADY-RESOLVED,

@@ -588,6 +588,19 @@ function App() {
     active: boolean
   } | null>(null)
 
+  // Monotonic counter backing every new KnightPiece.id (Recruit and
+  // Treason's replacement placement both call this). A `Date.now()`-based
+  // id used to do this job, but that's both a react-hooks/purity ESLint
+  // violation (Date.now() is impure) and a genuine collision risk: two
+  // knights created for the same player within the same millisecond would
+  // get the identical id, and that id is the key every knight lookup/
+  // broadcast/knightsPromotedThisTurn entry uses.
+  const knightIdCounterRef = useRef(0)
+  const nextKnightId = (playerId: number): string => {
+    knightIdCounterRef.current += 1
+    return `knight-${playerId}-${knightIdCounterRef.current}`
+  }
+
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
   // grows unbounded over a long match. id is a plain incrementing counter
@@ -1778,15 +1791,22 @@ function App() {
     // reasoning KnightRecruitedPayload's own comment (useRoomChannel.ts)
     // gives: the sending client already validated cost/supply/target
     // locally, so every other client just applies the fully-formed
-    // KnightPiece directly.
+    // KnightPiece directly. isFree (Treason, Task 14) branches both the
+    // resource deduction and WHICH knightSupply bucket gets decremented —
+    // see KnightRecruitedPayload.isFree's own comment in useRoomChannel.ts
+    // for why reusing the paid path unconditionally here would desync
+    // every other client's resources/supply for a Treason placement.
     onKnightRecruited: (payload) => {
       setPlayers((prev) =>
         prev.map((p) =>
           p.id === payload.knight.ownerId
             ? {
                 ...p,
-                resources: deductCost(p.resources, KNIGHT_RECRUIT_COST),
-                knightSupply: { ...p.knightSupply, basic: p.knightSupply.basic - 1 },
+                resources: payload.isFree ? p.resources : deductCost(p.resources, KNIGHT_RECRUIT_COST),
+                knightSupply: {
+                  ...p.knightSupply,
+                  [payload.knight.strength]: p.knightSupply[payload.knight.strength] - 1,
+                },
                 knightPieces: [...p.knightPieces, payload.knight],
               }
             : p,
@@ -3038,7 +3058,7 @@ function App() {
           setDiscardPlayerIds(overLimitIds)
           setDiscardSelection([])
           setGamePhase('discard')
-          inform('Rolled 7 — players over 7 cards must discard half.')
+          inform('Rolled 7 — players over their card limit must discard half.')
         } else {
           inform('Rolled 7 — move the Robber.')
           setGamePhase('moveRobber')
@@ -4608,7 +4628,7 @@ function App() {
         setPendingTreasonPlacement(null)
         return
       }
-      const newKnight: KnightPiece = { id: `knight-${playerId}-${Date.now()}`, ownerId: playerId, strength: available, active, vertexId }
+      const newKnight: KnightPiece = { id: nextKnightId(playerId), ownerId: playerId, strength: available, active, vertexId }
       setPlayers((prev) =>
         prev.map((p) =>
           p.id !== playerId
@@ -4619,8 +4639,13 @@ function App() {
       setPendingTreasonPlacement(null)
       // Deliberately reuses Task 7's KnightRecruitedPayload/onKnightRecruited
       // — a "knight appears at this vertex with this strength/status" event
-      // needs no Treason-specific shape.
-      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight })
+      // needs no Treason-specific shape. isFree: true — this placement is
+      // free and can be ANY strength, unlike Recruit's own broadcast just
+      // below; see KnightRecruitedPayload.isFree's own comment in
+      // useRoomChannel.ts for why every other client's onKnightRecruited
+      // receiver needs to be told not to charge for it / not to always
+      // decrement the basic bucket.
+      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight, isFree: true })
       return
     }
     if (pendingKnightRecruit != null) {
@@ -4637,7 +4662,7 @@ function App() {
         return
       }
       const newKnight: KnightPiece = {
-        id: `knight-${playerId}-${Date.now()}`,
+        id: nextKnightId(playerId),
         ownerId: playerId,
         strength: 'basic',
         active: false,
@@ -4656,7 +4681,7 @@ function App() {
         ),
       )
       setPendingKnightRecruit(null)
-      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight })
+      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight, isFree: false })
       return
     }
     // Cities & Knights knight move (Task 9) — mirrors the recruit branch
@@ -4959,19 +4984,18 @@ function App() {
   // Re-validates ownership/no-existing-wall/board-wide-cap here (rather than
   // trusting the button's own disabled state) for the same reason every other
   // resolve-a-picker handler in this file does: the board state this button
-  // was rendered against can be stale by the time the click lands.
+  // was rendered against can be stale by the time the click lands. Reuses
+  // canBuildCityWall directly — same throwaway resource-override clone trick
+  // playEngineering's own hasEligibleCity check and GameHud's canBuildWallAt
+  // already use — instead of duplicating its ownership/type/no-existing-
+  // wall/board-cap checks inline.
   const resolveFreeCityWall = (vertexId: string) => {
     if (pendingFreeCityWall == null) return
     const playerId = pendingFreeCityWall
     const player = playerById.get(playerId)!
     const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
-    const building = settlements[vertexId]
     if (
-      !building ||
-      building.ownerId !== playerId ||
-      building.type !== 'city' ||
-      player.cityWalls.includes(vertexId) ||
-      totalWallsOnBoard >= 3
+      !canBuildCityWall({ ...player, resources: { ...player.resources, brick: 999 } }, vertexId, settlements, totalWallsOnBoard)
     ) {
       warn('Not a valid free wall target.')
       return
@@ -5849,6 +5873,14 @@ function App() {
     // reset on a fresh game" treatment pendingKnightRecruit/armedKnightAction
     // just above get; local-only UI state, never persisted/broadcast.
     setChasingRobberKnightId(null)
+    // Cities & Knights Intrigue/Treason — same "always reset on a fresh
+    // game" treatment as the pending flags just above. A stranded
+    // pendingTreasonPlacement is the most damaging: handleKnightVertexSelect
+    // checks it BEFORE the ordinary recruit branch, so it would hijack every
+    // vertex click in the next game, and handleEndTurn refuses to advance
+    // turns while it's set for the current player.
+    setPendingIntrigueDisplace(null)
+    setPendingTreasonPlacement(null)
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -5986,6 +6018,13 @@ function App() {
     // resolves it ahead of every ordinary build check, so it would hijack
     // road placement for the rest of the reconnected session.
     setPendingDiplomacyRemoval(null)
+    // Cities & Knights Intrigue/Treason — same "always reset on restore"
+    // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
+    // would hijack handleKnightVertexSelect's leading branch (intercepting
+    // every vertex click) and make handleEndTurn refuse to advance turns for
+    // the rest of the reconnected session.
+    setPendingIntrigueDisplace(null)
+    setPendingTreasonPlacement(null)
     setAlchemyPreset(null)
     setLastEventDie(null)
     setDiscardSelection([])

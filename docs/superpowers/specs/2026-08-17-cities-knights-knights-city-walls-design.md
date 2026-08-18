@@ -96,9 +96,11 @@ export interface KnightPiece {
 
 - `Player.knightPieces: KnightPiece[]` — on-board knights only.
 - `Player.knightSupply: Record<KnightStrength, number>` — starts
-  `{ basic: 2, strong: 0, mighty: 0 }` (6 physical tokens total, 2 per
-  strength, mirrors the `settlementsRemaining`/`citiesRemaining` supply-cap
-  pattern already on `Player`). Recruiting consumes 1 `basic` from supply.
+  `{ basic: 2, strong: 2, mighty: 2 }` (all 6 physical tokens available from
+  turn 1, 2 per strength, mirrors the `settlementsRemaining`/
+  `citiesRemaining` supply-cap pattern already on `Player`). Recruiting
+  consumes 1 `basic` from supply — recruiting is restricted to basic
+  strength by a separate rule, not by the starting supply record itself.
   Promoting moves 1 unit from the source strength's bucket to the next
   strength's bucket (basic→strong always allowed if supply has a `strong`
   available; strong→mighty additionally requires the promoting player's

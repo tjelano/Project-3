@@ -13,7 +13,7 @@ const VP_TARGET_MAX = 50
 // grid (and the divider logic in the render below, which suppresses the
 // hairline under the LAST ROW rather than under the last entry) adjusts on
 // its own.
-const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards'; label: string }[] = [
+const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allowAdjacentSettlements' | 'coastalOnlySetupPlacement' | 'doublesRerollRule' | 'citiesAndKnightsCommodities' | 'citiesAndKnightsProgressCards' | 'citiesAndKnightsKnights'; label: string }[] = [
   { key: 'allowAdjacentSettlements', label: 'Adjacent settlements allowed' },
   { key: 'friendlyRobber', label: 'Friendly robber' },
   { key: 'coastalOnlySetupPlacement', label: 'Coastal setup only' },
@@ -21,6 +21,7 @@ const CHECKBOX_RULES: { key: 'friendlyRobber' | 'noSevensFirstTwoRolls' | 'allow
   { key: 'doublesRerollRule', label: 'Doubles reroll (3 in a row)' },
   { key: 'citiesAndKnightsCommodities', label: 'Commodities & city improvements' },
   { key: 'citiesAndKnightsProgressCards', label: 'Progress cards' },
+  { key: 'citiesAndKnightsKnights', label: 'Knights & city walls' },
 ]
 
 // hiddenTiles is 4-way, not a plain boolean — its own segmented-control row

@@ -19,6 +19,7 @@ import { Dice3D, type DiceRollTarget, type EventDieFace } from './components/Dic
 import { PhysicsDice3D, type PhysicsRollTarget } from './components/PhysicsDice3D'
 import { PlayerHand3D } from './components/PlayerHand3D'
 import { GameHud } from './components/hud/GameHud'
+import { BarbarianAttackModal } from './components/hud/BarbarianAttackModal'
 import { StartScreen, type GameStartInfo } from './components/hud/StartScreen'
 import type { PendingTrade } from './components/hud/TradeOfferPrompt'
 import type { ProgressCardPlayHandlers } from './components/hud/ProgressCardsPanel'
@@ -119,6 +120,7 @@ import {
   selectSmithingPromotions,
   BARBARIAN_TRACK_LENGTH,
   type BarbarianAttackResult,
+  type BarbarianPillageTarget,
 } from './game/knights'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
@@ -525,6 +527,15 @@ function App() {
   // Cities & Knights barbarian ship position on its 7-space track (0-6).
   // Advances on each 'ship' event-die face; resets to 0 after every attack.
   const [barbarianTrackPosition, setBarbarianTrackPosition] = useState(0)
+
+  // Cities & Knights barbarian attack (Task 5) — the CURRENT result being
+  // walked through (for the modal's headline/strength-comparison display),
+  // plus the full pending lists for both post-attack choices (NOT assumed
+  // front-ordered — see activePillageTarget/activeWinnerDrawPlayerId below
+  // for why).
+  const [activeBarbarianAttack, setActiveBarbarianAttack] = useState<BarbarianAttackResult | null>(null)
+  const [pillageQueue, setPillageQueue] = useState<BarbarianPillageTarget[]>([])
+  const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
   // category as robberTileId just above, not a per-player field: the piece
@@ -2193,6 +2204,44 @@ function App() {
       : null
     : (scienceFreeResourcePlayerIds[0] ?? null)
 
+  // Cities & Knights barbarian attack (Task 5) — who's actively resolving
+  // their own pillage/draw choice on THIS screen right now. Mirrors
+  // activeDiscarderId's exact split above: online is PARALLEL — each
+  // affected player resolves their own pillage/draw independently, on their
+  // own screen, whenever it's ready, regardless of what order they appear
+  // in the queue (never pillageQueue[0]/winnerDrawQueue[0] directly — that
+  // would let ANY connected client act on the front player's choice, with
+  // no ownership check). Local Pass & Play is sequential — one shared
+  // screen, so only the front of the queue is ever "up," and these
+  // naturally resolve to the front entry since there's only ever one
+  // shared "me."
+  const activePillageTarget = onlineInfo
+    ? (pillageQueue.find((t) => t.playerId === onlineInfo.localPlayerId) ?? null)
+    : (pillageQueue[0] ?? null)
+  const activeWinnerDrawPlayerId = onlineInfo
+    ? (winnerDrawQueue.includes(onlineInfo.localPlayerId) ? onlineInfo.localPlayerId : null)
+    : (winnerDrawQueue[0] ?? null)
+
+  // Barbarian attack modal's "small banner" text (Task 5 owns only this
+  // label — Tasks 6-7 add the actual per-item picker UI as siblings). Reads
+  // activePillageTarget/activeWinnerDrawPlayerId, never a queue index, for
+  // "is it MY choice" — and only .length (never an index) for "is anyone
+  // still choosing," so this never reads any specific OTHER player's
+  // pending entry, matching the ownership rule above. Local Pass & Play
+  // never falls into the "waiting" branches: activePillageTarget/
+  // activeWinnerDrawPlayerId always resolve to the (only) front-of-queue
+  // entry there whenever a queue is non-empty, per the design spec's "no
+  // waiting state at all" rule for local play quoted above.
+  const pendingChoiceLabel = activePillageTarget
+    ? 'Choose a city to pillage.'
+    : activeWinnerDrawPlayerId != null
+      ? 'Choose a progress card deck to draw from.'
+      : pillageQueue.length > 0
+        ? 'Waiting for other players to choose a pillage target…'
+        : winnerDrawQueue.length > 0
+          ? 'Waiting for other players to choose a progress card deck…'
+          : null
+
   // The personal camera-anchored hand shows YOUR OWN cards in an online
   // match — not whoever's turn it currently is, which is what
   // currentPlayerIndex means and is correct only for local Pass & Play,
@@ -2903,9 +2952,30 @@ function App() {
     [],
   )
 
-  // Task 5 replaces this with the real attack-modal sequencing entry point.
+  // Cities & Knights barbarian attack (Task 5) — the real sequencing entry
+  // point, replacing Task 4's console.log stub. Awards the sole winner's
+  // Defender of Catan VP directly, or (on a tie) populates winnerDrawQueue
+  // for Task 7's per-player progress-card draw UI; on a barbarian win,
+  // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
-    console.log('[Catan] Barbarian attack resolved (Task 5 will handle this):', result)
+    setActiveBarbarianAttack(result)
+    setPillageQueue(result.pillageTargets)
+    if (result.defendersWin) {
+      const soleWinner = result.winners.find((w) => !w.tied)
+      if (soleWinner) {
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === soleWinner.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p)),
+        )
+        const winnerPlayer = playerById.get(soleWinner.playerId)
+        if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
+      } else {
+        setWinnerDrawQueue(result.winners.map((w) => w.playerId))
+      }
+    }
+    // Every knight on the board becomes inactive, regardless of
+    // participation — CN3087 p.11: unconditional, not scoped to only the
+    // knights that were actually counted.
+    setPlayers((prev) => prev.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) })))
   }
 
   // Triggered by the Roll Dice button: this is always the LOCAL player's own
@@ -5989,6 +6059,14 @@ function App() {
     // turns while it's set for the current player.
     setPendingIntrigueDisplace(null)
     setPendingTreasonPlacement(null)
+    // Cities & Knights barbarian attack (Task 5) — same "always reset on a
+    // fresh game" treatment as robberActive/barbarianTrackPosition above: a
+    // leftover attack result or pending pillage/draw queue from a PREVIOUS
+    // match would otherwise pop the attack modal (or strand a queue entry
+    // no current player can ever clear) the instant the new game starts.
+    setActiveBarbarianAttack(null)
+    setPillageQueue([])
+    setWinnerDrawQueue([])
     setGamePhase('setup')
     setSetupStepIndex(0)
     setSetupStage('settlement')
@@ -6756,6 +6834,31 @@ function App() {
         chatMessages={chatMessages}
         onSendChatMessage={sendChatMessage}
       />
+
+      {/* Cities & Knights barbarian attack (Task 5) — modal shell + sequencing
+          state only. pendingChoiceLabel (computed above) is real, but Tasks
+          6-7 still own the actual picker UI (board pillage markers, deck
+          choice buttons) — this task only renders the strength-comparison/
+          outcome text plus that one label line. */}
+      {activeBarbarianAttack && (
+        <>
+          <BarbarianAttackModal result={activeBarbarianAttack} players={players} pendingChoiceLabel={pendingChoiceLabel} />
+          {/* TEMPORARY — Task 6/7 replace this with real pillage/draw resolution UI */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-20 z-50 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveBarbarianAttack(null)
+                setPillageQueue([])
+                setWinnerDrawQueue([])
+              }}
+              className="pointer-events-auto rounded-lg bg-gradient-to-b from-gold to-gold-deep px-6 py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+            >
+              Continue (temporary)
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -153,6 +153,24 @@ export interface PillageResolvedPayload {
   playerId: number
 }
 
+// Cities & Knights barbarian winner draw (Task 7) — a tied Defender-of-Catan
+// winner's own chosen progress-card deck, sent ALREADY-RESOLVED (same
+// trusted-apply model as PillageResolvedPayload above): the choosing
+// player's own client is the only one that reads its own local
+// progressCardDecks[track] to pick `card`, so every other client just
+// applies playerId/card directly to that player's hand rather than
+// re-deriving from its own independently-shuffled local deck copy (which
+// could hold a different card on top) — the same trust model
+// resolveEventDieDraws's own broadcast (onProgressCardsDrawn) already
+// establishes for progress-card draws elsewhere. track is carried so a
+// receiver knows which of its own local deck copies to pop one card off of,
+// for count-only bookkeeping (see onProgressCardsDrawn's own comment).
+export interface BarbarianWinnerDrawResolvedPayload {
+  playerId: number
+  track: ImprovementTrack
+  card: ProgressCardType
+}
+
 export interface KnightPlayedPayload {
   playerId: number
 }
@@ -668,6 +686,10 @@ export interface RoomChannelHandlers {
   // player, same "independent per-player queue" shape as
   // onScienceFreeResourcePicked below.
   onPillageResolved?: (payload: PillageResolvedPayload) => void
+  // Cities & Knights barbarian winner draw (Task 7) — fires once per tied
+  // winner, same "independent per-player queue" shape as onPillageResolved
+  // above.
+  onBarbarianWinnerDrawResolved?: (payload: BarbarianWinnerDrawResolvedPayload) => void
   onKnightPlayed?: (payload: KnightPlayedPayload) => void
   onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
   onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
@@ -937,6 +959,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<PillageResolvedPayload>('broadcast', { event: 'PILLAGE_RESOLVED' }, ({ payload }) => {
       handlersRef.current.onPillageResolved?.(payload)
     })
+    channel.on<BarbarianWinnerDrawResolvedPayload>('broadcast', { event: 'BARBARIAN_WINNER_DRAW_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onBarbarianWinnerDrawResolved?.(payload)
+    })
     channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, ({ payload }) => {
       handlersRef.current.onKnightPlayed?.(payload)
     })
@@ -1205,6 +1230,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastPillageResolved = (payload: PillageResolvedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'PILLAGE_RESOLVED', payload })
   }
+  const broadcastBarbarianWinnerDrawResolved = (payload: BarbarianWinnerDrawResolvedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_WINNER_DRAW_RESOLVED', payload })
+  }
   const broadcastKnightPlayed = (payload: KnightPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PLAYED', payload })
   }
@@ -1350,6 +1378,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
     broadcastPillageResolved,
+    broadcastBarbarianWinnerDrawResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,

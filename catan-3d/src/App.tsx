@@ -1214,6 +1214,27 @@ function App() {
     setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
   }
 
+  // Trusted state mutation for one tied Defender-of-Catan winner's
+  // progress-card hand addition — shared by the local actor
+  // (handleBarbarianWinnerDraw, below, which also broadcasts) and receiving
+  // clients (onBarbarianWinnerDrawResolved), same trusted-apply split as
+  // applyPillage above. `card` is the ALREADY-DRAWN card (trusted, from
+  // either the local actor's own progressCardDecks[track] read or the
+  // broadcast payload) — this helper never re-derives it, and deliberately
+  // doesn't touch progressCardDecks itself: same reasoning as
+  // applyProgressCardDraws' own comment below — the local actor sets its
+  // own progressCardDecks[track] to the exact remainder it already
+  // computed, while a receiver just pops the same COUNT (one card) off its
+  // own independently-shuffled local copy, so each caller does its own deck
+  // update after calling this.
+  const applyBarbarianWinnerDraw = (playerId: number, card: ProgressCardType) => {
+    setPlayers((prev) => prev.map((p) => (p.id === playerId ? { ...p, progressCards: [...p.progressCards, card] } : p)))
+    // Filtered by playerId, not sliced off the front — same reasoning as
+    // applyPillage above: online, tied winners resolve independently in
+    // whatever order they each act, not queue order.
+    setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+  }
+
   // Trusted state mutation for a city improvement purchase — shared by the
   // local actor (buyCityImprovement, below, which also broadcasts) and
   // receiving clients (onCityImprovementPurchased). Recomputes the cost from
@@ -1355,6 +1376,7 @@ function App() {
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
     broadcastPillageResolved,
+    broadcastBarbarianWinnerDrawResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
@@ -1452,6 +1474,30 @@ function App() {
     // than assuming queue order.
     onPillageResolved: (payload) => {
       applyPillage(payload.vertexId, payload.playerId)
+    },
+    // Cities & Knights barbarian winner draw (Task 7) — trusted-apply from
+    // the drawing player's own client, which already read `card` off its
+    // own local progressCardDecks[track] before sending this. Broadcast-
+    // sourced, so validated the same shape as onProgressCardsDrawn/
+    // onScienceFreeResourcePicked above: card/track must be recognized
+    // values (they land straight in a real player's hand and index
+    // progressCardDecks), and playerId must still be in THIS client's own
+    // winnerDrawQueue — a duplicated message must not grant a second draw.
+    onBarbarianWinnerDrawResolved: (payload) => {
+      if (
+        !IMPROVEMENT_TRACK_ORDER.includes(payload.track) ||
+        !PROGRESS_CARD_ORDER.includes(payload.card) ||
+        !winnerDrawQueue.includes(payload.playerId)
+      ) {
+        console.error('[Catan] Ignoring malformed barbarian winner-draw payload:', payload)
+        return
+      }
+      applyBarbarianWinnerDraw(payload.playerId, payload.card)
+      // Pop the SAME COUNT (one card) off this client's own local deck
+      // copy — same reasoning as onProgressCardsDrawn: contents are never
+      // shown to anyone, so which specific card remains doesn't need to
+      // match the acting client's; only the remaining length does.
+      setProgressCardDecks((prev) => ({ ...prev, [payload.track]: prev[payload.track].slice(1) }))
     },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
@@ -2272,32 +2318,53 @@ function App() {
     if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
   }
 
+  // Resolves the active tied-winner progress-card deck choice with the
+  // track the player clicked in BarbarianAttackModal's picker. Only ever
+  // reachable by the local actor whose id matches activeWinnerDrawPlayerId
+  // — see that derivation above for why this must be read through
+  // activeWinnerDrawPlayerId rather than winnerDrawQueue[0] (Task 5's
+  // IMPORTANT note, same reasoning handlePillageTargetSelect's own comment
+  // gives): online, ANY connected client could otherwise call this for the
+  // front-of-queue player with no ownership check.
+  const handleBarbarianWinnerDraw = (track: ImprovementTrack) => {
+    const playerId = activeWinnerDrawPlayerId
+    if (playerId == null) return
+    const deck = progressCardDecks[track]
+    const [card, ...rest] = deck
+    if (!card) {
+      warn('That deck is empty.')
+      return
+    }
+    applyBarbarianWinnerDraw(playerId, card)
+    setProgressCardDecks((prev) => ({ ...prev, [track]: rest }))
+    const player = playerById.get(playerId)
+    if (player) inform(`${player.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card for tying as Defender of Catan.`)
+    if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
+  }
+
   // Barbarian attack modal's "small banner" text. Distinguishes "it's MY
-  // choice" (activePillageTarget non-null) from "someone else is still
-  // choosing" (pillageQueue non-empty but activePillageTarget null —
-  // reachable only online, for a client not itself in the queue) — the
-  // design spec's required online-only waiting state (see Task 5's
-  // IMPORTANT note). Local Pass & Play never falls into the "waiting"
-  // branch: activePillageTarget always resolves to the (only)
-  // front-of-queue entry there whenever pillageQueue is non-empty, matching
-  // the spec's "no waiting state at all" rule for local play. The waiting
-  // branch's `pillageQueue[0]` read is display-only — a name for the
-  // banner text, not a target for any action — so it doesn't need
-  // activePillageTarget's ownership check the way the resolve handler,
-  // PillageLayer's render gate, and the auto-skip effect do.
-  // TEMPORARY: the winnerDrawQueue branch below still uses Task 5's
-  // generic (non-name-distinguishing) copy — Task 7 owns upgrading it to
-  // the same "it's my choice" vs. "waiting on Player X" split this task
-  // just gave the pillage branch above it.
+  // choice" (activePillageTarget/activeWinnerDrawPlayerId non-null) from
+  // "someone else is still choosing" (pillageQueue/winnerDrawQueue
+  // non-empty but the derived active-* value is null — reachable only
+  // online, for a client not itself in the relevant queue) — the design
+  // spec's required online-only waiting state (see Task 5's IMPORTANT
+  // note). Local Pass & Play never falls into either "waiting" branch:
+  // activePillageTarget/activeWinnerDrawPlayerId always resolve to the
+  // (only) front-of-queue entry there whenever the corresponding queue is
+  // non-empty, matching the spec's "no waiting state at all" rule for local
+  // play. Both waiting branches' `pillageQueue[0]`/`winnerDrawQueue[0]`
+  // reads are display-only — a name for the banner text, not a target for
+  // any action — so they don't need the ownership check the resolve
+  // handlers, the picker UIs, and the pillage auto-skip effect do.
   const pendingChoiceLabel = pillageQueue.length > 0
     ? activePillageTarget
       ? `Choose which city to pillage — ${playerById.get(activePillageTarget.playerId)?.name ?? ''}`
       : `Waiting on ${playerById.get(pillageQueue[0].playerId)?.name ?? 'another player'} to choose a pillage target`
-    : activeWinnerDrawPlayerId != null
-      ? 'Choose a progress card deck to draw from.'
-      : winnerDrawQueue.length > 0
-        ? 'Waiting for other players to choose a progress card deck…'
-        : null
+    : winnerDrawQueue.length > 0
+      ? activeWinnerDrawPlayerId != null
+        ? `${playerById.get(activeWinnerDrawPlayerId)?.name ?? ''} — choose a deck to draw from`
+        : `Waiting on ${playerById.get(winnerDrawQueue[0])?.name ?? 'another player'} to choose a deck`
+      : null
 
   // Auto-skip the picker when the active player has exactly one eligible
   // city — CN3087 p.11 doesn't require a click when there's no real choice
@@ -6929,32 +6996,31 @@ function App() {
         onSendChatMessage={sendChatMessage}
       />
 
-      {/* Cities & Knights barbarian attack (Task 5) — modal shell + sequencing
-          state only. pendingChoiceLabel (computed above) is real, but Tasks
-          6-7 still own the actual picker UI (board pillage markers, deck
-          choice buttons) — this task only renders the strength-comparison/
-          outcome text plus that one label line. */}
+      {/* Cities & Knights barbarian attack (Task 5-7) — modal shell +
+          sequencing state, the pillage board-picker (PillageLayer, gated on
+          activePillageTarget above), and this in-modal deck picker (gated
+          on activeWinnerDrawPlayerId, not winnerDrawQueue.length — same
+          reasoning as activePillageTarget's own derivation above). Close
+          only renders once both queues are empty — there's nothing left to
+          pick via either picker at that point — and just dismisses the
+          modal; nothing left to clear. */}
       {activeBarbarianAttack && (
         <>
-          <BarbarianAttackModal result={activeBarbarianAttack} players={players} pendingChoiceLabel={pendingChoiceLabel} />
-          {/* TEMPORARY — Task 7 replaces this with real winner-draw resolution
-              UI and removes it entirely. Pillage now resolves for real via
-              PillageLayer/handlePillageTargetSelect above, so this no longer
-              force-clears pillageQueue — it's gated on pillageQueue.length
-              === 0 (nothing left to pick via the board picker) and only
-              still owns clearing winnerDrawQueue, which Task 7 hasn't wired
-              a real picker for yet. */}
-          {pillageQueue.length === 0 && (
+          <BarbarianAttackModal
+            result={activeBarbarianAttack}
+            players={players}
+            pendingChoiceLabel={pendingChoiceLabel}
+            winnerDrawActive={activeWinnerDrawPlayerId != null}
+            onDrawFromTrack={handleBarbarianWinnerDraw}
+          />
+          {pillageQueue.length === 0 && winnerDrawQueue.length === 0 && (
             <div className="pointer-events-none absolute inset-x-0 bottom-20 z-50 flex justify-center">
               <button
                 type="button"
-                onClick={() => {
-                  setActiveBarbarianAttack(null)
-                  setWinnerDrawQueue([])
-                }}
+                onClick={() => setActiveBarbarianAttack(null)}
                 className="pointer-events-auto rounded-lg bg-gradient-to-b from-gold to-gold-deep px-6 py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
               >
-                Continue (temporary)
+                Close
               </button>
             </div>
           )}

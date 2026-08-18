@@ -409,4 +409,20 @@ describe('resolveBarbarianAttack', () => {
     // p3, though non-immune, is a separate (higher) tier and is untouched.
     expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B1', 'B2'] }])
   })
+
+  it('a metropolis-only player is immune even though they own a city', () => {
+    // p1 owns exactly 1 city, which is ALSO their metropolis — immune, 0
+    // active knights (would be "lowest" but skipped). p2 is the next tier.
+    const p1 = playerWithCities(1, [])
+    const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'basic', active: true, vertexId: 'Y' }])
+    const settlements = settlementsFor([
+      { vertexId: 'M', ownerId: 1, type: 'city' }, // p1's metropolis
+      { vertexId: 'B1', ownerId: 2, type: 'city' },
+      { vertexId: 'B2', ownerId: 2, type: 'city' },
+    ])
+    // 3 cities total (M, B1, B2) vs. defense 0+1=1 — barbarians win easily.
+    const result = resolveBarbarianAttack([p1, p2], settlements, new Set(['M']))
+    expect(result.barbarianStrength).toBe(3) // metropolis STILL counts here
+    expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B1', 'B2'] }])
+  })
 })

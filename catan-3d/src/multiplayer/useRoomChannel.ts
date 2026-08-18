@@ -16,6 +16,7 @@ import type {
 } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { EventDieFace } from '../components/Dice3D'
+import type { BarbarianAttackResult } from '../game/knights'
 
 export interface RoomPlayer {
   // Only ever present on entries the HOOK hands back via `players` (set
@@ -113,6 +114,30 @@ export interface RobberMovedPayload {
   thiefId: number
   victimId: number | null
   stolenResource: ResourceType | null
+}
+
+// Cities & Knights barbarian ship (Task 4) — a 'ship' event-die face that
+// doesn't yet reach the end of the 7-space track. Every OTHER client just
+// mirrors the roller's own barbarianTrackPosition directly (trusted-apply,
+// same model as KnightRecruitedPayload/MerchantMovedPayload's own comments
+// below), since the roller's client is the only one that ever advances it.
+export interface BarbarianShipAdvancedPayload {
+  position: number
+}
+
+// Cities & Knights barbarian attack (Task 4) — sent instead of
+// BarbarianShipAdvancedPayload once the ship reaches the end of the track.
+// result is sent ALREADY-RESOLVED (same trusted-apply model as
+// KnightRecruitedPayload below): resolveBarbarianAttack's own inputs
+// (players, settlements, metropolisVertexIds) are already synced board
+// state, but only the roller's client runs it, so every other client just
+// applies the returned result directly rather than re-running it locally.
+// robberActivated mirrors the same one-time robberActive transition Task 3
+// gates the robber on — sent explicitly since a receiver has no other way
+// to know whether THIS was the first attack the match has ever resolved.
+export interface BarbarianAttackResolvedPayload {
+  result: BarbarianAttackResult
+  robberActivated: boolean
 }
 
 export interface KnightPlayedPayload {
@@ -621,6 +646,11 @@ export interface RoomChannelHandlers {
   onCityBuilt?: (payload: CityBuiltPayload) => void
   onRoadBuilt?: (payload: RoadBuiltPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
+  // Cities & Knights barbarian ship (Task 4) — see
+  // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
+  // comments above for the trusted-apply reasoning.
+  onBarbarianShipAdvanced?: (payload: BarbarianShipAdvancedPayload) => void
+  onBarbarianAttackResolved?: (payload: BarbarianAttackResolvedPayload) => void
   onKnightPlayed?: (payload: KnightPlayedPayload) => void
   onRoadBuildingPlayed?: (payload: RoadBuildingPlayedPayload) => void
   onPlentyPlayed?: (payload: PlentyPlayedPayload) => void
@@ -881,6 +911,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
       handlersRef.current.onRobberMoved?.(payload)
     })
+    channel.on<BarbarianShipAdvancedPayload>('broadcast', { event: 'BARBARIAN_SHIP_ADVANCED' }, ({ payload }) => {
+      handlersRef.current.onBarbarianShipAdvanced?.(payload)
+    })
+    channel.on<BarbarianAttackResolvedPayload>('broadcast', { event: 'BARBARIAN_ATTACK_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onBarbarianAttackResolved?.(payload)
+    })
     channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, ({ payload }) => {
       handlersRef.current.onKnightPlayed?.(payload)
     })
@@ -1140,6 +1176,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastRobberMoved = (payload: RobberMovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
   }
+  const broadcastBarbarianShipAdvanced = (payload: BarbarianShipAdvancedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_SHIP_ADVANCED', payload })
+  }
+  const broadcastBarbarianAttackResolved = (payload: BarbarianAttackResolvedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_ATTACK_RESOLVED', payload })
+  }
   const broadcastKnightPlayed = (payload: KnightPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PLAYED', payload })
   }
@@ -1282,6 +1324,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCityBuilt,
     broadcastRoadBuilt,
     broadcastRobberMoved,
+    broadcastBarbarianShipAdvanced,
+    broadcastBarbarianAttackResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,

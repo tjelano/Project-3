@@ -271,6 +271,14 @@ export interface BarbarianAttackResult {
 export function resolveBarbarianAttack(
   players: Player[],
   settlements: Record<string, Building>,
+  // Vertex ids currently upgraded to a metropolis (any of the 3 tracks).
+  // A metropolis is immune from pillage and is excluded from
+  // citiesByPlayer below — but it still counts toward barbarianStrength
+  // above, since barbarian strength counts ALL cities including
+  // metropolises. Defaults to none, so callers that only need
+  // barbarianStrength/defenderStrength (e.g. the track HUD's live
+  // preview, Task 8) can keep calling this with 2 arguments.
+  metropolisVertexIds: ReadonlySet<string> = new Set(),
 ): BarbarianAttackResult {
   const barbarianStrength = Object.values(settlements).filter((b) => b.type === 'city').length
 
@@ -304,23 +312,17 @@ export function resolveBarbarianAttack(
   const citiesByPlayer = new Map<number, string[]>()
   for (const [vertexId, building] of Object.entries(settlements)) {
     if (building.type !== 'city') continue
+    if (metropolisVertexIds.has(vertexId)) continue // metropolises are immune from pillage
     const list = citiesByPlayer.get(building.ownerId)
     if (list) list.push(vertexId)
     else citiesByPlayer.set(building.ownerId, [vertexId])
   }
   for (const list of citiesByPlayer.values()) list.sort()
 
-  // Immune: no cities at all, since a metropolis-only player already has
-  // no PILLAGEABLE city either way — this module has no metropolis
-  // concept of its own (that lives in cityImprovements.ts / App.tsx's
-  // metropolisVertexIds), so "immune" here is simply "no city in
-  // citiesByPlayer for this player id" — App.tsx's own metropolis
-  // bookkeeping must exclude metropolis vertices from `settlements`
-  // entries counted as pillageable before calling this function, OR
-  // (simpler, decide during implementation) this function is extended
-  // with an explicit metropolisVertexIds param it filters out of
-  // citiesByPlayer before use. Confirm the exact call-site shape against
-  // App.tsx's real metropolisVertexIds structure before wiring Task 4.
+  // Immune: no PILLAGEABLE city at all — a metropolis-only player already
+  // has none, since the metropolisVertexIds filter above excludes their
+  // metropolis vertex from citiesByPlayer entirely (they still count
+  // toward barbarianStrength up top, just not here).
   const strengthTiers = [...new Set([...activeKnightStrengthByPlayer.values()])].sort((a, b) => a - b)
 
   let pillageTargets: BarbarianPillageTarget[] = []

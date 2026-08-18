@@ -115,7 +115,10 @@ import {
   nextKnightStrength,
   reachableOpponentKnights,
   recruitableVertices,
+  resolveBarbarianAttack,
   selectSmithingPromotions,
+  BARBARIAN_TRACK_LENGTH,
+  type BarbarianAttackResult,
 } from './game/knights'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
@@ -518,6 +521,10 @@ function App() {
   // activate until after it has been placed on the desert following the
   // first barbarian attack."
   const [robberActive, setRobberActive] = useState(false)
+
+  // Cities & Knights barbarian ship position on its 7-space track (0-6).
+  // Advances on each 'ship' event-die face; resets to 0 after every attack.
+  const [barbarianTrackPosition, setBarbarianTrackPosition] = useState(0)
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
   // category as robberTileId just above, not a per-player field: the piece
@@ -1314,6 +1321,8 @@ function App() {
     broadcastCityBuilt,
     broadcastRoadBuilt,
     broadcastRobberMoved,
+    broadcastBarbarianShipAdvanced,
+    broadcastBarbarianAttackResolved,
     broadcastKnightPlayed,
     broadcastRoadBuildingPlayed,
     broadcastPlentyPlayed,
@@ -1387,6 +1396,20 @@ function App() {
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource),
+    // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
+    // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
+    // comments in useRoomChannel.ts.
+    onBarbarianShipAdvanced: (payload) => {
+      setBarbarianTrackPosition(payload.position)
+    },
+    onBarbarianAttackResolved: (payload) => {
+      setBarbarianTrackPosition(0)
+      if (payload.robberActivated) {
+        setRobberActive(true)
+        inform('The barbarians have landed — the robber is now active.')
+      }
+      applyBarbarianAttackResult(payload.result)
+    },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
     // These two receivers spend the card themselves — unlike the acting
@@ -2880,6 +2903,11 @@ function App() {
     [],
   )
 
+  // Task 5 replaces this with the real attack-modal sequencing entry point.
+  const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
+    console.log('[Catan] Barbarian attack resolved (Task 5 will handle this):', result)
+  }
+
   // Triggered by the Roll Dice button: this is always the LOCAL player's own
   // roll (their own turn, local Pass & Play or online), so it runs a real
   // physics throw rather than pre-deciding a total — the outcome isn't known
@@ -2994,6 +3022,44 @@ function App() {
           if (p) inform(`${p.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card.`)
         }
         if (onlineInfo) broadcastProgressCardsDrawn({ track, draws: result.draws })
+      }
+    }
+
+    // Cities & Knights barbarian ship — the OTHER 3 event-die faces (a
+    // 'ship' roll advances the barbarian ship 1 space closer to attacking).
+    // This was a documented no-op through Phase B and Phase C1
+    // ("this plan doesn't implement Knights & Barbarians") — this is where
+    // it becomes real. Gated the same explicit way the progress-card block
+    // above is: NOT naturally inert when the rule is off, since without this
+    // guard a 'ship' roll would silently advance shared board state
+    // (barbarianTrackPosition) even in a game that never opted into this
+    // house rule.
+    if (gameRules.citiesAndKnightsBarbarians && eventDie === 'ship') {
+      const nextPosition = barbarianTrackPosition + 1
+      if (nextPosition >= BARBARIAN_TRACK_LENGTH - 1) {
+        // Reached the final position — resolve the attack NOW, roller-only
+        // (same authority model as the progress-card draw above: this
+        // client's own computation is trusted and broadcast, not
+        // independently re-derived by receivers).
+        const currentMetropolisVertexIds = new Set(
+          Object.values(metropolisVertexIds).filter((v): v is string => v != null),
+        )
+        const attackResult = resolveBarbarianAttack(players, settlements, currentMetropolisVertexIds)
+        const isFirstActivation = !robberActive
+        setBarbarianTrackPosition(0)
+        if (isFirstActivation) {
+          setRobberActive(true)
+          // CN3087 p.7: the robber does not activate until after the first
+          // barbarian attack — a one-time state transition, announced the
+          // same way this project already announces others (e.g. Chase Away
+          // the Robber's arm/resolve banners).
+          inform('The barbarians have landed — the robber is now active.')
+        }
+        applyBarbarianAttackResult(attackResult) // Task 5 defines this
+        if (onlineInfo) broadcastBarbarianAttackResolved({ result: attackResult, robberActivated: isFirstActivation })
+      } else {
+        setBarbarianTrackPosition(nextPosition)
+        if (onlineInfo) broadcastBarbarianShipAdvanced({ position: nextPosition })
       }
     }
 
@@ -5777,6 +5843,7 @@ function App() {
     // let the robber move on the very first 7 of a brand-new match, even
     // with a from-scratch barbarian track that hasn't had a first attack yet.
     setRobberActive(false)
+    setBarbarianTrackPosition(0)
     setPlayerCount(count)
     // Who goes first, randomized instead of always seat 0 (the host).
     // Online reuses the SAME seed the board itself was just built from —

@@ -6937,6 +6937,8 @@ function App() {
         citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
         onBuyImprovement={buyCityImprovement}
         citiesAndKnightsProgressCards={gameRules.citiesAndKnightsProgressCards}
+        citiesAndKnightsBarbarians={gameRules.citiesAndKnightsBarbarians}
+        barbarianTrackPosition={barbarianTrackPosition}
         citiesAndKnightsKnights={gameRules.citiesAndKnightsKnights}
         onRecruitKnight={armKnightRecruit}
         canRecruitKnight={canRecruitKnight(localPlayer)}

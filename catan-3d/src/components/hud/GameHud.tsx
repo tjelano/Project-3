@@ -24,6 +24,7 @@ import { RollDiceButton } from './RollDiceButton'
 import { EventDieIndicator } from './EventDieIndicator'
 import type { EventDieFace } from '../Dice3D'
 import { EventBanner } from './EventBanner'
+import { BarbarianTrackPanel } from './BarbarianTrackPanel'
 import { EventLogPanel } from './EventLogPanel'
 import { ChatBoxPanel } from './ChatBoxPanel'
 import { TradeModal } from './TradeModal'
@@ -177,6 +178,18 @@ interface GameHudProps {
   // citiesAndKnightsCommodities also on, but no UI-level dependency
   // enforced here either, matching that precedent).
   citiesAndKnightsProgressCards: boolean
+  // Cities & Knights barbarian attacks (Task 8) — gates whether
+  // BarbarianTrackPanel renders at all, same "derived from GameRules, not
+  // folded into another house-rule flag" split every sibling
+  // citiesAndKnights* prop in this file already keeps (see
+  // citiesAndKnightsProgressCards' own comment just above). This panel is
+  // purely informational (public track position + live strength
+  // comparison), unlike the pillage/draw pickers Tasks 6-7 add elsewhere —
+  // no per-player gating, everyone on this house rule sees the same thing.
+  citiesAndKnightsBarbarians: boolean
+  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
+  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
+  barbarianTrackPosition: number
   // Cities & Knights knights (Task 7) — gates whether KnightsPanel renders
   // at all, same "derived from GameRules, not folded into
   // citiesAndKnightsProgressCards" split GameRules itself keeps (see that
@@ -431,6 +444,8 @@ export function GameHud({
   citiesAndKnightsCommodities,
   onBuyImprovement,
   citiesAndKnightsProgressCards,
+  citiesAndKnightsBarbarians,
+  barbarianTrackPosition,
   citiesAndKnightsKnights,
   onRecruitKnight,
   canRecruitKnight,
@@ -721,6 +736,18 @@ export function GameHud({
         canRestart={canRestart && !tradeBlocked && !pickerBlocked}
       />
       <EventBanner banner={banner} />
+      {/* Cities & Knights barbarian track (Task 8) — public, read-only
+          info (track position + live strength comparison), so unlike the
+          pillage/draw pickers (Tasks 6-7) this has no per-player gating,
+          just the plain house-rule flag. Sits below EventBanner's own
+          top-20 slot (top-32, not top-20) so a transient banner message
+          never visually collides with this persistent panel — both are
+          centered in the same top-center column. */}
+      {citiesAndKnightsBarbarians && (
+        <div className="pointer-events-none absolute top-32 left-1/2 -translate-x-1/2">
+          <BarbarianTrackPanel position={barbarianTrackPosition} players={players} settlements={settlements} />
+        </div>
+      )}
       {/* Its own independent slot, ABOVE the stack below — kept out of that
           stack's normal flow so its presence (online only) never pushes
           BuildingCostsPanel down off the top-20 alignment ResourcePanel

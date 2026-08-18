@@ -66,6 +66,7 @@ import {
   KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
   KNIGHT_RECRUIT_COST,
+  KNIGHT_STARTING_SUPPLY,
   KNIGHT_STRENGTH_ORDER,
   KNIGHT_STRENGTH_VALUE,
   LARGEST_ARMY_MIN_KNIGHTS,
@@ -5865,6 +5866,11 @@ function App() {
       // hand-limit math and progressCardVP scoring both index into
       // unconditionally.
       progressCards: p.progressCards ?? [],
+      // Cities & Knights knight pieces & city walls — same pre-feature-
+      // snapshot gap as the 3 fields above.
+      knightPieces: p.knightPieces ?? [],
+      knightSupply: p.knightSupply ?? { ...KNIGHT_STARTING_SUPPLY },
+      cityWalls: p.cityWalls ?? [],
     }))
     setPlayers(normalizedPlayers)
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1

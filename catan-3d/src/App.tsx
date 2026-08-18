@@ -6443,6 +6443,9 @@ function App() {
       knightPieces: p.knightPieces ?? [],
       knightSupply: p.knightSupply ?? { ...KNIGHT_STARTING_SUPPLY },
       cityWalls: p.cityWalls ?? [],
+      // Cities & Knights Barbarians "Defender of Catan" count (Task 1) —
+      // same pre-feature-snapshot gap as the fields above.
+      defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
     }))
     setPlayers(normalizedPlayers)
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
@@ -6475,6 +6478,10 @@ function App() {
     // absent on any snapshot saved before this feature existed.
     setMerchantTileId(snapshot.merchantTileId ?? null)
     setMerchantHolderId(snapshot.merchantHolderId ?? null)
+    // Cities & Knights Barbarians (Tasks 3/4) — same optional/backward-
+    // compatible treatment as merchantTileId/merchantHolderId above.
+    setBarbarianTrackPosition(snapshot.barbarianTrackPosition ?? 0)
+    setRobberActive(snapshot.robberActive ?? false)
     setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
     setHasRolledThisTurn(snapshot.hasRolledThisTurn)
@@ -6705,6 +6712,8 @@ function App() {
       metropolisVertexIds,
       merchantTileId,
       merchantHolderId,
+      barbarianTrackPosition,
+      robberActive,
       devCardPlayedThisTurn,
       freeRoadsRemaining,
       hasRolledThisTurn,
@@ -6743,6 +6752,8 @@ function App() {
     metropolisVertexIds,
     merchantTileId,
     merchantHolderId,
+    barbarianTrackPosition,
+    robberActive,
     devCardPlayedThisTurn,
     freeRoadsRemaining,
     hasRolledThisTurn,

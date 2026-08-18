@@ -78,6 +78,14 @@ export interface MatchSnapshot {
   // a pre-feature match (the Merchant piece was never placed).
   merchantTileId?: string | null
   merchantHolderId?: number | null
+  // Cities & Knights Barbarians (Tasks 3/4) — App-level barbarian-ship track
+  // state, same optional/backward-compatible treatment as merchantTileId
+  // above: absent on any snapshot saved before this feature existed.
+  // restoreFromSnapshot (App.tsx) falls back to `?? 0` / `?? false`, which is
+  // always correct for a pre-feature match (the ship never advanced and the
+  // robber was never activated by a barbarian attack).
+  barbarianTrackPosition?: number
+  robberActive?: boolean
   devCardPlayedThisTurn: boolean
   freeRoadsRemaining: number
   // Whether the current player has already rolled this turn — restored so a

@@ -211,6 +211,23 @@ mechanics above:
 - **Intrigue** — take the Displace action without using one of the
   player's own knights as the mover; the displaced knight must be on an
   intersection connected to at least one of the player's own routes.
+  **No strength restriction** — unlike an ordinary Displace action (which
+  requires the mover to be strictly stronger than the target), Intrigue can
+  displace an opponent's knight of ANY strength, including a mighty one
+  (confirmed via two independent rulebook sources against CN3087: "You may
+  displace an opponent's knight... connected to at least one of your
+  routes" — no mention of relative strength at all). Task 14's own
+  implementation initially modeled this as a virtual mover with
+  `strength: 'mighty'` reusing the ordinary Displace helper's own
+  strictly-weaker-than filter, on the theory that the top strength would
+  let every target through — that's wrong: the filter excludes any target
+  AT LEAST AS STRONG as the mover (`>=`, not `>`), so a virtual 'mighty'
+  mover still wrongly excludes an opposing knight that is ALSO mighty (a
+  tie). The fix (Task 14 review round) factored the shared
+  reachability/ownership check out of `knightDisplaceTargets` into its own
+  `reachableOpponentKnights` (`game/knights.ts`), with no strength filter
+  at all, and Intrigue calls that directly instead of constructing a
+  virtual mover of any strength.
 - **Treason** — target another player, who must remove one of their
   knights (their choice of which); the acting player may then place one
   of their own knights of the same strength-or-lower and matching

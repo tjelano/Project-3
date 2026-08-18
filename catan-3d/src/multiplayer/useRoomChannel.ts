@@ -453,6 +453,36 @@ export interface EncouragementPlayedPayload {
   playerId: number
 }
 
+// Cities & Knights Intrigue (Task 14) — resolved SEPARATELY from the card's
+// initial spend, same two-broadcast split GuildDuesTakenPayload/
+// EspionageTakenPayload above use: the acting player already spent the card
+// (and every client already removed it from their hand) via the earlier,
+// generic ProgressCardPlayedPayload broadcast — see playIntrigue's own
+// comment in App.tsx — so this only needs to carry the DISPLACE half.
+// displacedVertexId is null when the displaced knight had nowhere to go and
+// was removed to its owner's supply instead, same meaning
+// KnightDisplacedPayload.displacedVertexId already has.
+export interface IntrigueResolvedPayload {
+  displacedOwnerId: number
+  targetKnightId: string
+  displacedVertexId: string | null
+}
+
+// Cities & Knights Treason (Task 14) — unlike Intrigue above, this is its
+// own single, self-contained broadcast (same shape CommercialHarborPlayedPayload/
+// DiplomacyPlayedPayload's own comments describe): the card is spent AND
+// the target's knight is removed in the exact same local step (playTreason),
+// so both effects travel together rather than needing a preceding generic
+// ProgressCardPlayedPayload broadcast first. removedKnight is sent whole
+// (not just an id) since the receiver needs its strength to both return the
+// right supply count to the target and reason about the announcer's own
+// placement rider.
+export interface TreasonRemovedPayload {
+  actingPlayerId: number
+  targetPlayerId: number
+  removedKnight: KnightPiece
+}
+
 export interface NewGamePayload {
   // Every client independently calls buildHexBoard(boardSeed) instead of
   // buildHexBoard(roomCode) — reusing the room code would reshuffle to the
@@ -683,6 +713,13 @@ export interface RoomChannelHandlers {
   // for the trusted-apply reasoning.
   onSmithingPlayed?: (payload: SmithingPlayedPayload) => void
   onEncouragementPlayed?: (payload: EncouragementPlayedPayload) => void
+  // Cities & Knights Intrigue/Treason (Task 14) — see
+  // IntrigueResolvedPayload/TreasonRemovedPayload's own comments above for
+  // the trusted-apply reasoning and why one is a two-broadcast split (like
+  // Guild Dues/Espionage) while the other is self-contained (like
+  // Commercial Harbor/Diplomacy).
+  onIntrigueResolved?: (payload: IntrigueResolvedPayload) => void
+  onTreasonRemoved?: (payload: TreasonRemovedPayload) => void
   // The active player's live vertex/edge hover, so spectators can see what
   // they're considering building before they commit to it.
   onHoverChanged?: (payload: HoverChangedPayload) => void
@@ -944,6 +981,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<EncouragementPlayedPayload>('broadcast', { event: 'ENCOURAGEMENT_PLAYED' }, ({ payload }) => {
       handlersRef.current.onEncouragementPlayed?.(payload)
     })
+    channel.on<IntrigueResolvedPayload>('broadcast', { event: 'INTRIGUE_RESOLVED' }, ({ payload }) => {
+      handlersRef.current.onIntrigueResolved?.(payload)
+    })
+    channel.on<TreasonRemovedPayload>('broadcast', { event: 'TREASON_REMOVED' }, ({ payload }) => {
+      handlersRef.current.onTreasonRemoved?.(payload)
+    })
     channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
       handlersRef.current.onHoverChanged?.(payload)
     })
@@ -1200,6 +1243,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastEncouragementPlayed = (payload: EncouragementPlayedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ENCOURAGEMENT_PLAYED', payload })
   }
+  const broadcastIntrigueResolved = (payload: IntrigueResolvedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'INTRIGUE_RESOLVED', payload })
+  }
+  const broadcastTreasonRemoved = (payload: TreasonRemovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'TREASON_REMOVED', payload })
+  }
   const broadcastHoverChanged = (payload: HoverChangedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
   }
@@ -1259,6 +1308,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastCityWallBuilt,
     broadcastSmithingPlayed,
     broadcastEncouragementPlayed,
+    broadcastIntrigueResolved,
+    broadcastTreasonRemoved,
     broadcastHoverChanged,
     broadcastChatMessage,
   }

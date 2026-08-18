@@ -286,6 +286,25 @@ interface GameHudProps {
   // Merchant Fleet's rate which can name either) picked before it can be
   // played, so it gets its own small picker UI too.
   onPlayCommercialHarbor: (resource: ResourceType) => void
+  // Cities & Knights Treason (Task 14) — same exception as Merchant Fleet/
+  // Commercial Harbor above: needs a target PLAYER picked before it can be
+  // played (playTreason resolves the whole card — removal AND, if eligible,
+  // arming the replacement placement — in one call, unlike Guild Dues/
+  // Espionage's own "auto-pick then adjust" shape), so it gets its own
+  // small picker UI too, reusing PlayerTargetPicker the same way Guild
+  // Dues/Espionage's own dialogs already do.
+  onPlayTreason: (targetPlayerId: number) => void
+  // True while the viewer's OWN replacement-knight placement is pending
+  // (App.tsx's pendingTreasonPlacement) — hides the Play button so a second
+  // Treason can't be spent mid-placement from here, same shape
+  // inventionSwapActive/diplomacyPickerActive above use. The actual
+  // placement click happens on the board itself (KnightLayer's
+  // recruitTargets, reused from ordinary Recruit), so unlike Diplomacy this
+  // needs no Cancel escape hatch — playTreason's own eligibility check
+  // (canPlace) never arms a placement it doesn't have a target vertex AND
+  // supply for, so nothing can ever get stuck waiting on a click that can't
+  // resolve.
+  treasonPlacementActive: boolean
   // Cities & Knights Diplomacy (Task 12) — same exception as Invention: no
   // argument picker of its own here, the actual road pick happens on the
   // board itself (BoardInteractions' EdgeSlot, App.tsx's
@@ -435,6 +454,8 @@ export function GameHud({
   onPlayMerchantFleet,
   merchantFleetRate,
   onPlayCommercialHarbor,
+  onPlayTreason,
+  treasonPlacementActive,
   onPlayDiplomacy,
   diplomacyPickerActive,
   onCancelDiplomacy,
@@ -477,6 +498,12 @@ export function GameHud({
   // local-UI-state treatment as merchantFleetType, but RESOURCE_ORDER-only
   // (see onPlayCommercialHarbor's own comment for why).
   const [commercialHarborResource, setCommercialHarborResource] = useState<ResourceType>(RESOURCE_ORDER[0])
+  // Cities & Knights Treason's own target picker (Task 14) — same
+  // local-UI-state treatment as commercialHarborResource above, but a
+  // player id rather than a fixed enum value, so null (no other player
+  // exists yet, or none has been picked) has to be handled explicitly —
+  // see resolvedTreasonTargetId below, which is what actually gets read.
+  const [treasonTargetId, setTreasonTargetId] = useState<number | null>(null)
   // devCardPicker takes priority — the two are mutually exclusive in
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
@@ -485,6 +512,15 @@ export function GameHud({
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
+  // Cities & Knights Treason (Task 14) — same target-list philosophy as
+  // Espionage's own otherPlayers above (unrestricted; playTreason itself
+  // warns if the current pick turns out to hold no knights, matching
+  // Espionage's own "resolve handles the edge case" precedent rather than
+  // pre-filtering the picker the way Guild Dues' VP-gated list does).
+  // Resolved ONCE here — not re-derived separately at the picker's
+  // selectedPlayerId and the Play button's argument — so the two can never
+  // read two different fallbacks for an unset/stale treasonTargetId.
+  const resolvedTreasonTargetId = otherPlayers.find((p) => p.id === treasonTargetId)?.id ?? otherPlayers[0]?.id ?? null
   // Cities & Knights Guild Dues/Espionage — each dialog gets its own focus
   // trap (same DevCardResourcePicker-style forced-overlay treatment),
   // wired to that card's own Cancel action for Escape-to-dismiss. Called
@@ -1019,6 +1055,28 @@ export function GameHud({
               className="w-full rounded-lg border border-glass-border bg-white/5 px-3 py-1.5 font-display text-xs font-semibold text-white/80 transition-colors hover:bg-white/10"
             >
               Cancel
+            </button>
+          </div>
+        )}
+        {/* Cities & Knights Treason (Task 14) — a 1-PLAYER-type picker
+            (PlayerTargetPicker, unrestricted like Espionage's own target
+            list — see resolvedTreasonTargetId's own comment above for why),
+            same "argument chosen before the initial click" shape Alchemy/
+            Merchant Fleet/Commercial Harbor above use. No pre-roll
+            restriction. Hidden once treasonPlacementActive so a second
+            Treason can't be spent mid-placement from here (App.tsx's
+            playTreason guards this too, same reasoning Invention's own
+            !inventionSwapActive guard gives). */}
+        {canPlayProgressCards && !treasonPlacementActive && resolvedTreasonTargetId != null && viewer.progressCards.includes('treason') && (
+          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Treason: Choose a Target</span>
+            <PlayerTargetPicker players={otherPlayers} selectedPlayerId={resolvedTreasonTargetId} onSelect={setTreasonTargetId} />
+            <button
+              type="button"
+              onClick={() => onPlayTreason(resolvedTreasonTargetId)}
+              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+            >
+              Play
             </button>
           </div>
         )}

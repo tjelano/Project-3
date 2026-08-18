@@ -66,6 +66,8 @@ import {
   KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
   KNIGHT_RECRUIT_COST,
+  KNIGHT_STRENGTH_ORDER,
+  KNIGHT_STRENGTH_VALUE,
   LARGEST_ARMY_MIN_KNIGHTS,
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
@@ -93,6 +95,7 @@ import {
   type GameRules,
   type ImprovementTrack,
   type KnightPiece,
+  type KnightStrength,
   type MetropolisHolders,
   type Player,
   type PlayerColorToken,
@@ -558,6 +561,30 @@ function App() {
   // moveRobber always resolves synchronously within the same interaction
   // that arms it and so never needs to survive to a turn boundary.
   const [chasingRobberKnightId, setChasingRobberKnightId] = useState<string | null>(null)
+
+  // Cities & Knights Intrigue (Task 14) — non-null only on the acting
+  // client's own screen while a displace target is being chosen, same
+  // local-only "spend up front, resolve on the next click" treatment
+  // pendingMerchantPlacement/pendingFreeCityWall already get. Carries the
+  // playing player's id — Intrigue has no mover knight of its own to arm
+  // (unlike armedKnightAction's 'displace' mode above), so this is its own
+  // separate flag rather than a third armedKnightAction mode. handleKnightSelect
+  // checks this FIRST, before the ordinary-displace body, so the two
+  // branches never both fire for the same click.
+  const [pendingIntrigueDisplace, setPendingIntrigueDisplace] = useState<number | null>(null)
+  // Cities & Knights Treason (Task 14) — non-null only on the acting
+  // client's own screen while the replacement-knight placement is pending,
+  // same local-only treatment pendingKnightRecruit already gets. Carries
+  // maxStrength/active from the just-removed knight (CN3087: "the same
+  // strength or lower... matching active/inactive status" — see
+  // playTreason's own comment for the exact rule and for why this shares
+  // ONE derivation with handleKnightVertexSelect's own resolution instead
+  // of two independent approximations that could disagree).
+  const [pendingTreasonPlacement, setPendingTreasonPlacement] = useState<{
+    playerId: number
+    maxStrength: KnightStrength
+    active: boolean
+  } | null>(null)
 
   // Historical log behind the single-active EventBanner — every inform()/
   // warn() call appends here too, capped to the last 20 so the panel never
@@ -1291,6 +1318,8 @@ function App() {
     broadcastCityWallBuilt,
     broadcastSmithingPlayed,
     broadcastEncouragementPlayed,
+    broadcastIntrigueResolved,
+    broadcastTreasonRemoved,
   } = useRoomChannel(onlineInfo?.roomCode ?? null, roomSelf, {
     // Mirrors the animation and runs local resource generation only — never
     // touches whose turn it is. Turn advancement is decoupled entirely from
@@ -1567,6 +1596,15 @@ function App() {
         // picks in OpponentHandPicker.
         setPlayers((prev) =>
           prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, payload.card) } : p)),
+        )
+      } else if (payload.card === 'intrigue') {
+        // Cities & Knights Intrigue (Task 14) — same split as Guild Dues/
+        // Espionage just above: pendingIntrigueDisplace is local-only UI
+        // state on the acting client, so a receiver just removes the spent
+        // card here; the actual displacement arrives separately via
+        // onIntrigueResolved once the actor picks a knight on the board.
+        setPlayers((prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)),
         )
       }
     },
@@ -1918,6 +1956,56 @@ function App() {
             ? p
             : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
         ),
+      )
+    },
+    // Cities & Knights Intrigue (Task 14) — trusted-apply, mirrors the local
+    // resolution exactly (handleKnightSelect's own pendingIntrigueDisplace
+    // branch): only the displaced knight's owner is touched here — the card
+    // itself was already removed via the earlier onProgressCardPlayed
+    // 'intrigue' branch above, same two-broadcast split Guild Dues/Espionage
+    // already use.
+    onIntrigueResolved: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id !== payload.displacedOwnerId) return p
+          if (payload.displacedVertexId) {
+            return {
+              ...p,
+              knightPieces: p.knightPieces.map((k) =>
+                k.id === payload.targetKnightId ? { ...k, vertexId: payload.displacedVertexId! } : k,
+              ),
+            }
+          }
+          const removed = p.knightPieces.find((k) => k.id === payload.targetKnightId)
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== payload.targetKnightId),
+            knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
+          }
+        }),
+      )
+    },
+    // Cities & Knights Treason (Task 14) — trusted-apply, self-contained
+    // (see TreasonRemovedPayload's own comment for why this doesn't need a
+    // preceding onProgressCardPlayed broadcast the way Intrigue above
+    // does): removes the card from the acting player's hand AND the
+    // target's knight in one step, mirroring playTreason's own single
+    // setPlayers call exactly. The placement half (if any) arrives
+    // separately via onKnightRecruited — Task 7's existing receiver, reused
+    // verbatim (see playTreason's own comment).
+    onTreasonRemoved: (payload) => {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id === payload.actingPlayerId) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
+          if (p.id === payload.targetPlayerId) {
+            return {
+              ...p,
+              knightPieces: p.knightPieces.filter((k) => k.id !== payload.removedKnight.id),
+              knightSupply: { ...p.knightSupply, [payload.removedKnight.strength]: p.knightSupply[payload.removedKnight.strength] + 1 },
+            }
+          }
+          return p
+        }),
       )
     },
     // The active player's live vertex/edge hover, mirrored so spectators
@@ -3386,6 +3474,23 @@ function App() {
       warn('Choose a city for your free wall first.')
       return
     }
+    // Cities & Knights Intrigue (Task 14) — identical reasoning to the
+    // Merchant/Engineering guards above: playIntrigue spends the card the
+    // instant pendingIntrigueDisplace is set, so ending the turn before a
+    // knight is actually chosen would strand a spent card with its
+    // displacement never resolved.
+    if (pendingIntrigueDisplace != null && pendingIntrigueDisplace === players[currentPlayerIndex]?.id) {
+      warn('Choose a knight to displace with Intrigue first.')
+      return
+    }
+    // Cities & Knights Treason (Task 14) — identical reasoning: playTreason
+    // spends the card (and removes the target's knight) up front, then
+    // pendingTreasonPlacement stays set while the acting player picks where
+    // to place their own replacement knight.
+    if (pendingTreasonPlacement && pendingTreasonPlacement.playerId === players[currentPlayerIndex]?.id) {
+      warn('Place your knight first.')
+      return
+    }
     endTurn()
   }
 
@@ -4479,6 +4584,43 @@ function App() {
       warn("It's not your turn.")
       return
     }
+    // Cities & Knights Treason (Task 14) — leading branch, checked FIRST,
+    // ahead of the ordinary recruit branch below (a distinct pending flag,
+    // so the two never both fire for the same click). `available` here
+    // uses the EXACT SAME treasonPlacementStrengthOptions derivation
+    // playTreason's own canPlace check uses (see that function's own
+    // comment) — recomputed fresh against the CURRENT player.knightSupply
+    // rather than trusting canPlace's earlier snapshot, so this can only
+    // ever find LESS available than canPlace promised, never more: it can
+    // gracefully no-op, it can never overspend.
+    if (pendingTreasonPlacement) {
+      const { playerId, maxStrength, active } = pendingTreasonPlacement
+      const player = playerById.get(playerId)!
+      const targets = recruitableVertices(playerId, graph, roads, settlements, knightPiecesByVertex)
+      if (!targets.has(vertexId)) {
+        warn('Not a valid placement.')
+        return
+      }
+      const available = treasonPlacementStrengthOptions(maxStrength).find((s) => player.knightSupply[s] > 0)
+      if (!available) {
+        setPendingTreasonPlacement(null)
+        return
+      }
+      const newKnight: KnightPiece = { id: `knight-${playerId}-${Date.now()}`, ownerId: playerId, strength: available, active, vertexId }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          p.id !== playerId
+            ? p
+            : { ...p, knightSupply: { ...p.knightSupply, [available]: p.knightSupply[available] - 1 }, knightPieces: [...p.knightPieces, newKnight] },
+        ),
+      )
+      setPendingTreasonPlacement(null)
+      // Deliberately reuses Task 7's KnightRecruitedPayload/onKnightRecruited
+      // — a "knight appears at this vertex with this strength/status" event
+      // needs no Treason-specific shape.
+      if (onlineInfo) broadcastKnightRecruited({ knight: newKnight })
+      return
+    }
     if (pendingKnightRecruit != null) {
       const playerId = pendingKnightRecruit
       const player = playerById.get(playerId)
@@ -4564,6 +4706,43 @@ function App() {
   const handleKnightSelect = (targetKnightId: string) => {
     if (!isMyTurn) {
       warn("It's not your turn.")
+      return
+    }
+    // Cities & Knights Intrigue (Task 14) — leading branch, checked FIRST,
+    // ahead of the ordinary Displace body below (a distinct pending flag —
+    // Intrigue has no mover knight of its own to arm — so the two never
+    // both fire for the same click).
+    if (pendingIntrigueDisplace != null) {
+      const playerId = pendingIntrigueDisplace
+      const targets = intrigueDisplaceTargets(playerId)
+      const target = targets.find((k) => k.id === targetKnightId)
+      if (!target) {
+        warn('Not a valid target.')
+        return
+      }
+      // Same "reachable empty vertex from the displaced knight's OWN
+      // network, else removed to supply" resolution the ordinary Displace
+      // body below already established for Task 10 — identical inputs
+      // (knightMoveTargets over the SAME knightPiecesByVertex map), identical
+      // deterministic sort-and-pick-first tie-break, so the two flows can
+      // never disagree about where a displaced knight ends up.
+      const forcedTargets = [...knightMoveTargets(target, graph, roads, settlements, knightPiecesByVertex)].sort()
+      const displacedVertexId = forcedTargets[0] ?? null
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.id !== target.ownerId) return p
+          if (displacedVertexId) {
+            return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === target.id ? { ...k, vertexId: displacedVertexId } : k)) }
+          }
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== target.id),
+            knightSupply: { ...p.knightSupply, [target.strength]: p.knightSupply[target.strength] + 1 },
+          }
+        }),
+      )
+      setPendingIntrigueDisplace(null)
+      if (onlineInfo) broadcastIntrigueResolved({ displacedOwnerId: target.ownerId, targetKnightId, displacedVertexId })
       return
     }
     if (armedKnightAction?.mode !== 'displace') return
@@ -5180,15 +5359,173 @@ function App() {
 
   const cancelEspionage = () => setPendingEspionage(null)
 
-  // Cities & Knights — 3 of the original 6 knight-dependent stub cards
-  // (Intrigue, Treason, Taxation) still need later Phase C work before they
-  // can function; Engineering/Smithing/Encouragement were unstubbed in Task
-  // 13 (see playEngineering/playSmithing/playEncouragement above) and no
-  // longer route through here. For now, the remaining three warn and stay
-  // in hand unchanged — matching the design spec's "returns the card to the
-  // player's hand unchanged" requirement and existing precedent.
+  // Cities & Knights — Taxation is the LAST knight-dependent stub card left
+  // (it needs Phase C2's barbarian-attack/robber-active gate, out of this
+  // task's scope); Engineering/Smithing/Encouragement were unstubbed in
+  // Task 13 and Intrigue/Treason in Task 14 (playIntrigue/playTreason
+  // below) — none of those route through here anymore. Taxation still
+  // warns and stays in hand unchanged — matching the design spec's "returns
+  // the card to the player's hand unchanged" requirement.
   const playStubProgressCard = (card: ProgressCardType) => {
     warn(`${PROGRESS_CARD_LABELS[card]} isn't implemented yet (needs Knights & Barbarians) — kept in hand.`)
+  }
+
+  // Cities & Knights Intrigue (Task 14) — every opponent knight reachable
+  // from ANY of playerId's own vertices at once (buildings + knights), not
+  // a single origin the way an ordinary Displace action's real mover has —
+  // CN3087: "must be on an intersection connected to at least one of your
+  // routes." A virtual 'mighty' knight stands at each of those vertices in
+  // turn (knightDisplaceTargets' own `>=` strength filter only excludes a
+  // target AT LEAST AS STRONG as the mover, so 'mighty' — the top strength
+  // — lets every basic/strong target through unfiltered; a target that is
+  // ALSO mighty is the one case this still excludes — see this task's own
+  // report for why that's flagged rather than silently special-cased here).
+  // Shared by playIntrigue's own eligibility check and KnightLayer's
+  // displaceTargets prop (below, in the JSX) so the two can never disagree
+  // about which knights are actually clickable.
+  const intrigueDisplaceTargets = (playerId: number): KnightPiece[] => {
+    const player = playerById.get(playerId)
+    if (!player) return []
+    const ownVertexIds = [
+      ...Object.entries(settlements)
+        .filter(([, b]) => b.ownerId === player.id)
+        .map(([v]) => v),
+      ...player.knightPieces.map((k) => k.vertexId),
+    ]
+    const seen = new Map<string, KnightPiece>()
+    for (const origin of ownVertexIds) {
+      const virtualMover: KnightPiece = { id: '__intrigue__', ownerId: player.id, strength: 'mighty', active: true, vertexId: origin }
+      for (const target of knightDisplaceTargets(virtualMover, graph, roads, settlements, knightPiecesByVertex)) {
+        seen.set(target.id, target)
+      }
+    }
+    return [...seen.values()]
+  }
+
+  const playIntrigue = () => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('intrigue')) {
+      warn('No Intrigue card to play.')
+      return
+    }
+    // Refuse outright rather than clobber an in-progress pick — same
+    // reasoning playInvention's own pendingInventionSwap guard uses. Real
+    // risk here, not hypothetical: Intrigue's deck count is 2 (Politics),
+    // so a player CAN hold a second copy while the first is still pending.
+    if (pendingIntrigueDisplace != null) {
+      warn('Finish choosing a knight to displace first.')
+      return
+    }
+    if (intrigueDisplaceTargets(player.id).length === 0) {
+      warn('No knight available to displace with Intrigue.')
+      return
+    }
+    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)))
+    setPendingIntrigueDisplace(player.id)
+    inform(`${player.name} played Intrigue — choose an opponent knight to displace.`)
+    // Same two-broadcast split Guild Dues/Espionage/Invention already use
+    // (see their own comments): the card is spent NOW, so every other
+    // client needs to hear about that immediately via the generic
+    // onProgressCardPlayed handler, rather than waiting for
+    // broadcastIntrigueResolved — which only fires later, once a knight is
+    // actually chosen, and (deliberately, see IntrigueResolvedPayload's own
+    // comment) doesn't itself carry an acting-player id to remove the card
+    // by.
+    if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'intrigue' })
+  }
+
+  // Cities & Knights Treason (Task 14) — every strength the acting player
+  // could legally place in exchange for a knight of `maxStrength` (CN3087:
+  // "the same strength or lower"), highest-eligible-first. Shared by
+  // playTreason's own canPlace check below AND handleKnightVertexSelect's
+  // pendingTreasonPlacement resolution so the two can never disagree about
+  // whether a placement is actually available — see playTreason's own
+  // comment for the bug this closes.
+  const treasonPlacementStrengthOptions = (maxStrength: KnightStrength): KnightStrength[] =>
+    KNIGHT_STRENGTH_ORDER.filter((s) => KNIGHT_STRENGTH_VALUE[s] <= KNIGHT_STRENGTH_VALUE[maxStrength]).reverse()
+
+  const playTreason = (targetPlayerId: number) => {
+    if (!canPlayProgressCardNow()) return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    const player = players[currentPlayerIndex]
+    if (!player.progressCards.includes('treason')) {
+      warn('No Treason card to play.')
+      return
+    }
+    // Refuse outright rather than clobber an in-progress placement — same
+    // reasoning playIntrigue's own guard above uses, for the same reason:
+    // Treason's deck count is also 2 (Politics), so a second copy really
+    // can be in hand while the first's placement is still pending. Without
+    // this, a second play would both remove ANOTHER opponent knight (a
+    // real, irreversible effect — unlike Merchant's harmless same-player
+    // overwrite) and silently discard the first removal's own placement
+    // opportunity by overwriting pendingTreasonPlacement.
+    if (pendingTreasonPlacement) {
+      warn('Finish placing your knight first.')
+      return
+    }
+    const target = playerById.get(targetPlayerId)
+    if (!target || target.knightPieces.length === 0) {
+      warn('That player has no knights to remove.')
+      return
+    }
+    // The TARGET chooses which of their own knights to remove — since this
+    // is a single local UI (no separate "opponent decides" prompt exists in
+    // this codebase for Pass & Play, and online play has no out-of-band
+    // channel for the opponent's OWN choice mid-turn), the removed knight
+    // is picked deterministically: their currently WEAKEST knight (ties
+    // broken by vertex id) — a reasonable stand-in for "opponent's choice"
+    // that never favors the acting player, since removing the weakest
+    // knight is the least costly outcome for the target, matching what a
+    // rational opponent would pick anyway.
+    const removed = [...target.knightPieces].sort(
+      (a, b) => KNIGHT_STRENGTH_VALUE[a.strength] - KNIGHT_STRENGTH_VALUE[b.strength] || a.id.localeCompare(b.id),
+    )[0]
+    const eligiblePlacementVertices = recruitableVertices(player.id, graph, roads, settlements, knightPiecesByVertex)
+    // Whether the acting player can ACTUALLY place a replacement — shares
+    // treasonPlacementStrengthOptions with handleKnightVertexSelect's own
+    // `available` lookup below rather than a separate approximation. A
+    // task-14-brief draft of this function instead wrote
+    // `KNIGHT_STRENGTH_VALUE[removed.strength] > 1` as a stand-in for "the
+    // lower tier might have supply" (true whenever removed.strength isn't
+    // 'basic', REGARDLESS of the player's actual knightSupply) and
+    // `removed.strength === 'mighty'` as a stand-in for "some tier might
+    // have supply" (unconditionally true) — both bypass supply entirely.
+    // With knightSupply at {basic:0,strong:0,mighty:0}, a removed 'strong'
+    // or 'mighty' knight would still report canPlace=true, arming
+    // pendingTreasonPlacement for a placement that then silently fails at
+    // resolve time (`available` undefined): the card gets spent, the
+    // opponent's knight is still removed, but the acting player's OWN
+    // promised rider silently never happens. Sharing this exact derivation
+    // with the resolve-time check closes that gap the same way Task 13's
+    // Smithing fix closed its own running-supply gap.
+    const canPlace = eligiblePlacementVertices.size > 0 && treasonPlacementStrengthOptions(removed.strength).some((s) => player.knightSupply[s] > 0)
+    setPlayers((prev) =>
+      prev.map((p) => {
+        if (p.id === player.id) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
+        if (p.id === targetPlayerId) {
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== removed.id),
+            knightSupply: { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 },
+          }
+        }
+        return p
+      }),
+    )
+    inform(`${player.name} played Treason on ${target.name} — removed their ${removed.strength} knight.`)
+    if (onlineInfo) broadcastTreasonRemoved({ actingPlayerId: player.id, targetPlayerId, removedKnight: removed })
+    if (canPlace) {
+      setPendingTreasonPlacement({ playerId: player.id, maxStrength: removed.strength, active: removed.active })
+    }
   }
 
   // Resolves whichever picker is currently open (Year of Plenty or
@@ -5879,10 +6216,20 @@ function App() {
     engineering: playEngineering,
     smithing: playSmithing,
     encouragement: playEncouragement,
-    // Cities & Knights remaining stub cards — knight-dependent cards that
-    // still need later Phase C work. For now they warn and stay in hand.
-    intrigue: () => playStubProgressCard('intrigue'),
-    treason: () => playStubProgressCard('treason'),
+    // Cities & Knights Intrigue (Task 14) — fits the same plain
+    // click-to-play shape guildDues/espionage/merchant/engineering/
+    // smithing/encouragement above do: the target is a KNIGHT clicked on
+    // the board (KnightLayer's displaceTargets), not an argument chosen
+    // before the initial click, so playIntrigue needs no dedicated GameHud
+    // picker UI the way Treason (below, via onPlayTreason) does.
+    intrigue: playIntrigue,
+    // Cities & Knights Treason (Task 14) — the one remaining knight card
+    // that DOES need an argument (a target PLAYER) chosen before the
+    // initial click, same reason Alchemy/Invention/Merchant Fleet/
+    // Commercial Harbor/Diplomacy above are excluded from this object —
+    // see onPlayTreason's own wiring into GameHud instead.
+    // Cities & Knights Taxation — the LAST remaining stub card (needs
+    // Phase C2's barbarian/robber-active gate, out of this task's scope).
     taxation: () => playStubProgressCard('taxation'),
   }
 
@@ -6011,7 +6358,14 @@ function App() {
               recruitTargets={
                 pendingKnightRecruit != null
                   ? recruitableVertices(pendingKnightRecruit, graph, roads, settlements, knightPiecesByVertex)
-                  : null
+                  : // Cities & Knights Treason (Task 14) — the replacement-knight
+                    // placement reuses Recruit's own eligible-vertex rule
+                    // (recruitableVertices) and this same board-marker
+                    // affordance, so it lights up here rather than needing a
+                    // dedicated marker set of its own.
+                    pendingTreasonPlacement
+                    ? recruitableVertices(pendingTreasonPlacement.playerId, graph, roads, settlements, knightPiecesByVertex)
+                    : null
               }
               moveTargets={
                 armedKnightAction?.mode === 'move'
@@ -6022,12 +6376,19 @@ function App() {
                   : null
               }
               displaceTargets={
-                armedKnightAction?.mode === 'displace'
-                  ? (() => {
-                      const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
-                      return knight ? knightDisplaceTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
-                    })()
-                  : null
+                // Cities & Knights Intrigue (Task 14) — union of
+                // knightDisplaceTargets from every one of the acting
+                // player's own vertices, via the SAME intrigueDisplaceTargets
+                // helper playIntrigue's own eligibility check uses, so the
+                // two can never disagree about which knights are clickable.
+                pendingIntrigueDisplace != null
+                  ? intrigueDisplaceTargets(pendingIntrigueDisplace)
+                  : armedKnightAction?.mode === 'displace'
+                    ? (() => {
+                        const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
+                        return knight ? knightDisplaceTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
+                      })()
+                    : null
               }
               onSelectVertex={handleKnightVertexSelect}
               onSelectKnight={handleKnightSelect}
@@ -6169,6 +6530,8 @@ function App() {
         onPlayMerchantFleet={playMerchantFleet}
         merchantFleetRate={merchantFleetRate}
         onPlayCommercialHarbor={playCommercialHarbor}
+        onPlayTreason={playTreason}
+        treasonPlacementActive={pendingTreasonPlacement?.playerId === localPlayer.id}
         onPlayDiplomacy={activateDiplomacy}
         diplomacyPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
         onCancelDiplomacy={cancelDiplomacy}

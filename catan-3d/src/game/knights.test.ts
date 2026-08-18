@@ -8,6 +8,7 @@ import {
   recruitableVertices,
   knightMoveTargets,
   knightDisplaceTargets,
+  reachableOpponentKnights,
   selectSmithingPromotions,
 } from './knights'
 import { createInitialPlayers, emptyResources, type Building, type KnightPiece } from './types'
@@ -246,5 +247,50 @@ describe('knightDisplaceTargets', () => {
     const equal: KnightPiece = { id: 'k2', ownerId: 2, strength: 'basic', active: false, vertexId: 'B' }
     const targets = knightDisplaceTargets(mover, graph, roads, {}, knightsByVertexOf([mover, equal]))
     expect(targets).toEqual([])
+  })
+})
+
+describe('reachableOpponentKnights', () => {
+  it('finds reachable opponent knights of ANY strength, including one that would be excluded by strength-relative filtering', () => {
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    const roads = ownedBy(1, edges)
+    // A 'mighty' opponent knight sitting where a same-strength mover (or a
+    // virtual 'mighty' one, per Intrigue's own reachability check in
+    // App.tsx) would otherwise be excluded by knightDisplaceTargets' own
+    // strictly-weaker-than filter (mighty >= mighty is NOT < , so it's
+    // excluded there) — but Intrigue has no strength restriction at all
+    // (CN3087), so this is exactly the case that was silently wrong before
+    // this function was factored out.
+    const mightyOpponent: KnightPiece = { id: 'k2', ownerId: 2, strength: 'mighty', active: true, vertexId: 'B' }
+    const targets = reachableOpponentKnights('A', 1, graph, roads, {}, knightsByVertexOf([mightyOpponent]))
+    expect(targets).toEqual([mightyOpponent])
+
+    // Confirms the contrast directly: the SAME mighty opponent, from the
+    // SAME origin, IS excluded by knightDisplaceTargets when the mover is
+    // also 'mighty' (a tie) — this is the bug reachableOpponentKnights was
+    // extracted to let Intrigue route around.
+    const mover: KnightPiece = { id: 'k1', ownerId: 1, strength: 'mighty', active: true, vertexId: 'A' }
+    const strengthFiltered = knightDisplaceTargets(mover, graph, roads, {}, knightsByVertexOf([mover, mightyOpponent]))
+    expect(strengthFiltered).toEqual([])
+  })
+
+  it('excludes own knights and unreachable/non-knight vertices, same as the reachability half of knightDisplaceTargets', () => {
+    const edges = [edge('AB', 'A', 'B'), edge('BC', 'B', 'C')]
+    const graph = graphOf(edges)
+    const roads = ownedBy(1, edges)
+    const own: KnightPiece = { id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'B' }
+    const opponent: KnightPiece = { id: 'k2', ownerId: 2, strength: 'basic', active: false, vertexId: 'C' }
+    const targets = reachableOpponentKnights('A', 1, graph, roads, {}, knightsByVertexOf([own, opponent]))
+    expect(targets).toEqual([opponent])
+  })
+
+  it('knightDisplaceTargets still produces identical results to before the refactor (regression)', () => {
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    const roads = ownedBy(1, edges)
+    const mover: KnightPiece = { id: 'k1', ownerId: 1, strength: 'strong', active: true, vertexId: 'A' }
+    const weaker: KnightPiece = { id: 'k2', ownerId: 2, strength: 'basic', active: false, vertexId: 'B' }
+    expect(knightDisplaceTargets(mover, graph, roads, {}, knightsByVertexOf([mover, weaker]))).toEqual([weaker])
   })
 })

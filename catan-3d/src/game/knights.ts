@@ -189,8 +189,41 @@ export function knightMoveTargets(
   return result
 }
 
+// Reachable opponent knights, regardless of strength — the shared
+// reachability/ownership half of knightDisplaceTargets, without its
+// strength filter. Used directly by ordinary Displace (which layers its
+// own strictly-weaker-than-mover filter on top, below) AND by Intrigue
+// (App.tsx, Task 14 — CN3087: "You may displace an opponent's knight...
+// connected to at least one of your routes" — no strength restriction at
+// all, unlike an ordinary Displace action). Factored out here (Task 14
+// review fix) rather than reused via a virtual mover object of some
+// artificial strength: knightDisplaceTargets' own strength filter is
+// `>=` (target must be STRICTLY weaker), so even a virtual 'mighty' mover
+// — the top strength — would still wrongly exclude an opposing knight
+// that is ALSO mighty (a tie), which is exactly backwards from Intrigue's
+// actual "no restriction at all" rule.
+export function reachableOpponentKnights(
+  originVertexId: string,
+  playerId: number,
+  graph: BoardGraph,
+  roads: Record<string, number>,
+  settlements: Record<string, Building>,
+  knightsByVertex: ReadonlyMap<string, KnightPiece>,
+): KnightPiece[] {
+  const reachable = reachableVertices(originVertexId, playerId, graph, roads, settlements, knightsByVertex)
+  const result: KnightPiece[] = []
+  for (const vertexId of reachable) {
+    const target = knightsByVertex.get(vertexId)
+    if (!target || target.ownerId === playerId) continue
+    result.push(target)
+  }
+  return result
+}
+
 // Reachable opponent knights strictly weaker than the mover — CN3087 p.10:
-// "Your knight must be stronger than the other player's knight."
+// "Your knight must be stronger than the other player's knight." Layers
+// the strength filter on top of reachableOpponentKnights' own reachability/
+// ownership check rather than duplicating that BFS.
 export function knightDisplaceTargets(
   knight: KnightPiece,
   graph: BoardGraph,
@@ -198,13 +231,7 @@ export function knightDisplaceTargets(
   settlements: Record<string, Building>,
   knightsByVertex: ReadonlyMap<string, KnightPiece>,
 ): KnightPiece[] {
-  const reachable = reachableVertices(knight.vertexId, knight.ownerId, graph, roads, settlements, knightsByVertex)
-  const result: KnightPiece[] = []
-  for (const vertexId of reachable) {
-    const target = knightsByVertex.get(vertexId)
-    if (!target || target.ownerId === knight.ownerId) continue
-    if (KNIGHT_STRENGTH_VALUE[target.strength] >= KNIGHT_STRENGTH_VALUE[knight.strength]) continue
-    result.push(target)
-  }
-  return result
+  return reachableOpponentKnights(knight.vertexId, knight.ownerId, graph, roads, settlements, knightsByVertex).filter(
+    (target) => KNIGHT_STRENGTH_VALUE[target.strength] < KNIGHT_STRENGTH_VALUE[knight.strength],
+  )
 }

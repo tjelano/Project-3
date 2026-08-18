@@ -112,6 +112,7 @@ import {
   knightDisplaceTargets,
   knightMoveTargets,
   nextKnightStrength,
+  reachableOpponentKnights,
   recruitableVertices,
   selectSmithingPromotions,
 } from './game/knights'
@@ -5373,16 +5374,19 @@ function App() {
   // Cities & Knights Intrigue (Task 14) — every opponent knight reachable
   // from ANY of playerId's own vertices at once (buildings + knights), not
   // a single origin the way an ordinary Displace action's real mover has —
-  // CN3087: "must be on an intersection connected to at least one of your
-  // routes." A virtual 'mighty' knight stands at each of those vertices in
-  // turn (knightDisplaceTargets' own `>=` strength filter only excludes a
-  // target AT LEAST AS STRONG as the mover, so 'mighty' — the top strength
-  // — lets every basic/strong target through unfiltered; a target that is
-  // ALSO mighty is the one case this still excludes — see this task's own
-  // report for why that's flagged rather than silently special-cased here).
-  // Shared by playIntrigue's own eligibility check and KnightLayer's
-  // displaceTargets prop (below, in the JSX) so the two can never disagree
-  // about which knights are actually clickable.
+  // CN3087: "You may displace an opponent's knight... connected to at
+  // least one of your routes" — no strength restriction at all, unlike an
+  // ordinary Displace action's own "must be stronger" rule. Uses
+  // reachableOpponentKnights directly (game/knights.ts) rather than routing
+  // through knightDisplaceTargets with a virtual mover of some strength —
+  // an earlier version of this function tried a virtual 'mighty' mover,
+  // but knightDisplaceTargets' own filter is `target >= mover -> excluded`
+  // (strictly weaker required), so even 'mighty' — the top strength —
+  // still wrongly excluded an opposing knight that was ALSO mighty (a
+  // tie). reachableOpponentKnights has no strength filter at all, so this
+  // now matches CN3087 exactly. Shared by playIntrigue's own eligibility
+  // check and KnightLayer's displaceTargets prop (below, in the JSX) so the
+  // two can never disagree about which knights are actually clickable.
   const intrigueDisplaceTargets = (playerId: number): KnightPiece[] => {
     const player = playerById.get(playerId)
     if (!player) return []
@@ -5394,8 +5398,7 @@ function App() {
     ]
     const seen = new Map<string, KnightPiece>()
     for (const origin of ownVertexIds) {
-      const virtualMover: KnightPiece = { id: '__intrigue__', ownerId: player.id, strength: 'mighty', active: true, vertexId: origin }
-      for (const target of knightDisplaceTargets(virtualMover, graph, roads, settlements, knightPiecesByVertex)) {
+      for (const target of reachableOpponentKnights(origin, player.id, graph, roads, settlements, knightPiecesByVertex)) {
         seen.set(target.id, target)
       }
     }

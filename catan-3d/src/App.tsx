@@ -713,11 +713,23 @@ function App() {
     if (sfx) playSfx(sfx)
     if (isDeciding && onlineInfo) broadcastGameAction(action)
   }
-  void dispatchGameAction // called starting in Task 8
 
-  // Task 8 replaces this with real per-action broadcasting.
+  // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
+  // path. Does NOT grow one case per migrated action — only an action whose
+  // broadcast payload matches its GameAction shape exactly goes through here
+  // generically (BUILD_SETTLEMENT does; a future action whose broadcast
+  // payload carries a field the GameAction doesn't, e.g. a cost override,
+  // broadcasts itself directly at its own call site instead, with
+  // dispatchGameAction called at isDeciding: false so it never double-
+  // broadcasts — see applyCityPlacement's future migration for that case).
   const broadcastGameAction = (action: GameAction) => {
-    console.log('[Catan] dispatchGameAction stub — not yet broadcasting:', action)
+    switch (action.type) {
+      case 'BUILD_SETTLEMENT':
+        broadcastSettlementBuilt({ vertexId: action.vertexId, playerId: action.playerId })
+        break
+      default:
+        console.log('[Catan] dispatchGameAction — no broadcaster wired for:', action.type)
+    }
   }
 
   const canPerformAction = (): boolean => {
@@ -888,9 +900,13 @@ function App() {
   // the whole component body (and every const in it) has finished
   // initializing. Order of declaration among sibling function expressions
   // in the same scope doesn't affect when they're safe to CALL.
-  const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean) => {
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+  const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId }, isDeciding)
     setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
+    // Players-side effect stays a direct setPlayers call — `players` isn't
+    // migrated in this plan (87 call sites, its own future plan). This is a
+    // deliberate transitional state: the board write above goes through the
+    // reducer, this one doesn't yet, until players migrates.
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -908,7 +924,6 @@ function App() {
       setSetupSettlementVertexId(vertexId)
       setSetupStage('road')
     }
-    playSfx('placement')
   }
 
   // costOverride — Cities & Knights Medicine's discounted 1 Wheat + 2 Ore
@@ -1536,7 +1551,7 @@ function App() {
       beginDiceAnimation(payload.dice[0], payload.dice[1], payload.eventDie, payload.playerId)
     },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
-    onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
+    onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup', false),
     // Cities & Knights Medicine — costOverride carries the discounted price
     // the acting client actually charged (see CityBuiltPayload's own
     // comment); undefined here just means "normal CITY_COST," same as any
@@ -2971,8 +2986,11 @@ function App() {
       return
     }
 
-    applySettlementPlacement(vertexId, player.id, isSetup)
-    if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
+    // isDeciding: true — this client decided the placement; dispatchGameAction
+    // (inside applySettlementPlacement) broadcasts it via broadcastGameAction's
+    // BUILD_SETTLEMENT case now, replacing the old direct broadcastSettlementBuilt
+    // call here (keeping both would double-broadcast to every other client).
+    applySettlementPlacement(vertexId, player.id, isSetup, true)
   }
 
   // Cities & Knights Commercial Harbor — deliberate scope simplification

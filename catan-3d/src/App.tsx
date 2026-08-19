@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -123,6 +123,8 @@ import {
   type BarbarianAttackResult,
   type BarbarianPillageTarget,
 } from './game/knights'
+import { reduceGame, initialGameState, type GameAction } from './game/gameState'
+import { describeBoardAction } from './game/reducers/board'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
@@ -319,6 +321,8 @@ function App() {
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   const [settlements, setSettlements] = useState<Record<string, Building>>({})
   const [roads, setRoads] = useState<Record<string, number>>({})
+  const [gameState, dispatch] = useReducer(reduceGame, initialGameState)
+  void gameState // read starts in Task 8
   // Which tiles have had a settlement built on a touching vertex — drives
   // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
   // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
@@ -694,6 +698,26 @@ function App() {
   const inform = (text: string) => {
     setBanner({ text, variant: 'info' })
     logEvent(text, 'info')
+  }
+
+  // Every migrated action goes through this — never call dispatch(...) or
+  // broadcastX(...) directly for a GameAction. isDeciding: true for the
+  // client that decided the action (a local click, a resolved dice roll);
+  // false for a receiver applying an already-broadcast action — only the
+  // deciding client re-broadcasts, mirroring every other trusted-apply
+  // pattern in this file (see CONVENTIONS.md).
+  const dispatchGameAction = (action: GameAction, isDeciding: boolean) => {
+    dispatch(action)
+    const { message, sfx } = describeBoardAction(action, playerById)
+    if (message) inform(message)
+    if (sfx) playSfx(sfx)
+    if (isDeciding && onlineInfo) broadcastGameAction(action)
+  }
+  void dispatchGameAction // called starting in Task 8
+
+  // Task 8 replaces this with real per-action broadcasting.
+  const broadcastGameAction = (action: GameAction) => {
+    console.log('[Catan] dispatchGameAction stub — not yet broadcasting:', action)
   }
 
   const canPerformAction = (): boolean => {

@@ -1,4 +1,5 @@
 import type { Building, Player } from '../types'
+import type { SfxKey } from '../../audio/sfx'
 
 export interface BoardState {
   settlements: Record<string, Building>
@@ -53,7 +54,7 @@ export function reduceBoard(state: BoardState, action: BoardAction): BoardState 
 export function describeBoardAction(
   action: BoardAction,
   playerById: Map<number, Player>,
-): { message: string | null; sfx: string | null } {
+): { message: string | null; sfx: SfxKey | null } {
   switch (action.type) {
     case 'BUILD_SETTLEMENT':
     case 'BUILD_CITY':

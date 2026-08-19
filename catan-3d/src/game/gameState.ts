@@ -1,22 +1,24 @@
 import { reduceBoard, initialBoardState, type BoardState, type BoardAction } from './reducers/board'
+import { reducePlayers, type PlayersAction } from './reducers/players'
+import { createInitialPlayers, type Player } from './types'
 
 export interface GameState {
   board: BoardState
+  players: Player[]
 }
 
 export const initialGameState: GameState = {
   board: initialBoardState,
+  // Matches the default the old `useState(() => createInitialPlayers(3))`
+  // used to seed with, before a real game (resetGame) replaces it.
+  players: createInitialPlayers(3),
 }
 
-// Grows to a full discriminated union as more slices migrate — for now,
-// every action this project has is board-relevant, so GameAction and
-// BoardAction are the same shape. Aliased (not just `export type
-// GameAction = BoardAction`) so call sites in App.tsx import from this
-// file rather than reaching into game/reducers/board directly.
-export type GameAction = BoardAction
+export type GameAction = BoardAction | PlayersAction
 
 export function reduceGame(state: GameState, action: GameAction): GameState {
   return {
-    board: reduceBoard(state.board, action),
+    board: reduceBoard(state.board, action, state),
+    players: reducePlayers(state.players, action, state),
   }
 }

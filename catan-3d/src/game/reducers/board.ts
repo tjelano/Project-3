@@ -1,5 +1,6 @@
-import type { Building, Player } from '../types'
+import type { Building, Player, Resources } from '../types'
 import type { SfxKey } from '../../audio/sfx'
+import type { GameAction, GameState } from '../gameState'
 
 export interface BoardState {
   settlements: Record<string, Building>
@@ -12,15 +13,15 @@ export const initialBoardState: BoardState = {
 }
 
 export type BoardAction =
-  | { type: 'BUILD_SETTLEMENT'; vertexId: string; playerId: number }
-  | { type: 'BUILD_CITY'; vertexId: string; playerId: number }
-  | { type: 'BUILD_ROAD'; edgeId: string; playerId: number }
+  | { type: 'BUILD_SETTLEMENT'; vertexId: string; playerId: number; isSetup: boolean }
+  | { type: 'BUILD_CITY'; vertexId: string; playerId: number; costOverride?: Partial<Resources> }
+  | { type: 'BUILD_ROAD'; edgeId: string; playerId: number; isSetup: boolean; isFreeRoad: boolean }
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'RESET_BOARD' }
   | { type: 'RESTORE_BOARD'; settlements: Record<string, Building>; roads: Record<string, number> }
 
-export function reduceBoard(state: BoardState, action: BoardAction): BoardState {
+export function reduceBoard(state: BoardState, action: GameAction, _fullState: GameState): BoardState {
   switch (action.type) {
     case 'BUILD_SETTLEMENT':
       return {
@@ -56,19 +57,18 @@ export function reduceBoard(state: BoardState, action: BoardAction): BoardState 
       return { settlements: {}, roads: {} }
     case 'RESTORE_BOARD':
       return { settlements: action.settlements, roads: action.roads }
-    default: {
-      // Exhaustiveness check: a BoardAction variant added without a
-      // corresponding case above fails `tsc -b` here, instead of silently
-      // no-op'ing at runtime.
-      const _exhaustive: never = action
-      void _exhaustive
+    default:
+      // Not a `never`-exhaustiveness default: `action` is the full
+      // GameAction union (every slice's actions), not just BoardAction, so
+      // most of that union — including every players-only action — is
+      // legitimately unhandled here. reduceBoard only owns the 7 cases
+      // above, same as any combineReducers-style slice reducer.
       return state
-    }
   }
 }
 
 export function describeBoardAction(
-  action: BoardAction,
+  action: GameAction,
   playerById: Map<number, Player>,
 ): { message: string | null; sfx: SfxKey | null } {
   switch (action.type) {
@@ -92,15 +92,11 @@ export function describeBoardAction(
       // RESET_BOARD/RESTORE_BOARD bypass dispatchGameAction entirely (see
       // its comment in App.tsx), so this function is never actually called
       // with either in practice. Listed explicitly rather than falling
-      // through to default so the exhaustiveness check below stays honest.
+      // through to default so the intent is documented, not implicit.
       return { message: null, sfx: null }
-    default: {
-      // Exhaustiveness check: a BoardAction variant added without a
-      // corresponding case above fails `tsc -b` here, instead of silently
-      // no-op'ing at runtime.
-      const _exhaustive: never = action
-      void _exhaustive
+    default:
+      // Same reasoning as reduceBoard's default: not exhaustive over the
+      // full GameAction union, only over BoardAction's own cases.
       return { message: null, sfx: null }
-    }
   }
 }

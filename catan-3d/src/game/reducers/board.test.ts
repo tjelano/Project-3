@@ -1,107 +1,153 @@
 import { describe, expect, it } from 'vitest'
 import { reduceBoard, initialBoardState, describeBoardAction } from './board'
 import { createInitialPlayers } from '../types'
+import { initialGameState } from '../gameState'
 
 describe('reduceBoard — BUILD_SETTLEMENT', () => {
   it('places a settlement at the given vertex, owned by the given player', () => {
-    const result = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false },
+      initialGameState,
+    )
     expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'settlement' })
   })
 
   it('does not mutate the input state', () => {
     const before = initialBoardState
-    reduceBoard(before, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    reduceBoard(before, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false }, initialGameState)
     expect(before.settlements).toEqual({})
   })
 
   it('leaves roads untouched', () => {
-    const result = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: true },
+      initialGameState,
+    )
     expect(result.roads).toEqual({})
   })
 })
 
 describe('reduceBoard — BUILD_CITY', () => {
   it('upgrades the vertex to a city, owned by the given player', () => {
-    const result = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
     expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'city' })
   })
 
   it('overwrites an existing settlement at that vertex', () => {
-    const withSettlement = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
-    const result = reduceBoard(withSettlement, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    const withSettlement = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false },
+      initialGameState,
+    )
+    const result = reduceBoard(withSettlement, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'city' })
+  })
+
+  it('ignores costOverride — that field is only meaningful to reducePlayers', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1, costOverride: { ore: 1 } },
+      initialGameState,
+    )
     expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'city' })
   })
 })
 
 describe('reduceBoard — BUILD_ROAD', () => {
   it('places a road at the given edge, owned by the given player', () => {
-    const result = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: false, isFreeRoad: false },
+      initialGameState,
+    )
     expect(result.roads['E1']).toBe(1)
   })
 
   it('leaves settlements untouched', () => {
-    const result = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: true, isFreeRoad: true },
+      initialGameState,
+    )
     expect(result.settlements).toEqual({})
   })
 })
 
 describe('reduceBoard — PILLAGE_CITY', () => {
   it('downgrades a city owned by the given player to a settlement', () => {
-    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
-    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
     expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'settlement' })
   })
 
   it('is a no-op if the vertex is not currently a city', () => {
-    const withSettlement = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
-    const result = reduceBoard(withSettlement, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
-    expect(result).toBe(withSettlement) // same reference — genuinely unchanged
+    const withSettlement = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false },
+      initialGameState,
+    )
+    const result = reduceBoard(withSettlement, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    expect(result).toBe(withSettlement)
   })
 
   it('is a no-op if the vertex has no building at all', () => {
-    const result = reduceBoard(initialBoardState, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(initialBoardState, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
     expect(result).toBe(initialBoardState)
   })
 
   it('is a no-op if the city is owned by a different player', () => {
-    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
-    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 2 })
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 2 }, initialGameState)
     expect(result).toBe(withCity)
   })
 
   it('is idempotent — dispatching the same pillage twice only changes the vertex once', () => {
-    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
-    const first = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
-    const second = reduceBoard(first, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    const first = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
+    const second = reduceBoard(first, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)
     expect(second).toBe(first)
   })
 })
 
 describe('reduceBoard — REMOVE_ROAD', () => {
   it('removes the road at the given edge entirely', () => {
-    const withRoad = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
-    const result = reduceBoard(withRoad, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    const withRoad = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: false, isFreeRoad: false },
+      initialGameState,
+    )
+    const result = reduceBoard(withRoad, { type: 'REMOVE_ROAD', edgeId: 'E1' }, initialGameState)
     expect(result.roads).not.toHaveProperty('E1')
   })
 
   it('is a no-op if the edge has no road', () => {
-    const result = reduceBoard(initialBoardState, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    const result = reduceBoard(initialBoardState, { type: 'REMOVE_ROAD', edgeId: 'E1' }, initialGameState)
     expect(result).toBe(initialBoardState)
   })
 
   it('leaves other roads untouched', () => {
-    let state = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
-    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E2', playerId: 2 })
-    const result = reduceBoard(state, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    let state = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: false, isFreeRoad: false },
+      initialGameState,
+    )
+    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E2', playerId: 2, isSetup: false, isFreeRoad: false }, initialGameState)
+    const result = reduceBoard(state, { type: 'REMOVE_ROAD', edgeId: 'E1' }, initialGameState)
     expect(result.roads['E2']).toBe(2)
   })
 })
 
 describe('reduceBoard — RESET_BOARD', () => {
   it('clears settlements and roads back to empty', () => {
-    let state = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
-    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
-    const result = reduceBoard(state, { type: 'RESET_BOARD' })
+    let state = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false },
+      initialGameState,
+    )
+    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: false, isFreeRoad: false }, initialGameState)
+    const result = reduceBoard(state, { type: 'RESET_BOARD' }, initialGameState)
     expect(result).toEqual(initialBoardState)
   })
 })
@@ -110,16 +156,19 @@ describe('reduceBoard — RESTORE_BOARD', () => {
   it('replaces settlements and roads with the given snapshot values', () => {
     const settlements = { V1: { ownerId: 2, type: 'city' as const } }
     const roads = { E1: 2 }
-    const result = reduceBoard(initialBoardState, { type: 'RESTORE_BOARD', settlements, roads })
+    const result = reduceBoard(initialBoardState, { type: 'RESTORE_BOARD', settlements, roads }, initialGameState)
     expect(result.settlements).toEqual(settlements)
     expect(result.roads).toEqual(roads)
   })
 })
 
-describe('reduceBoard — unrecognized action', () => {
+describe('reduceBoard — action not owned by this reducer', () => {
   it('returns the same state reference unchanged', () => {
-    // @ts-expect-error - deliberately testing an action type this reducer doesn't handle
-    const result = reduceBoard(initialBoardState, { type: 'SOME_OTHER_ACTION' })
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'LEGACY_SET_PLAYERS', updater: (p) => p },
+      initialGameState,
+    )
     expect(result).toBe(initialBoardState)
   })
 })
@@ -129,7 +178,7 @@ describe('describeBoardAction', () => {
   const playerById = new Map(players.map((p) => [p.id, p]))
 
   it('BUILD_SETTLEMENT plays the placement sound, no banner', () => {
-    const result = describeBoardAction({ type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: players[0].id }, playerById)
+    const result = describeBoardAction({ type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: players[0].id, isSetup: false }, playerById)
     expect(result.sfx).toBe('placement')
     expect(result.message).toBeNull()
   })
@@ -141,7 +190,10 @@ describe('describeBoardAction', () => {
   })
 
   it('BUILD_ROAD plays the road-placement sound, no banner', () => {
-    const result = describeBoardAction({ type: 'BUILD_ROAD', edgeId: 'E1', playerId: players[0].id }, playerById)
+    const result = describeBoardAction(
+      { type: 'BUILD_ROAD', edgeId: 'E1', playerId: players[0].id, isSetup: false, isFreeRoad: false },
+      playerById,
+    )
     expect(result.sfx).toBe('roadPlacement')
     expect(result.message).toBeNull()
   })
@@ -160,6 +212,12 @@ describe('describeBoardAction', () => {
 
   it('REMOVE_ROAD has no board-level description (handled at the call site instead)', () => {
     const result = describeBoardAction({ type: 'REMOVE_ROAD', edgeId: 'E1' }, playerById)
+    expect(result.message).toBeNull()
+    expect(result.sfx).toBeNull()
+  })
+
+  it('an action not owned by this reducer returns no banner or sound', () => {
+    const result = describeBoardAction({ type: 'LEGACY_SET_PLAYERS', updater: (p) => p }, playerById)
     expect(result.message).toBeNull()
     expect(result.sfx).toBeNull()
   })

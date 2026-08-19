@@ -76,6 +76,26 @@ describe('reduceBoard — PILLAGE_CITY', () => {
   })
 })
 
+describe('reduceBoard — REMOVE_ROAD', () => {
+  it('removes the road at the given edge entirely', () => {
+    const withRoad = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    const result = reduceBoard(withRoad, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    expect(result.roads).not.toHaveProperty('E1')
+  })
+
+  it('is a no-op if the edge has no road', () => {
+    const result = reduceBoard(initialBoardState, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    expect(result).toBe(initialBoardState)
+  })
+
+  it('leaves other roads untouched', () => {
+    let state = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E2', playerId: 2 })
+    const result = reduceBoard(state, { type: 'REMOVE_ROAD', edgeId: 'E1' })
+    expect(result.roads['E2']).toBe(2)
+  })
+})
+
 describe('reduceBoard — unrecognized action', () => {
   it('returns the same state reference unchanged', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle

@@ -181,6 +181,23 @@ const TRADE_OFFER_TIMEOUT_MS = 90_000
 // gone).
 const DISCARD_TIMEOUT_MS = 90_000
 
+// Module-scope so react-hooks/purity can prove these Math.random() calls
+// never run during render — same pattern Dice3D.tsx's randomSpinSpeed/
+// randomOutwardVelocity already use. The rule can't trace call graphs deep
+// into App()'s own closures (handlers only ever invoked from click/effect
+// callbacks), so it flags any Math.random() reachable from the component's
+// lexical scope; moving it out here is what actually satisfies the rule,
+// not just quiets it.
+function randomInt(max: number): number {
+  return Math.floor(Math.random() * max)
+}
+function pickRandom<T>(items: readonly T[]): T {
+  return items[randomInt(items.length)]
+}
+function randomSeedString(): string {
+  return Math.random().toString(36).slice(2)
+}
+
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
   const [playerCount, setPlayerCount] = useState(3)
@@ -3872,7 +3889,7 @@ function App() {
         steals.push({ victimId, resource: null })
         continue
       }
-      steals.push({ victimId, resource: heldResources[Math.floor(Math.random() * heldResources.length)] })
+      steals.push({ victimId, resource: pickRandom(heldResources) })
     }
     // Taxation is a STEAL, not a burn — CN3087: "steal 1 random resource/
     // commodity card from each player with a building there." The actor
@@ -3957,7 +3974,7 @@ function App() {
     let stolenResource: ResourceType | null = null
     if (victimIds.length > 0) {
       const candidates = victimIds
-      victimId = candidates[Math.floor(Math.random() * candidates.length)]
+      victimId = pickRandom(candidates)
       const victim = playerById.get(victimId)
       if (victim) {
         const heldResources: ResourceType[] = []
@@ -3965,7 +3982,7 @@ function App() {
           for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
         }
         if (heldResources.length > 0) {
-          stolenResource = heldResources[Math.floor(Math.random() * heldResources.length)]
+          stolenResource = pickRandom(heldResources)
         }
       }
     }
@@ -6376,7 +6393,7 @@ function App() {
     // so a plain Math.random is fine.
     const freshStartingPlayerIndex = effectiveBoardSeed
       ? Math.floor(createSeededRandom(`${effectiveBoardSeed}-starting-player`)() * count)
-      : Math.floor(Math.random() * count)
+      : randomInt(count)
     setStartingPlayerIndex(freshStartingPlayerIndex)
     // Explicit names (a fresh Start Game submission) replace what's
     // remembered; omitting the argument (restart / return-to-menu) reuses
@@ -6793,7 +6810,7 @@ function App() {
       // isn't permanently stuck on Restart if the original host's own
       // browser is the one that's gone for good.
       if (!isEffectiveHost) return
-      const boardSeed = Math.random().toString(36).slice(2)
+      const boardSeed = randomSeedString()
       broadcastNewGame({ boardSeed })
       resetGame(playerCount, undefined, onlineInfo, boardSeed)
       return

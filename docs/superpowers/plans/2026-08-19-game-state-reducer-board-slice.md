@@ -347,7 +347,7 @@ export type BoardAction =
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd catan-3d && npx vitest run src/game/reducers/board.test.ts`
-Expected: PASS — all 11 tests so far (4 + 2 + 2 + 5, minus the earlier "unrecognized action" one already counted).
+Expected: PASS — all 13 tests so far (4 from Task 1 + 2 from Task 2 + 2 from Task 3 + 5 from this task).
 
 - [ ] **Step 5: Typecheck and lint**
 

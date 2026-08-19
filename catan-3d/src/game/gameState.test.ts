@@ -30,8 +30,9 @@ describe('reduceGame', () => {
 
   it('does not mutate the input state', () => {
     const before = initialGameState
-    reduceGame(before, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1, isSetup: false })
+    const settlementsRemainingBefore = before.players[0].settlementsRemaining
+    reduceGame(before, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: before.players[0].id, isSetup: false })
     expect(before.board.settlements).toEqual({})
-    expect(before.players).toBe(initialGameState.players)
+    expect(before.players[0].settlementsRemaining).toBe(settlementsRemainingBefore)
   })
 })

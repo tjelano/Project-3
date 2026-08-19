@@ -2074,7 +2074,7 @@ function App() {
         console.error('[Catan] Ignoring malformed diplomacy-played payload:', payload)
         return
       }
-      applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId)
+      applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId, false)
     },
     // Cities & Knights Merchant (Task 13) — trusted-apply, same reasoning
     // MerchantMovedPayload's own comment (useRoomChannel.ts) gives: the
@@ -3115,14 +3115,13 @@ function App() {
   // state's own comment) so a receiver just needs these 3 values plus
   // already-synced roads/player state — same single-broadcast trust model
   // CommercialHarborPlayedPayload's own comment describes.
-  const applyDiplomacyRemoval = (playerId: number, edgeId: string, ownerId: number) => {
+  const applyDiplomacyRemoval = (playerId: number, edgeId: string, ownerId: number, isDeciding: boolean) => {
     const actor = playerById.get(playerId)
     const owner = playerById.get(ownerId)
-    setRoads((prev) => {
-      const next = { ...prev }
-      delete next[edgeId]
-      return next
-    })
+    // false: this action's banner/broadcast needs playerId/ownerId context
+    // dispatchGameAction doesn't have — both handled explicitly below, same
+    // one-off exception as BUILD_CITY/BUILD_ROAD (Tasks 9-10).
+    dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
@@ -3146,6 +3145,7 @@ function App() {
           : `${actor.name} played Diplomacy — removed ${owner?.name ?? "an opponent's"} road.`,
       )
     }
+    if (isDeciding && onlineInfo) broadcastDiplomacyPlayed({ playerId, edgeId, ownerId })
   }
 
   const playDiplomacy = (edgeId: string) => {
@@ -3164,9 +3164,8 @@ function App() {
       warn('That edge has no road to remove.')
       return
     }
-    applyDiplomacyRemoval(player.id, edgeId, ownerId)
+    applyDiplomacyRemoval(player.id, edgeId, ownerId, true)
     setPendingDiplomacyRemoval(null)
-    if (onlineInfo) broadcastDiplomacyPlayed({ playerId: player.id, edgeId, ownerId })
   }
 
   // Only spends nothing yet and opens the road-picker (a single board click,

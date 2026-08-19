@@ -951,8 +951,16 @@ function App() {
     if (isDeciding && onlineInfo) broadcastCityBuilt({ vertexId, playerId, costOverride })
   }
 
-  const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean) => {
-    setRoads((prev) => ({ ...prev, [edgeId]: playerId }))
+  // isFreeRoad — Road Building card / free setup road, same reasoning as
+  // applyCityPlacement's costOverride just above: RoadBuiltPayload needs
+  // isFreeRoad, which BUILD_ROAD's GameAction shape doesn't carry, so it's
+  // broadcast explicitly below instead of generically through
+  // broadcastGameAction (see that function's own comment) — no BUILD_ROAD
+  // case is added there.
+  const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -985,7 +993,7 @@ function App() {
         setSetupStage('settlement')
       }
     }
-    playSfx('roadPlacement')
+    if (isDeciding && onlineInfo) broadcastRoadBuilt({ edgeId, playerId, isFreeRoad })
   }
 
   const applyRobberMove = (
@@ -1574,7 +1582,7 @@ function App() {
       applyCityPlacement(payload.vertexId, payload.playerId, false, payload.costOverride)
     },
     onRoadBuilt: (payload) =>
-      applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
+      applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
@@ -3273,8 +3281,7 @@ function App() {
       return
     }
 
-    applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad)
-    if (onlineInfo) broadcastRoadBuilt({ edgeId, playerId: player.id, isFreeRoad })
+    applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
 
   // Stable callbacks for board interactions — buildSettlement/buildRoad

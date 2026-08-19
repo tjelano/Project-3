@@ -453,15 +453,6 @@ export function buildDevCardDeck(victoryPointTarget: number = WINNING_SCORE): De
   return deck
 }
 
-export function shuffle<T>(items: T[]): T[] {
-  const result = [...items]
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[result[i], result[j]] = [result[j], result[i]]
-  }
-  return result
-}
-
 // Removes a single matching instance from a list, leaving the rest of the
 // order untouched. Used to spend one card of a fungible type (e.g. a Knight)
 // without caring which specific instance is removed.

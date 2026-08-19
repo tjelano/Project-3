@@ -1,7 +1,7 @@
+import { useState } from 'react'
 import toggleOffUrl from '../../assets/menu/house-rules/hr-toggle-off.png'
 import toggleOnUrl from '../../assets/menu/house-rules/hr-toggle-on.png'
 import panelBgUrl from '../../assets/menu/house-rules/hr-panel-bg.png'
-import { useDraftNumberField } from './useDraftNumberField'
 import { WINNING_SCORE, type GameRules } from '../../game/types'
 
 const VP_TARGET_MIN = 3
@@ -164,12 +164,30 @@ export function HouseRulesDropdown({
     onChange({ ...rules, [key]: value })
   }
 
-  const vpTarget = useDraftNumberField({
-    value: rules.victoryPointTarget,
-    min: VP_TARGET_MIN,
-    max: VP_TARGET_MAX,
-    onCommit: (clamped) => setRule('victoryPointTarget', clamped),
-  })
+  // Draft text that doesn't commit until blur — a field tied directly to a
+  // clamped number can't ever show an empty or single-digit-in-progress
+  // string while typing, since Number('') is 0, not NaN, so clamping on
+  // every keystroke snaps straight back to the minimum the instant the
+  // field is cleared, before a new value can be typed. Re-syncs from
+  // rules.victoryPointTarget during render (React's "adjusting state when a
+  // prop changes" pattern) whenever the committed value changes out from
+  // under it — e.g. an online lobby's host broadcasting a new GameRules
+  // object. The only <input type="number"> in the codebase, so this stays
+  // local rather than a reusable hook.
+  const [vpText, setVpText] = useState(String(rules.victoryPointTarget))
+  const [prevVpTarget, setPrevVpTarget] = useState(rules.victoryPointTarget)
+  if (rules.victoryPointTarget !== prevVpTarget) {
+    setPrevVpTarget(rules.victoryPointTarget)
+    setVpText(String(rules.victoryPointTarget))
+  }
+  const commitVpTarget = () => {
+    const parsed = Number(vpText)
+    const clamped = Number.isNaN(parsed)
+      ? rules.victoryPointTarget
+      : Math.min(VP_TARGET_MAX, Math.max(VP_TARGET_MIN, Math.round(parsed)))
+    setVpText(String(clamped))
+    if (clamped !== rules.victoryPointTarget) setRule('victoryPointTarget', clamped)
+  }
 
   return (
     <div className="relative animate-house-rules-in shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
@@ -257,9 +275,9 @@ export function HouseRulesDropdown({
             type="number"
             min={VP_TARGET_MIN}
             max={VP_TARGET_MAX}
-            value={vpTarget.text}
-            onChange={(event) => vpTarget.setText(event.target.value)}
-            onBlur={vpTarget.commit}
+            value={vpText}
+            onChange={(event) => setVpText(event.target.value)}
+            onBlur={commitVpTarget}
             className="w-14 shrink-0 rounded-md border border-glass-border bg-white/5 px-1 py-1 text-center font-body text-sm text-white focus:outline-none"
           />
           <span className="truncate font-display text-gold" style={{ fontSize: ROW_FONT_SIZE_PX }}>

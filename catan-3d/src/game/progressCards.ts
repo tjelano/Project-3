@@ -1,10 +1,10 @@
 import {
   PROGRESS_CARD_DECK_COMPOSITION,
   PROGRESS_CARD_VP_TYPES,
-  shuffle,
   type ImprovementTrack,
   type ProgressCardType,
 } from './types'
+import { shuffle } from '../utils/seededRandom'
 import type { EventDieFace } from '../components/Dice3D'
 
 const EVENT_DIE_FACES: EventDieFace[] = ['ship', 'ship', 'ship', 'science', 'trade', 'politics']

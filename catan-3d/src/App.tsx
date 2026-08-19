@@ -33,7 +33,7 @@ import {
 import { saveMatchSnapshot, loadMatchSnapshot, type MatchSnapshot } from './multiplayer/matchSnapshot'
 import { normalizePlayerName } from './multiplayer/roomCode'
 import { buildHexBoard, type BoardCell, type BoardShapeId, type Biome } from './data/hexBoard'
-import { createSeededRandom } from './utils/seededRandom'
+import { createSeededRandom, shuffle } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
@@ -91,7 +91,6 @@ import {
   emptyResources,
   getPublicScore,
   removeOne,
-  shuffle,
   type Building,
   type CommodityType,
   type DevCardType,

@@ -930,8 +930,12 @@ function App() {
   // price, in place of the normal CITY_COST deduction. Defaults to CITY_COST
   // when absent, so every non-Medicine caller (setup, an ordinary city
   // upgrade, the broadcast receiver for those) is unaffected.
-  const applyCityPlacement = (vertexId: string, playerId: number, costOverride?: Partial<Resources>) => {
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'city' } }))
+  const applyCityPlacement = (vertexId: string, playerId: number, isDeciding: boolean, costOverride?: Partial<Resources>) => {
+    // false: this action's broadcast needs costOverride, which BUILD_CITY's
+    // GameAction shape doesn't carry (a players-domain field, not board-
+    // domain) — so it's broadcast explicitly below instead of generically
+    // through broadcastGameAction (see that function's own comment).
+    dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId }, false)
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -944,7 +948,7 @@ function App() {
           : p,
       ),
     )
-    playSfx('placement')
+    if (isDeciding && onlineInfo) broadcastCityBuilt({ vertexId, playerId, costOverride })
   }
 
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean) => {
@@ -1567,7 +1571,7 @@ function App() {
         console.error('[Catan] Ignoring malformed city-built payload:', payload)
         return
       }
-      applyCityPlacement(payload.vertexId, payload.playerId, payload.costOverride)
+      applyCityPlacement(payload.vertexId, payload.playerId, false, payload.costOverride)
     },
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
@@ -2937,14 +2941,14 @@ function App() {
       }
 
       const medicineCost = { grain: 1, ore: 2 }
-      applyCityPlacement(vertexId, player.id, usingMedicine ? medicineCost : undefined)
+      // isDeciding: true — applyCityPlacement broadcasts CITY_BUILT itself
+      // (with costOverride) when true; keeping a separate broadcastCityBuilt
+      // call here too would double-broadcast to every other client.
+      applyCityPlacement(vertexId, player.id, true, usingMedicine ? medicineCost : undefined)
       // Consumed exactly once, on the actual placement — not on playMedicine
       // (which only arms the flag) and not on an earlier click, since an
       // ineligible click above returns before ever reaching here.
       if (usingMedicine) setPendingMedicineUse(null)
-      if (onlineInfo) {
-        broadcastCityBuilt({ vertexId, playerId: player.id, costOverride: usingMedicine ? medicineCost : undefined })
-      }
       return
     }
 

@@ -19,6 +19,19 @@ describe('reduceBoard — BUILD_SETTLEMENT', () => {
   })
 })
 
+describe('reduceBoard — BUILD_CITY', () => {
+  it('upgrades the vertex to a city, owned by the given player', () => {
+    const result = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'city' })
+  })
+
+  it('overwrites an existing settlement at that vertex', () => {
+    const withSettlement = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(withSettlement, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'city' })
+  })
+})
+
 describe('reduceBoard — unrecognized action', () => {
   it('returns the same state reference unchanged', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle

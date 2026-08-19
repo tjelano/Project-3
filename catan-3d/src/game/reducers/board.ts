@@ -1,4 +1,4 @@
-import type { Building } from '../types'
+import type { Building, Player } from '../types'
 
 export interface BoardState {
   settlements: Record<string, Building>
@@ -47,5 +47,29 @@ export function reduceBoard(state: BoardState, action: BoardAction): BoardState 
     }
     default:
       return state
+  }
+}
+
+export function describeBoardAction(
+  action: BoardAction,
+  playerById: Map<number, Player>,
+): { message: string | null; sfx: string | null } {
+  switch (action.type) {
+    case 'BUILD_SETTLEMENT':
+    case 'BUILD_CITY':
+      return { message: null, sfx: 'placement' }
+    case 'BUILD_ROAD':
+      return { message: null, sfx: 'roadPlacement' }
+    case 'PILLAGE_CITY': {
+      const owner = playerById.get(action.playerId)
+      return {
+        message: owner ? `${owner.name}'s city was pillaged and reduced to a settlement.` : null,
+        sfx: null,
+      }
+    }
+    case 'REMOVE_ROAD':
+      return { message: null, sfx: null }
+    default:
+      return { message: null, sfx: null }
   }
 }

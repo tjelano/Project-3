@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { reduceBoard, initialBoardState } from './board'
+import { reduceBoard, initialBoardState, describeBoardAction } from './board'
+import { createInitialPlayers } from '../types'
 
 describe('reduceBoard — BUILD_SETTLEMENT', () => {
   it('places a settlement at the given vertex, owned by the given player', () => {
@@ -101,5 +102,34 @@ describe('reduceBoard — unrecognized action', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle
     const result = reduceBoard(initialBoardState, { type: 'SOME_OTHER_ACTION' })
     expect(result).toBe(initialBoardState)
+  })
+})
+
+describe('describeBoardAction', () => {
+  const players = createInitialPlayers(2)
+  const playerById = new Map(players.map((p) => [p.id, p]))
+
+  it('BUILD_SETTLEMENT plays the placement sound, no banner', () => {
+    const result = describeBoardAction({ type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: players[0].id }, playerById)
+    expect(result.sfx).toBe('placement')
+    expect(result.message).toBeNull()
+  })
+
+  it('BUILD_ROAD plays the road-placement sound, no banner', () => {
+    const result = describeBoardAction({ type: 'BUILD_ROAD', edgeId: 'E1', playerId: players[0].id }, playerById)
+    expect(result.sfx).toBe('roadPlacement')
+    expect(result.message).toBeNull()
+  })
+
+  it('PILLAGE_CITY shows a banner naming the pillaged player, no sound', () => {
+    const result = describeBoardAction({ type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, playerById)
+    expect(result.message).toBe(`${players[0].name}'s city was pillaged and reduced to a settlement.`)
+    expect(result.sfx).toBeNull()
+  })
+
+  it('REMOVE_ROAD has no board-level description (handled at the call site instead)', () => {
+    const result = describeBoardAction({ type: 'REMOVE_ROAD', edgeId: 'E1' }, playerById)
+    expect(result.message).toBeNull()
+    expect(result.sfx).toBeNull()
   })
 })

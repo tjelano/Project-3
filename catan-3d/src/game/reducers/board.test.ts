@@ -32,6 +32,18 @@ describe('reduceBoard — BUILD_CITY', () => {
   })
 })
 
+describe('reduceBoard — BUILD_ROAD', () => {
+  it('places a road at the given edge, owned by the given player', () => {
+    const result = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    expect(result.roads['E1']).toBe(1)
+  })
+
+  it('leaves settlements untouched', () => {
+    const result = reduceBoard(initialBoardState, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    expect(result.settlements).toEqual({})
+  })
+})
+
 describe('reduceBoard — unrecognized action', () => {
   it('returns the same state reference unchanged', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle

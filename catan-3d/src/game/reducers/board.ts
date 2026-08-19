@@ -13,6 +13,7 @@ export const initialBoardState: BoardState = {
 export type BoardAction =
   | { type: 'BUILD_SETTLEMENT'; vertexId: string; playerId: number }
   | { type: 'BUILD_CITY'; vertexId: string; playerId: number }
+  | { type: 'BUILD_ROAD'; edgeId: string; playerId: number }
 
 export function reduceBoard(state: BoardState, action: BoardAction): BoardState {
   switch (action.type) {
@@ -26,6 +27,8 @@ export function reduceBoard(state: BoardState, action: BoardAction): BoardState 
         ...state,
         settlements: { ...state.settlements, [action.vertexId]: { ownerId: action.playerId, type: 'city' } },
       }
+    case 'BUILD_ROAD':
+      return { ...state, roads: { ...state.roads, [action.edgeId]: action.playerId } }
     default:
       return state
   }

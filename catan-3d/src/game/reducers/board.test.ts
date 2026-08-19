@@ -97,6 +97,25 @@ describe('reduceBoard — REMOVE_ROAD', () => {
   })
 })
 
+describe('reduceBoard — RESET_BOARD', () => {
+  it('clears settlements and roads back to empty', () => {
+    let state = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1 })
+    const result = reduceBoard(state, { type: 'RESET_BOARD' })
+    expect(result).toEqual(initialBoardState)
+  })
+})
+
+describe('reduceBoard — RESTORE_BOARD', () => {
+  it('replaces settlements and roads with the given snapshot values', () => {
+    const settlements = { V1: { ownerId: 2, type: 'city' as const } }
+    const roads = { E1: 2 }
+    const result = reduceBoard(initialBoardState, { type: 'RESTORE_BOARD', settlements, roads })
+    expect(result.settlements).toEqual(settlements)
+    expect(result.roads).toEqual(roads)
+  })
+})
+
 describe('reduceBoard — unrecognized action', () => {
   it('returns the same state reference unchanged', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle

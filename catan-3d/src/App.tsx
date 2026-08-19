@@ -696,12 +696,24 @@ function App() {
     logEvent(text, 'info')
   }
 
-  // Every migrated action goes through this — never call dispatch(...) or
-  // broadcastX(...) directly for a GameAction. isDeciding: true for the
-  // client that decided the action (a local click, a resolved dice roll);
-  // false for a receiver applying an already-broadcast action — only the
-  // deciding client re-broadcasts, mirroring every other trusted-apply
-  // pattern in this file (see CONVENTIONS.md).
+  // Two-tier rule for every GameAction: (1) normally, route through this —
+  // it dispatches, fires the banner/sfx via describeBoardAction, and (for
+  // actions whose broadcast payload matches the GameAction shape exactly)
+  // broadcasts via broadcastGameAction. (2) When an action's broadcast
+  // payload needs a field the GameAction type doesn't carry (BUILD_CITY's
+  // costOverride, BUILD_ROAD's isFreeRoad, REMOVE_ROAD's playerId/ownerId
+  // context), the apply function still calls this for the dispatch+banner+
+  // sfx but passes isDeciding: false, then broadcasts explicitly at its own
+  // tail instead — see broadcastGameAction's comment below for which cases
+  // go through it generically. RESET_BOARD/RESTORE_BOARD are the one full
+  // bypass: they call dispatch(...) directly, skipping this function
+  // entirely, since a reset/restore needs no banner, sfx, or broadcast.
+  //
+  // isDeciding: true for the client that decided the action (a local click,
+  // a resolved dice roll); false for a receiver applying an already-
+  // broadcast action, or for a self-broadcasting apply function under rule
+  // (2) above — only the deciding client re-broadcasts, mirroring every
+  // other trusted-apply pattern in this file (see CONVENTIONS.md).
   const dispatchGameAction = (action: GameAction, isDeciding: boolean) => {
     dispatch(action)
     const { message, sfx } = describeBoardAction(action, playerById)
@@ -713,11 +725,12 @@ function App() {
   // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
-  // generically (BUILD_SETTLEMENT does; a future action whose broadcast
-  // payload carries a field the GameAction doesn't, e.g. a cost override,
+  // generically (BUILD_SETTLEMENT and PILLAGE_CITY do; an action whose
+  // broadcast payload carries a field the GameAction doesn't, e.g.
+  // applyCityPlacement's cost override or applyRoadPlacement's isFreeRoad,
   // broadcasts itself directly at its own call site instead, with
   // dispatchGameAction called at isDeciding: false so it never double-
-  // broadcasts — see applyCityPlacement's future migration for that case).
+  // broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
       case 'BUILD_SETTLEMENT':
@@ -727,7 +740,7 @@ function App() {
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
         break
       default:
-        console.log('[Catan] dispatchGameAction — no broadcaster wired for:', action.type)
+        console.error('[Catan] dispatchGameAction — no broadcaster wired for:', action.type)
     }
   }
 
@@ -935,6 +948,8 @@ function App() {
     // domain) — so it's broadcast explicitly below instead of generically
     // through broadcastGameAction (see that function's own comment).
     dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -1315,9 +1330,15 @@ function App() {
     // duplicate/racing invocation (the reducer no-ops), but the
     // players-side effect isn't protected by anything yet since `players`
     // isn't migrated — this guard is what keeps a duplicate call from
-    // double-adjusting citiesRemaining/settlementsRemaining/cityWalls. Goes
-    // away once `players` migrates and this whole players block becomes a
-    // second reducer case instead of a raw setPlayers call.
+    // double-adjusting citiesRemaining/settlementsRemaining/cityWalls. It
+    // ALSO currently gates the "city was pillaged" banner: dispatchGameAction
+    // fires describeBoardAction's banner unconditionally on every call, so
+    // this early return is what stops a duplicate/racing invocation from
+    // calling dispatchGameAction a second time and duplicating the banner.
+    // Whatever replaces this guard once `players` migrates (this whole
+    // players block becoming a second reducer case instead of a raw
+    // setPlayers call) needs to account for the banner too, not just the
+    // resource-counter fields named above.
     const building = gameState.board.settlements[vertexId]
     if (!building || building.type !== 'city' || building.ownerId !== playerId) return
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
@@ -3134,6 +3155,8 @@ function App() {
     // dispatchGameAction doesn't have — both handled explicitly below, same
     // one-off exception as BUILD_CITY/BUILD_ROAD (Tasks 9-10).
     dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }

@@ -49,11 +49,21 @@ export function reduceBoard(state: BoardState, action: BoardAction): BoardState 
       return { ...state, roads }
     }
     case 'RESET_BOARD':
-      return initialBoardState
+      // A fresh object every reset, not the shared `initialBoardState`
+      // singleton — nothing mutates settlements/roads in place today, but
+      // aliasing the module-level object into live state costs nothing to
+      // avoid.
+      return { settlements: {}, roads: {} }
     case 'RESTORE_BOARD':
       return { settlements: action.settlements, roads: action.roads }
-    default:
+    default: {
+      // Exhaustiveness check: a BoardAction variant added without a
+      // corresponding case above fails `tsc -b` here, instead of silently
+      // no-op'ing at runtime.
+      const _exhaustive: never = action
+      void _exhaustive
       return state
+    }
   }
 }
 
@@ -75,8 +85,22 @@ export function describeBoardAction(
       }
     }
     case 'REMOVE_ROAD':
+    case 'RESET_BOARD':
+    case 'RESTORE_BOARD':
+      // No banner/sfx for any of these — REMOVE_ROAD's banner is handled at
+      // its own call site (App.tsx applyDiplomacyRemoval), and
+      // RESET_BOARD/RESTORE_BOARD bypass dispatchGameAction entirely (see
+      // its comment in App.tsx), so this function is never actually called
+      // with either in practice. Listed explicitly rather than falling
+      // through to default so the exhaustiveness check below stays honest.
       return { message: null, sfx: null }
-    default:
+    default: {
+      // Exhaustiveness check: a BoardAction variant added without a
+      // corresponding case above fails `tsc -b` here, instead of silently
+      // no-op'ing at runtime.
+      const _exhaustive: never = action
+      void _exhaustive
       return { message: null, sfx: null }
+    }
   }
 }

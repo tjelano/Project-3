@@ -15,18 +15,21 @@ The shape has three parts:
 2. The **local actor's call site** — decides the random/click-driven value, calls the trusted-apply function, then broadcasts the same decided value.
 3. The **receive handler** — validates the payload's shape against current local state (reject and log if it doesn't check out), then calls the *same* trusted-apply function with the payload's values.
 
+The board-slice reducer refactor changed the trusted-apply function's own shape (not the three-part pattern above, which still holds): it now takes a trailing `isDeciding: boolean` parameter and routes its board-domain write through `dispatchGameAction` — which dispatches to `reduceGame`, fires the banner/sfx via `describeBoardAction`, and (when `isDeciding` is true) broadcasts — instead of a bare `setSettlements`/`setRoads` call. The local actor's call site no longer broadcasts separately; that now happens inside the trusted-apply function itself via `dispatchGameAction`'s `isDeciding` path.
+
 ### Do this
 
 Trusted-apply function (`App.tsx`, `applyPillage`):
 
 ```tsx
-const applyPillage = (vertexId: string, playerId: number) => {
+const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
   // Idempotence guard — the auto-skip effect, the timeout sweep, and a
-  // manual click can all target the same vertex in the same tick.
-  const building = settlements[vertexId]
+  // manual click can all target the same vertex in the same tick. Also
+  // gates the banner — dispatchGameAction fires it unconditionally, so
+  // this guard is what stops a duplicate/racing call from firing it twice.
+  const building = gameState.board.settlements[vertexId]
   if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-  const owner = playerById.get(playerId)
-  setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+  dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
   setPlayers((prev) =>
     prev.map((p) =>
       p.id === playerId
@@ -39,7 +42,8 @@ const applyPillage = (vertexId: string, playerId: number) => {
         : p,
     ),
   )
-  if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
+  // The banner now fires via dispatchGameAction -> describeBoardAction —
+  // do NOT call inform() here too, or the message doubles.
   setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
 }
 ```
@@ -54,16 +58,17 @@ const handlePillageTargetSelect = (vertexId: string) => {
     warn('Not a valid pillage target.')
     return
   }
-  applyPillage(vertexId, current.playerId)
-  if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
+  applyPillage(vertexId, current.playerId, true)
 }
 ```
+
+Note there's no separate `broadcastPillageResolved` call here — passing `isDeciding: true` into `applyPillage` is what triggers the broadcast, generically, inside `dispatchGameAction`.
 
 Receive handler (`onPillageResolved`):
 
 ```tsx
 onPillageResolved: (payload) => {
-  const building = settlements[payload.vertexId]
+  const building = gameState.board.settlements[payload.vertexId]
   if (
     !building ||
     building.type !== 'city' ||
@@ -73,7 +78,7 @@ onPillageResolved: (payload) => {
     console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
     return
   }
-  applyPillage(payload.vertexId, payload.playerId)
+  applyPillage(payload.vertexId, payload.playerId, false)
 },
 ```
 
@@ -92,7 +97,7 @@ onPillageResolved: (payload) => {
   // DIFFERENT vertex than what the acting client actually pillaged —
   // permanent, undetectable desync between clients.
   const target = pillageQueue.find((t) => t.playerId === payload.playerId)
-  if (target) applyPillage(target.eligibleCityVertexIds[0], payload.playerId)
+  if (target) applyPillage(target.eligibleCityVertexIds[0], payload.playerId, false)
 },
 ```
 

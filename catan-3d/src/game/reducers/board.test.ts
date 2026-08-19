@@ -134,6 +134,12 @@ describe('describeBoardAction', () => {
     expect(result.message).toBeNull()
   })
 
+  it('BUILD_CITY plays the placement sound, no banner', () => {
+    const result = describeBoardAction({ type: 'BUILD_CITY', vertexId: 'V1', playerId: players[0].id }, playerById)
+    expect(result.sfx).toBe('placement')
+    expect(result.message).toBeNull()
+  })
+
   it('BUILD_ROAD plays the road-placement sound, no banner', () => {
     const result = describeBoardAction({ type: 'BUILD_ROAD', edgeId: 'E1', playerId: players[0].id }, playerById)
     expect(result.sfx).toBe('roadPlacement')
@@ -143,6 +149,12 @@ describe('describeBoardAction', () => {
   it('PILLAGE_CITY shows a banner naming the pillaged player, no sound', () => {
     const result = describeBoardAction({ type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, playerById)
     expect(result.message).toBe(`${players[0].name}'s city was pillaged and reduced to a settlement.`)
+    expect(result.sfx).toBeNull()
+  })
+
+  it('PILLAGE_CITY with an unknown player id returns no banner (not "undefined")', () => {
+    const result = describeBoardAction({ type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 9999 }, playerById)
+    expect(result.message).toBeNull()
     expect(result.sfx).toBeNull()
   })
 

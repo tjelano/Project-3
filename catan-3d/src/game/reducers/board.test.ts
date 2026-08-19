@@ -44,6 +44,38 @@ describe('reduceBoard — BUILD_ROAD', () => {
   })
 })
 
+describe('reduceBoard — PILLAGE_CITY', () => {
+  it('downgrades a city owned by the given player to a settlement', () => {
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    expect(result.settlements['V1']).toEqual({ ownerId: 1, type: 'settlement' })
+  })
+
+  it('is a no-op if the vertex is not currently a city', () => {
+    const withSettlement = reduceBoard(initialBoardState, { type: 'BUILD_SETTLEMENT', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(withSettlement, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    expect(result).toBe(withSettlement) // same reference — genuinely unchanged
+  })
+
+  it('is a no-op if the vertex has no building at all', () => {
+    const result = reduceBoard(initialBoardState, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    expect(result).toBe(initialBoardState)
+  })
+
+  it('is a no-op if the city is owned by a different player', () => {
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    const result = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 2 })
+    expect(result).toBe(withCity)
+  })
+
+  it('is idempotent — dispatching the same pillage twice only changes the vertex once', () => {
+    const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 })
+    const first = reduceBoard(withCity, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    const second = reduceBoard(first, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: 1 })
+    expect(second).toBe(first)
+  })
+})
+
 describe('reduceBoard — unrecognized action', () => {
   it('returns the same state reference unchanged', () => {
     // @ts-expect-error - deliberately testing an action type this reducer doesn't handle

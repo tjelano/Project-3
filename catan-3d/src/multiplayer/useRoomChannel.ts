@@ -13,6 +13,7 @@ import type {
   ProgressCardType,
   ResourceType,
   Resources,
+  StolenItem,
 } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
 import type { EventDieFace } from '../components/Dice3D'
@@ -113,7 +114,10 @@ export interface RobberMovedPayload {
   tileId: string
   thiefId: number
   victimId: number | null
-  stolenResource: ResourceType | null
+  // Either a resource or a commodity — CN3087 allows the robber to steal
+  // both. See StolenItem's own comment (game/types.ts) for why a plain
+  // union needs no separate kind tag.
+  stolenItem: StolenItem | null
 }
 
 // Cities & Knights barbarian ship (Task 4) — a 'ship' event-die face that
@@ -553,14 +557,15 @@ export interface TreasonRemovedPayload {
 // Cities & Knights Taxation (Task 10) — sent ALREADY-RESOLVED (same
 // trusted-apply model as PillageResolvedPayload/BarbarianWinnerDrawResolvedPayload
 // above): the acting client is the only one that rolls each victim's random
-// stolen resource (resolveTaxation, App.tsx), so every other client just
+// stolen item (resolveTaxation, App.tsx), so every other client just
 // replays the SAME `steals` array rather than re-rolling its own — a
 // receiver re-deriving independently would almost certainly disagree with
 // what the acting client's players actually lost. Unlike RobberMovedPayload
-// (one victim, one resource), Taxation can steal from MULTIPLE players in
-// one play, hence the array — each entry's `resource` is null when that
+// (one victim, one item), Taxation can steal from MULTIPLE players in
+// one play, hence the array — each entry's `item` is null when that
 // particular victim had nothing to steal, same meaning
-// RobberMovedPayload.stolenResource === null already carries. The card
+// RobberMovedPayload.stolenItem === null already carries. Either a resource
+// or a commodity, same as RobberMovedPayload — CN3087 allows both. The card
 // itself is removed from the actor's hand separately, via the earlier,
 // generic ProgressCardPlayedPayload broadcast (see onProgressCardPlayed's
 // 'taxation' branch) — same two-broadcast split Guild Dues/Espionage/
@@ -569,7 +574,7 @@ export interface TreasonRemovedPayload {
 export interface TaxationResolvedPayload {
   playerId: number
   tileId: string
-  steals: { victimId: number; resource: ResourceType | null }[]
+  steals: { victimId: number; item: StolenItem | null }[]
 }
 
 export interface NewGamePayload {

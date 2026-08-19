@@ -68,17 +68,20 @@ export function BarbarianAttackModal({
   const dialogRef = useModalFocusTrap<HTMLDivElement>()
 
   // Banner branch — deliberately borrows EventBanner's own positioning and
-  // glass-panel classes rather than inventing new ones, dropped two slots
-  // down the centre column (top-44) so it clears both EventBanner's own
-  // top-20 — applyPillage's inform() raises one at exactly this moment —
-  // and GameHud's top-32 event-die indicator. pointer-events-none is the
-  // whole point: every click has to reach PillageLayer's spheres in the
-  // Canvas below.
+  // glass-panel classes rather than inventing new ones. top-60 clears
+  // GameHud's BarbarianTrackPanel (top-32, ~5.75rem of its own content:
+  // py-2 padding + h-8 track row + two text lines + gaps), not just that
+  // panel's own top offset — top-44 stopped short of the panel's actual
+  // rendered bottom edge and the two overlapped (CodeRabbit catch).
+  // Estimated from content, not measured in a browser — worth a visual
+  // check if BarbarianTrackPanel's own layout changes again.
+  // pointer-events-none is the whole point: every click has to reach
+  // PillageLayer's spheres in the Canvas below.
   if (pillageChoicePending) {
     return (
       <div
         role="status"
-        className="pointer-events-none absolute top-44 left-1/2 z-40 -translate-x-1/2 rounded-xl border border-glass-border bg-glass px-4 py-2 text-center font-body text-xs text-white/90 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+        className="pointer-events-none absolute top-60 left-1/2 z-40 -translate-x-1/2 rounded-xl border border-glass-border bg-glass px-4 py-2 text-center font-body text-xs text-white/90 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl"
       >
         {pendingChoiceLabel ?? 'Choose which city to pillage'}
       </div>

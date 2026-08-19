@@ -328,12 +328,14 @@ describe('createInitialPlayers — defenderOfCatanCount', () => {
 
 describe('getScoreBreakdown — defenderOfCatanVP', () => {
   it('counts defenderOfCatanCount as public VP, unmodified', () => {
-    const [player] = createInitialPlayers(1)
-    player.defenderOfCatanCount = 2
-    const breakdown = getScoreBreakdown(player, {}, null, null, { science: null, trade: null, politics: null }, null)
+    const player = playerWith({ defenderOfCatanCount: 2 })
+    const breakdown = getScoreBreakdown(player, {}, null, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)
     expect(breakdown.defenderOfCatanVP).toBe(2)
-    expect(breakdown.total).toBeGreaterThanOrEqual(2)
-    const publicScore = getPublicScore(player, {}, null, null, { science: null, trade: null, politics: null }, null)
-    expect(publicScore).toBeGreaterThanOrEqual(2) // NOT subtracted, unlike hidden dev-card VP
+    // Exact, not a lower bound — toBeGreaterThanOrEqual would also pass if
+    // defenderOfCatanVP got double-counted into total (CodeRabbit catch).
+    // With empty settlements, no trophies, and no cards, total is exactly 2.
+    expect(breakdown.total).toBe(2)
+    const publicScore = getPublicScore(player, {}, null, null, NO_METROPOLIS_HOLDERS, NO_MERCHANT_HOLDER)
+    expect(publicScore).toBe(2) // NOT subtracted, unlike hidden dev-card VP
   })
 })

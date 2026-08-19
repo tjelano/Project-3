@@ -267,6 +267,12 @@ export const COMMODITY_LABELS: Record<CommodityType, string> = {
   coin: 'Coin',
 }
 
+// A single card the robber or Taxation can steal — either pool, picked
+// uniformly across a victim's whole hand. The two string-literal unions
+// never overlap, so RESOURCE_ORDER.includes(x) unambiguously tells you
+// which pool an item came from; no separate tag/wrapper needed.
+export type StolenItem = ResourceType | CommodityType
+
 // Same reasoning as RESOURCE_COLORS: kept as plain hex, not a CSS custom
 // property, because Three.js materials can't read those.
 export const COMMODITY_COLORS: Record<CommodityType, string> = {

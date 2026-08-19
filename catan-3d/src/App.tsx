@@ -105,6 +105,7 @@ import {
   type ProgressCardType,
   type ResourceType,
   type Resources,
+  type StolenItem,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import {
@@ -196,6 +197,22 @@ function pickRandom<T>(items: readonly T[]): T {
 }
 function randomSeedString(): string {
   return Math.random().toString(36).slice(2)
+}
+
+// Every card a player currently holds, resources and commodities combined
+// into one flat pool — one entry per card, so pickRandom() picks uniformly
+// across the whole hand rather than resources-only. CN3087: the robber and
+// Taxation can both steal either kind. Used by both moveRobber's picker and
+// resolveTaxation's picker, hence pulled out rather than duplicated twice.
+function heldItemsFor(player: Player): StolenItem[] {
+  const items: StolenItem[] = []
+  for (const resource of RESOURCE_ORDER) {
+    for (let i = 0; i < player.resources[resource]; i++) items.push(resource)
+  }
+  for (const commodity of COMMODITY_ORDER) {
+    for (let i = 0; i < player.commodities[commodity]; i++) items.push(commodity)
+  }
+  return items
 }
 
 function App() {
@@ -933,31 +950,41 @@ function App() {
     tileId: string,
     thiefId: number,
     victimId: number | null,
-    stolenResource: ResourceType | null,
+    stolenItem: StolenItem | null,
   ) => {
-    // Broadcast-sourced — validated before ever being used as a resources[]
-    // key/arithmetic operand. An untrusted or version-mismatched payload
-    // with a bogus resource string would otherwise write NaN into a real
-    // player's resource count permanently (every future +/- on it stays
+    // Broadcast-sourced — validated before ever being used as a resources[]/
+    // commodities[] key/arithmetic operand. An untrusted or version-
+    // mismatched payload with a bogus item string would otherwise write NaN
+    // into a real player's count permanently (every future +/- on it stays
     // NaN), which then poisons the 7-card discard threshold for the rest
     // of the match. Falls back to "nothing stolen" rather than dropping the
     // whole robber move, same as a genuinely empty-handed victim.
-    const safeStolenResource = stolenResource != null && RESOURCE_ORDER.includes(stolenResource) ? stolenResource : null
-    if (stolenResource != null && safeStolenResource == null) {
-      console.error('[Catan] Ignoring robber-move payload with an invalid stolen resource:', stolenResource)
+    const safeStolenItem =
+      stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
+        ? stolenItem
+        : null
+    if (stolenItem != null && safeStolenItem == null) {
+      console.error('[Catan] Ignoring robber-move payload with an invalid stolen item:', stolenItem)
     }
     setRobberTileId(tileId)
     playSfx('robber')
 
     let stealNote = ''
-    if (victimId != null && safeStolenResource != null) {
+    if (victimId != null && safeStolenItem != null) {
+      // Same "which bucket by membership in COMMODITY_ORDER" disambiguation
+      // applyCommodityTrade already uses — the two pools never overlap.
+      const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
       setPlayers((prev) =>
         prev.map((p) => {
           if (p.id === victimId) {
-            return { ...p, resources: { ...p.resources, [safeStolenResource]: p.resources[safeStolenResource] - 1 } }
+            return isCommodity
+              ? { ...p, commodities: { ...p.commodities, [safeStolenItem]: p.commodities[safeStolenItem as CommodityType] - 1 } }
+              : { ...p, resources: { ...p.resources, [safeStolenItem]: p.resources[safeStolenItem as ResourceType] - 1 } }
           }
           if (p.id === thiefId) {
-            return { ...p, resources: { ...p.resources, [safeStolenResource]: p.resources[safeStolenResource] + 1 } }
+            return isCommodity
+              ? { ...p, commodities: { ...p.commodities, [safeStolenItem]: p.commodities[safeStolenItem as CommodityType] + 1 } }
+              : { ...p, resources: { ...p.resources, [safeStolenItem]: p.resources[safeStolenItem as ResourceType] + 1 } }
           }
           return p
         }),
@@ -965,7 +992,8 @@ function App() {
       const thief = playerById.get(thiefId)
       const victim = playerById.get(victimId)
       if (thief && victim) {
-        stealNote = ` ${thief.name} stole 1 ${RESOURCE_LABELS[safeStolenResource]} from ${victim.name}!`
+        const label = isCommodity ? COMMODITY_LABELS[safeStolenItem as CommodityType] : RESOURCE_LABELS[safeStolenItem as ResourceType]
+        stealNote = ` ${thief.name} stole 1 ${label} from ${victim.name}!`
       }
     } else if (victimId != null) {
       const victim = playerById.get(victimId)
@@ -1230,6 +1258,17 @@ function App() {
   // is reduced to a settlement (never destroyed outright) and loses any city
   // wall it had.
   const applyPillage = (vertexId: string, playerId: number) => {
+    // Idempotence guard — the auto-skip effect (React 19 StrictMode re-runs
+    // effect bodies), the timeout sweep, and a manual click can all target
+    // the same vertex in the same tick. Once the first call downgrades it
+    // to a settlement, a second call is a no-op instead of double-adjusting
+    // the supply counters below. Mirrors onPillageResolved's own shape
+    // check (that one additionally checks pillageQueue membership, which is
+    // specific to trusting a network payload — not needed here, since every
+    // local caller already derives vertexId/playerId from its own current
+    // queue state).
+    const building = settlements[vertexId]
+    if (!building || building.type !== 'city' || building.ownerId !== playerId) return
     const owner = playerById.get(playerId)
     setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
     setPlayers((prev) =>
@@ -1243,9 +1282,11 @@ function App() {
               // settlement becomes a city): the city piece goes back in the
               // box and a settlement piece comes out to occupy the vertex.
               // Without this a pillaged player could never rebuild the city
-              // they just lost, since citiesRemaining stayed spent.
+              // they just lost, since citiesRemaining stayed spent. Clamped
+              // at 0 — a player who upgraded a city and then built out every
+              // remaining settlement piece holds 0 in supply when pillaged.
               citiesRemaining: p.citiesRemaining + 1,
-              settlementsRemaining: p.settlementsRemaining - 1,
+              settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
             }
           : p,
       ),
@@ -1493,7 +1534,7 @@ function App() {
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
     onRobberMoved: (payload) =>
-      applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenResource),
+      applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
     // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
     // comments in useRoomChannel.ts.
@@ -2245,30 +2286,42 @@ function App() {
     onTaxationResolved: (payload) => {
       setRobberTileId(payload.tileId)
       playSfx('robber')
-      // Only the entries that survive RESOURCE_ORDER validation are credited
-      // to the actor, so the actor's gain always matches the victims' loss
-      // on this client — resolveTaxation's own deduct-and-credit pass, kept
-      // in step. (Both sides used to only debit victims, so the two clients
-      // agreed with each other while both silently destroying the cards.)
+      // Only the entries that survive validation are credited to the actor,
+      // so the actor's gain always matches the victims' loss on this client
+      // — resolveTaxation's own deduct-and-credit pass, kept in step. (Both
+      // sides used to only debit victims, so the two clients agreed with
+      // each other while both silently destroying the cards.)
+      const isValidItem = (item: StolenItem): boolean =>
+        (RESOURCE_ORDER as string[]).includes(item) || (COMMODITY_ORDER as string[]).includes(item)
       const gained = payload.steals.filter(
-        (s): s is { victimId: number; resource: ResourceType } =>
-          s.resource != null && RESOURCE_ORDER.includes(s.resource),
+        (s): s is { victimId: number; item: StolenItem } => s.item != null && isValidItem(s.item),
       )
       setPlayers((prev) =>
         prev.map((p) => {
           const steal = payload.steals.find((s) => s.victimId === p.id)
-          if (steal && steal.resource != null) {
-            if (!RESOURCE_ORDER.includes(steal.resource)) {
-              console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen resource:', steal.resource)
+          if (steal && steal.item != null) {
+            if (!isValidItem(steal.item)) {
+              console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen item:', steal.item)
               return p
             }
-            const resource = steal.resource
-            return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - 1 } }
+            const item = steal.item
+            return (COMMODITY_ORDER as string[]).includes(item)
+              ? { ...p, commodities: { ...p.commodities, [item]: p.commodities[item as CommodityType] - 1 } }
+              : { ...p, resources: { ...p.resources, [item]: p.resources[item as ResourceType] - 1 } }
           }
           if (p.id === payload.playerId) {
             const resources = { ...p.resources }
-            for (const s of gained) resources[s.resource] += 1
-            return { ...p, resources }
+            const commodities = { ...p.commodities }
+            for (const s of gained) {
+              if ((COMMODITY_ORDER as string[]).includes(s.item)) {
+                const commodity = s.item as CommodityType
+                commodities[commodity] += 1
+              } else {
+                const resource = s.item as ResourceType
+                resources[resource] += 1
+              }
+            }
+            return { ...p, resources, commodities }
           }
           return p
         }),
@@ -3877,36 +3930,46 @@ function App() {
       // the hex they taxed used to lose a card to nobody.
       if (building && building.ownerId !== playerId) victimIds.add(building.ownerId)
     }
-    const steals: { victimId: number; resource: ResourceType | null }[] = []
+    const steals: { victimId: number; item: StolenItem | null }[] = []
     for (const victimId of victimIds) {
       const victim = players.find((p) => p.id === victimId)
       if (!victim) continue
-      const heldResources: ResourceType[] = []
-      for (const resource of RESOURCE_ORDER) {
-        for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
-      }
-      if (heldResources.length === 0) {
-        steals.push({ victimId, resource: null })
+      const heldItems = heldItemsFor(victim)
+      if (heldItems.length === 0) {
+        steals.push({ victimId, item: null })
         continue
       }
-      steals.push({ victimId, resource: pickRandom(heldResources) })
+      steals.push({ victimId, item: pickRandom(heldItems) })
     }
     // Taxation is a STEAL, not a burn — CN3087: "steal 1 random resource/
     // commodity card from each player with a building there." The actor
     // gains exactly what the victims lose, same as applyRobberMove's own
-    // deduct-and-credit pass; these cards used to just vanish.
+    // deduct-and-credit pass; these cards used to just vanish. Same
+    // COMMODITY_ORDER-membership disambiguation applyCommodityTrade and
+    // applyRobberMove already use — the two pools never overlap.
     setPlayers((prev) =>
       prev.map((p) => {
         const steal = steals.find((s) => s.victimId === p.id)
-        if (steal?.resource) {
-          return { ...p, resources: { ...p.resources, [steal.resource]: p.resources[steal.resource] - 1 } }
+        if (steal?.item) {
+          const item = steal.item
+          return (COMMODITY_ORDER as string[]).includes(item)
+            ? { ...p, commodities: { ...p.commodities, [item]: p.commodities[item as CommodityType] - 1 } }
+            : { ...p, resources: { ...p.resources, [item]: p.resources[item as ResourceType] - 1 } }
         }
         if (p.id === playerId) {
           const resources = { ...p.resources }
+          const commodities = { ...p.commodities }
           for (const s of steals) {
-            if (s.resource) resources[s.resource] += 1
+            if (!s.item) continue
+            if ((COMMODITY_ORDER as string[]).includes(s.item)) {
+              const commodity = s.item as CommodityType
+              commodities[commodity] += 1
+            } else {
+              const resource = s.item as ResourceType
+              resources[resource] += 1
+            }
           }
-          return { ...p, resources }
+          return { ...p, resources, commodities }
         }
         return p
       }),
@@ -3971,24 +4034,21 @@ function App() {
     }
 
     let victimId: number | null = null
-    let stolenResource: ResourceType | null = null
+    let stolenItem: StolenItem | null = null
     if (victimIds.length > 0) {
       const candidates = victimIds
       victimId = pickRandom(candidates)
       const victim = playerById.get(victimId)
       if (victim) {
-        const heldResources: ResourceType[] = []
-        for (const resource of RESOURCE_ORDER) {
-          for (let i = 0; i < victim.resources[resource]; i++) heldResources.push(resource)
-        }
-        if (heldResources.length > 0) {
-          stolenResource = pickRandom(heldResources)
+        const heldItems = heldItemsFor(victim)
+        if (heldItems.length > 0) {
+          stolenItem = pickRandom(heldItems)
         }
       }
     }
 
-    applyRobberMove(tileId, thief.id, victimId, stolenResource)
-    if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenResource })
+    applyRobberMove(tileId, thief.id, victimId, stolenItem)
+    if (onlineInfo) broadcastRobberMoved({ tileId, thiefId: thief.id, victimId, stolenItem })
 
     // Cities & Knights "Chase Away the Robber" (Task 11) — only set when
     // this resolution was armed via armChaseRobber (a rolled 7 never sets
@@ -6694,6 +6754,17 @@ function App() {
     // (intercepting every robber-tile click) for the rest of the
     // reconnected session.
     setPendingTaxation(null)
+    // Cities & Knights barbarian attack — same "always reset on restore"
+    // treatment as the pending flags above. The connection-restored resync
+    // effect can call restoreFromSnapshot at any time, including mid-attack:
+    // a stranded pillageQueue entry would then point at a vertex the
+    // restored settlements may already show as a settlement (the auto-skip
+    // effect could act on it), and a stranded activeBarbarianAttack would
+    // re-open the modal over state it no longer describes. Matches
+    // resetGame's own clearing of these same three.
+    setActiveBarbarianAttack(null)
+    setPillageQueue([])
+    setWinnerDrawQueue([])
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
     // would hijack handleKnightVertexSelect's leading branch (intercepting

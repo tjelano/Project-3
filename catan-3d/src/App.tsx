@@ -1321,26 +1321,32 @@ function App() {
   // split as applyScienceFreeResourcePick above. CN3087 p.11: a pillaged city
   // is reduced to a settlement (never destroyed outright) and loses any city
   // wall it had.
+  //
+  // Vertices already resolved by applyPillage, tracked outside React state
+  // so a second call in the SAME tick (StrictMode's effect double-invoke,
+  // the timeout sweep racing a manual click) is rejected before it reaches
+  // setPlayers or the banner — a `gameState.board.settlements` read alone
+  // can't do this, since `dispatch` is async and the reducer's own state
+  // doesn't update until the next render, so two same-tick calls would both
+  // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
+  // alongside setPillageQueue([]).
+  const resolvedPillageVertexIdsRef = useRef(new Set<string>())
   const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
-    // Idempotence guard — the auto-skip effect (React 19 StrictMode re-runs
-    // effect bodies), the timeout sweep, and a manual click can all target
-    // the same vertex in the same tick. This check now duplicates
-    // reduceBoard's own PILLAGE_CITY guard — that's intentional and
-    // temporary. The board write below is safe to call even on a
-    // duplicate/racing invocation (the reducer no-ops), but the
-    // players-side effect isn't protected by anything yet since `players`
-    // isn't migrated — this guard is what keeps a duplicate call from
-    // double-adjusting citiesRemaining/settlementsRemaining/cityWalls. It
-    // ALSO currently gates the "city was pillaged" banner: dispatchGameAction
-    // fires describeBoardAction's banner unconditionally on every call, so
-    // this early return is what stops a duplicate/racing invocation from
-    // calling dispatchGameAction a second time and duplicating the banner.
-    // Whatever replaces this guard once `players` migrates (this whole
-    // players block becoming a second reducer case instead of a raw
-    // setPlayers call) needs to account for the banner too, not just the
-    // resource-counter fields named above.
+    // City-ownership guard — rejects a vertex that was never a pillageable
+    // city for this player in the first place.
     const building = gameState.board.settlements[vertexId]
     if (!building || building.type !== 'city' || building.ownerId !== playerId) return
+    // Same-tick dedupe guard — see the ref's own comment above. This is
+    // ALSO what stops a duplicate/racing invocation from double-adjusting
+    // citiesRemaining/settlementsRemaining/cityWalls below, and from
+    // calling dispatchGameAction a second time (which would duplicate the
+    // "city was pillaged" banner, since dispatchGameAction fires
+    // describeBoardAction's banner unconditionally on every call — not
+    // just on a real state change). Whatever protects the future
+    // players-reducer-case once `players` migrates needs to account for
+    // the banner too, not just the resource-counter fields named below.
+    if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
+    resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     setPlayers((prev) =>
       prev.map((p) =>
@@ -6717,6 +6723,7 @@ function App() {
     // no current player can ever clear) the instant the new game starts.
     setActiveBarbarianAttack(null)
     setPillageQueue([])
+    resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
     setGamePhase('setup')
     setSetupStepIndex(0)
@@ -6877,6 +6884,7 @@ function App() {
     // resetGame's own clearing of these same three.
     setActiveBarbarianAttack(null)
     setPillageQueue([])
+    resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement

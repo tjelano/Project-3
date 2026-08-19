@@ -22,13 +22,25 @@ The board-slice reducer refactor changed the trusted-apply function's own shape 
 Trusted-apply function (`App.tsx`, `applyPillage`):
 
 ```tsx
+// Tracks vertices already resolved this session, outside React state, so a
+// second call in the SAME tick (StrictMode's effect double-invoke, the
+// timeout sweep racing a manual click) is rejected before it reaches
+// setPlayers or the banner. A `gameState.board.settlements` read alone
+// can't do this: `dispatch` is async and the reducer's own state doesn't
+// update until the next render, so two same-tick calls would both still
+// see the pre-dispatch board and both pass a state-only check.
+const resolvedPillageVertexIdsRef = useRef(new Set<string>())
+
 const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
-  // Idempotence guard — the auto-skip effect, the timeout sweep, and a
-  // manual click can all target the same vertex in the same tick. Also
-  // gates the banner — dispatchGameAction fires it unconditionally, so
-  // this guard is what stops a duplicate/racing call from firing it twice.
+  // City-ownership guard — rejects a vertex that was never a pillageable
+  // city for this player.
   const building = gameState.board.settlements[vertexId]
   if (!building || building.type !== 'city' || building.ownerId !== playerId) return
+  // Same-tick dedupe guard — see the ref's own comment above. Also gates
+  // the banner: dispatchGameAction fires it unconditionally on every call,
+  // so this is what stops a duplicate/racing invocation from firing it twice.
+  if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
+  resolvedPillageVertexIdsRef.current.add(vertexId)
   dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
   setPlayers((prev) =>
     prev.map((p) =>
@@ -47,6 +59,10 @@ const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) =
   setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
 }
 ```
+
+The ref's `Set` is cleared in `resetGame`/`restoreFromSnapshot` alongside their `setPillageQueue([])` reset, so a resolved vertex from a previous game doesn't stay "already resolved" forever.
+
+**Why a ref, not a state check:** a value read off `gameState`/`useState` reflects the *last committed render*, not what's already been dispatched-but-not-yet-applied. Two calls in the same tick both see the same pre-dispatch snapshot, so a state-only guard lets both through — the mutation function's own side effects (here, `setPlayers` and the banner) then run twice even though the reducer itself correctly no-ops the duplicate action. A `useRef`-backed set updates synchronously and is shared across same-tick re-invocations, so it catches what a state read cannot.
 
 Local actor's call site (`handlePillageTargetSelect`):
 

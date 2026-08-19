@@ -727,6 +727,9 @@ function App() {
       case 'BUILD_SETTLEMENT':
         broadcastSettlementBuilt({ vertexId: action.vertexId, playerId: action.playerId })
         break
+      case 'PILLAGE_CITY':
+        broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
+        break
       default:
         console.log('[Catan] dispatchGameAction — no broadcaster wired for:', action.type)
     }
@@ -1307,20 +1310,21 @@ function App() {
   // split as applyScienceFreeResourcePick above. CN3087 p.11: a pillaged city
   // is reduced to a settlement (never destroyed outright) and loses any city
   // wall it had.
-  const applyPillage = (vertexId: string, playerId: number) => {
+  const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
     // Idempotence guard — the auto-skip effect (React 19 StrictMode re-runs
     // effect bodies), the timeout sweep, and a manual click can all target
-    // the same vertex in the same tick. Once the first call downgrades it
-    // to a settlement, a second call is a no-op instead of double-adjusting
-    // the supply counters below. Mirrors onPillageResolved's own shape
-    // check (that one additionally checks pillageQueue membership, which is
-    // specific to trusting a network payload — not needed here, since every
-    // local caller already derives vertexId/playerId from its own current
-    // queue state).
+    // the same vertex in the same tick. This check now duplicates
+    // reduceBoard's own PILLAGE_CITY guard — that's intentional and
+    // temporary. The board write below is safe to call even on a
+    // duplicate/racing invocation (the reducer no-ops), but the
+    // players-side effect isn't protected by anything yet since `players`
+    // isn't migrated — this guard is what keeps a duplicate call from
+    // double-adjusting citiesRemaining/settlementsRemaining/cityWalls. Goes
+    // away once `players` migrates and this whole players block becomes a
+    // second reducer case instead of a raw setPlayers call.
     const building = settlements[vertexId]
     if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-    const owner = playerById.get(playerId)
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+    dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -1341,7 +1345,8 @@ function App() {
           : p,
       ),
     )
-    if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
+    // The inform() banner now fires via dispatchGameAction -> describeBoardAction
+    // (Task 6) — do NOT call inform() here too, or the message doubles.
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
@@ -1623,7 +1628,7 @@ function App() {
         console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
         return
       }
-      applyPillage(payload.vertexId, payload.playerId)
+      applyPillage(payload.vertexId, payload.playerId, false)
     },
     // Cities & Knights barbarian winner draw (Task 7) — trusted-apply from
     // the drawing player's own client, which already read `card` off its
@@ -2534,8 +2539,7 @@ function App() {
       warn('Not a valid pillage target.')
       return
     }
-    applyPillage(vertexId, current.playerId)
-    if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
+    applyPillage(vertexId, current.playerId, true)
   }
 
   // Resolves the active tied-winner progress-card deck choice with the
@@ -3900,9 +3904,8 @@ function App() {
       for (const target of pillageQueue) {
         const vertexId = target.eligibleCityVertexIds[0]
         if (!vertexId) continue
-        applyPillage(vertexId, target.playerId)
+        applyPillage(vertexId, target.playerId, true)
         inform(`${playerById.get(target.playerId)?.name ?? 'A player'}'s pillage choice timed out — a city was chosen automatically.`)
-        if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: target.playerId })
       }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)

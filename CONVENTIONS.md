@@ -15,18 +15,33 @@ The shape has three parts:
 2. The **local actor's call site** — decides the random/click-driven value, calls the trusted-apply function, then broadcasts the same decided value.
 3. The **receive handler** — validates the payload's shape against current local state (reject and log if it doesn't check out), then calls the *same* trusted-apply function with the payload's values.
 
+The board-slice reducer refactor changed the trusted-apply function's own shape (not the three-part pattern above, which still holds): it now takes a trailing `isDeciding: boolean` parameter and routes its board-domain write through `dispatchGameAction` — which dispatches to `reduceGame`, fires the banner/sfx via `describeBoardAction`, and (when `isDeciding` is true) broadcasts — instead of a bare `setSettlements`/`setRoads` call. The local actor's call site no longer broadcasts separately; that now happens inside the trusted-apply function itself via `dispatchGameAction`'s `isDeciding` path.
+
 ### Do this
 
 Trusted-apply function (`App.tsx`, `applyPillage`):
 
 ```tsx
-const applyPillage = (vertexId: string, playerId: number) => {
-  // Idempotence guard — the auto-skip effect, the timeout sweep, and a
-  // manual click can all target the same vertex in the same tick.
-  const building = settlements[vertexId]
+// Tracks vertices already resolved this session, outside React state, so a
+// second call in the SAME tick (StrictMode's effect double-invoke, the
+// timeout sweep racing a manual click) is rejected before it reaches
+// setPlayers or the banner. A `gameState.board.settlements` read alone
+// can't do this: `dispatch` is async and the reducer's own state doesn't
+// update until the next render, so two same-tick calls would both still
+// see the pre-dispatch board and both pass a state-only check.
+const resolvedPillageVertexIdsRef = useRef(new Set<string>())
+
+const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
+  // City-ownership guard — rejects a vertex that was never a pillageable
+  // city for this player.
+  const building = gameState.board.settlements[vertexId]
   if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-  const owner = playerById.get(playerId)
-  setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+  // Same-tick dedupe guard — see the ref's own comment above. Also gates
+  // the banner: dispatchGameAction fires it unconditionally on every call,
+  // so this is what stops a duplicate/racing invocation from firing it twice.
+  if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
+  resolvedPillageVertexIdsRef.current.add(vertexId)
+  dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
   setPlayers((prev) =>
     prev.map((p) =>
       p.id === playerId
@@ -39,10 +54,15 @@ const applyPillage = (vertexId: string, playerId: number) => {
         : p,
     ),
   )
-  if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
+  // The banner now fires via dispatchGameAction -> describeBoardAction —
+  // do NOT call inform() here too, or the message doubles.
   setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
 }
 ```
+
+The ref's `Set` is cleared in `resetGame`/`restoreFromSnapshot` alongside their `setPillageQueue([])` reset, so a resolved vertex from a previous game doesn't stay "already resolved" forever.
+
+**Why a ref, not a state check:** a value read off `gameState`/`useState` reflects the *last committed render*, not what's already been dispatched-but-not-yet-applied. Two calls in the same tick both see the same pre-dispatch snapshot, so a state-only guard lets both through — the mutation function's own side effects (here, `setPlayers` and the banner) then run twice even though the reducer itself correctly no-ops the duplicate action. A `useRef`-backed set updates synchronously and is shared across same-tick re-invocations, so it catches what a state read cannot.
 
 Local actor's call site (`handlePillageTargetSelect`):
 
@@ -54,16 +74,17 @@ const handlePillageTargetSelect = (vertexId: string) => {
     warn('Not a valid pillage target.')
     return
   }
-  applyPillage(vertexId, current.playerId)
-  if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
+  applyPillage(vertexId, current.playerId, true)
 }
 ```
+
+Note there's no separate `broadcastPillageResolved` call here — passing `isDeciding: true` into `applyPillage` is what triggers the broadcast, generically, inside `dispatchGameAction`.
 
 Receive handler (`onPillageResolved`):
 
 ```tsx
 onPillageResolved: (payload) => {
-  const building = settlements[payload.vertexId]
+  const building = gameState.board.settlements[payload.vertexId]
   if (
     !building ||
     building.type !== 'city' ||
@@ -73,7 +94,7 @@ onPillageResolved: (payload) => {
     console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
     return
   }
-  applyPillage(payload.vertexId, payload.playerId)
+  applyPillage(payload.vertexId, payload.playerId, false)
 },
 ```
 
@@ -92,7 +113,7 @@ onPillageResolved: (payload) => {
   // DIFFERENT vertex than what the acting client actually pillaged —
   // permanent, undetectable desync between clients.
   const target = pillageQueue.find((t) => t.playerId === payload.playerId)
-  if (target) applyPillage(target.eligibleCityVertexIds[0], payload.playerId)
+  if (target) applyPillage(target.eligibleCityVertexIds[0], payload.playerId, false)
 },
 ```
 

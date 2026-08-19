@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -91,7 +91,6 @@ import {
   emptyResources,
   getPublicScore,
   removeOne,
-  type Building,
   type CommodityType,
   type DevCardType,
   type GameRules,
@@ -123,6 +122,8 @@ import {
   type BarbarianAttackResult,
   type BarbarianPillageTarget,
 } from './game/knights'
+import { reduceGame, initialGameState, type GameAction } from './game/gameState'
+import { describeBoardAction } from './game/reducers/board'
 
 export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
 export type SetupStage = 'settlement' | 'road'
@@ -317,8 +318,7 @@ function App() {
   const colorTokenByPlayerId = useMemo(() => new Map(players.map((p) => [p.id, p.colorToken])), [players])
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const [lastRoll, setLastRoll] = useState<number | null>(null)
-  const [settlements, setSettlements] = useState<Record<string, Building>>({})
-  const [roads, setRoads] = useState<Record<string, number>>({})
+  const [gameState, dispatch] = useReducer(reduceGame, initialGameState)
   // Which tiles have had a settlement built on a touching vertex — drives
   // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
   // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
@@ -696,6 +696,54 @@ function App() {
     logEvent(text, 'info')
   }
 
+  // Two-tier rule for every GameAction: (1) normally, route through this —
+  // it dispatches, fires the banner/sfx via describeBoardAction, and (for
+  // actions whose broadcast payload matches the GameAction shape exactly)
+  // broadcasts via broadcastGameAction. (2) When an action's broadcast
+  // payload needs a field the GameAction type doesn't carry (BUILD_CITY's
+  // costOverride, BUILD_ROAD's isFreeRoad, REMOVE_ROAD's playerId/ownerId
+  // context), the apply function still calls this for the dispatch+banner+
+  // sfx but passes isDeciding: false, then broadcasts explicitly at its own
+  // tail instead — see broadcastGameAction's comment below for which cases
+  // go through it generically. RESET_BOARD/RESTORE_BOARD are the one full
+  // bypass: they call dispatch(...) directly, skipping this function
+  // entirely, since a reset/restore needs no banner, sfx, or broadcast.
+  //
+  // isDeciding: true for the client that decided the action (a local click,
+  // a resolved dice roll); false for a receiver applying an already-
+  // broadcast action, or for a self-broadcasting apply function under rule
+  // (2) above — only the deciding client re-broadcasts, mirroring every
+  // other trusted-apply pattern in this file (see CONVENTIONS.md).
+  const dispatchGameAction = (action: GameAction, isDeciding: boolean) => {
+    dispatch(action)
+    const { message, sfx } = describeBoardAction(action, playerById)
+    if (message) inform(message)
+    if (sfx) playSfx(sfx)
+    if (isDeciding && onlineInfo) broadcastGameAction(action)
+  }
+
+  // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
+  // path. Does NOT grow one case per migrated action — only an action whose
+  // broadcast payload matches its GameAction shape exactly goes through here
+  // generically (BUILD_SETTLEMENT and PILLAGE_CITY do; an action whose
+  // broadcast payload carries a field the GameAction doesn't, e.g.
+  // applyCityPlacement's cost override or applyRoadPlacement's isFreeRoad,
+  // broadcasts itself directly at its own call site instead, with
+  // dispatchGameAction called at isDeciding: false so it never double-
+  // broadcasts).
+  const broadcastGameAction = (action: GameAction) => {
+    switch (action.type) {
+      case 'BUILD_SETTLEMENT':
+        broadcastSettlementBuilt({ vertexId: action.vertexId, playerId: action.playerId })
+        break
+      case 'PILLAGE_CITY':
+        broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
+        break
+      default:
+        console.error('[Catan] dispatchGameAction — no broadcaster wired for:', action.type)
+    }
+  }
+
   const canPerformAction = (): boolean => {
     if (winner) return false
     if (pendingTrade) {
@@ -864,9 +912,13 @@ function App() {
   // the whole component body (and every const in it) has finished
   // initializing. Order of declaration among sibling function expressions
   // in the same scope doesn't affect when they're safe to CALL.
-  const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean) => {
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+  const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId }, isDeciding)
     setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
+    // Players-side effect stays a direct setPlayers call — `players` isn't
+    // migrated in this plan (87 call sites, its own future plan). This is a
+    // deliberate transitional state: the board write above goes through the
+    // reducer, this one doesn't yet, until players migrates.
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -884,15 +936,20 @@ function App() {
       setSetupSettlementVertexId(vertexId)
       setSetupStage('road')
     }
-    playSfx('placement')
   }
 
   // costOverride — Cities & Knights Medicine's discounted 1 Wheat + 2 Ore
   // price, in place of the normal CITY_COST deduction. Defaults to CITY_COST
   // when absent, so every non-Medicine caller (setup, an ordinary city
   // upgrade, the broadcast receiver for those) is unaffected.
-  const applyCityPlacement = (vertexId: string, playerId: number, costOverride?: Partial<Resources>) => {
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'city' } }))
+  const applyCityPlacement = (vertexId: string, playerId: number, isDeciding: boolean, costOverride?: Partial<Resources>) => {
+    // false: this action's broadcast needs costOverride, which BUILD_CITY's
+    // GameAction shape doesn't carry (a players-domain field, not board-
+    // domain) — so it's broadcast explicitly below instead of generically
+    // through broadcastGameAction (see that function's own comment).
+    dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -905,11 +962,19 @@ function App() {
           : p,
       ),
     )
-    playSfx('placement')
+    if (isDeciding && onlineInfo) broadcastCityBuilt({ vertexId, playerId, costOverride })
   }
 
-  const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean) => {
-    setRoads((prev) => ({ ...prev, [edgeId]: playerId }))
+  // isFreeRoad — Road Building card / free setup road, same reasoning as
+  // applyCityPlacement's costOverride just above: RoadBuiltPayload needs
+  // isFreeRoad, which BUILD_ROAD's GameAction shape doesn't carry, so it's
+  // broadcast explicitly below instead of generically through
+  // broadcastGameAction (see that function's own comment) — no BUILD_ROAD
+  // case is added there.
+  const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -942,7 +1007,7 @@ function App() {
         setSetupStage('settlement')
       }
     }
-    playSfx('roadPlacement')
+    if (isDeciding && onlineInfo) broadcastRoadBuilt({ edgeId, playerId, isFreeRoad })
   }
 
   const applyRobberMove = (
@@ -1256,20 +1321,33 @@ function App() {
   // split as applyScienceFreeResourcePick above. CN3087 p.11: a pillaged city
   // is reduced to a settlement (never destroyed outright) and loses any city
   // wall it had.
-  const applyPillage = (vertexId: string, playerId: number) => {
-    // Idempotence guard — the auto-skip effect (React 19 StrictMode re-runs
-    // effect bodies), the timeout sweep, and a manual click can all target
-    // the same vertex in the same tick. Once the first call downgrades it
-    // to a settlement, a second call is a no-op instead of double-adjusting
-    // the supply counters below. Mirrors onPillageResolved's own shape
-    // check (that one additionally checks pillageQueue membership, which is
-    // specific to trusting a network payload — not needed here, since every
-    // local caller already derives vertexId/playerId from its own current
-    // queue state).
-    const building = settlements[vertexId]
+  //
+  // Vertices already resolved by applyPillage, tracked outside React state
+  // so a second call in the SAME tick (StrictMode's effect double-invoke,
+  // the timeout sweep racing a manual click) is rejected before it reaches
+  // setPlayers or the banner — a `gameState.board.settlements` read alone
+  // can't do this, since `dispatch` is async and the reducer's own state
+  // doesn't update until the next render, so two same-tick calls would both
+  // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
+  // alongside setPillageQueue([]).
+  const resolvedPillageVertexIdsRef = useRef(new Set<string>())
+  const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
+    // City-ownership guard — rejects a vertex that was never a pillageable
+    // city for this player in the first place.
+    const building = gameState.board.settlements[vertexId]
     if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-    const owner = playerById.get(playerId)
-    setSettlements((prev) => ({ ...prev, [vertexId]: { ownerId: playerId, type: 'settlement' } }))
+    // Same-tick dedupe guard — see the ref's own comment above. This is
+    // ALSO what stops a duplicate/racing invocation from double-adjusting
+    // citiesRemaining/settlementsRemaining/cityWalls below, and from
+    // calling dispatchGameAction a second time (which would duplicate the
+    // "city was pillaged" banner, since dispatchGameAction fires
+    // describeBoardAction's banner unconditionally on every call — not
+    // just on a real state change). Whatever protects the future
+    // players-reducer-case once `players` migrates needs to account for
+    // the banner too, not just the resource-counter fields named below.
+    if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
+    resolvedPillageVertexIdsRef.current.add(vertexId)
+    dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     setPlayers((prev) =>
       prev.map((p) =>
         p.id === playerId
@@ -1290,7 +1368,8 @@ function App() {
           : p,
       ),
     )
-    if (owner) inform(`${owner.name}'s city was pillaged and reduced to a settlement.`)
+    // The inform() banner now fires via dispatchGameAction -> describeBoardAction
+    // (Task 6) — do NOT call inform() here too, or the message doubles.
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
@@ -1512,7 +1591,7 @@ function App() {
       beginDiceAnimation(payload.dice[0], payload.dice[1], payload.eventDie, payload.playerId)
     },
     onTurnPassed: (payload) => applyTurnAdvance(payload.nextPlayerIndex),
-    onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup'),
+    onSettlementBuilt: (payload) => applySettlementPlacement(payload.vertexId, payload.playerId, gamePhase === 'setup', false),
     // Cities & Knights Medicine — costOverride carries the discounted price
     // the acting client actually charged (see CityBuiltPayload's own
     // comment); undefined here just means "normal CITY_COST," same as any
@@ -1528,10 +1607,10 @@ function App() {
         console.error('[Catan] Ignoring malformed city-built payload:', payload)
         return
       }
-      applyCityPlacement(payload.vertexId, payload.playerId, payload.costOverride)
+      applyCityPlacement(payload.vertexId, payload.playerId, false, payload.costOverride)
     },
     onRoadBuilt: (payload) =>
-      applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad),
+      applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
@@ -1562,7 +1641,7 @@ function App() {
     // otherwise a malformed or duplicated message would plant a settlement
     // at an arbitrary vertex or silently reassign its ownership.
     onPillageResolved: (payload) => {
-      const building = settlements[payload.vertexId]
+      const building = gameState.board.settlements[payload.vertexId]
       if (
         !building ||
         building.type !== 'city' ||
@@ -1572,7 +1651,7 @@ function App() {
         console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
         return
       }
-      applyPillage(payload.vertexId, payload.playerId)
+      applyPillage(payload.vertexId, payload.playerId, false)
     },
     // Cities & Knights barbarian winner draw (Task 7) — trusted-apply from
     // the drawing player's own client, which already read `card` off its
@@ -2014,11 +2093,11 @@ function App() {
     // player's road to their supply on this client only, permanently
     // desyncing roadsRemaining from every other client.
     onDiplomacyPlayed: (payload) => {
-      if (roads[payload.edgeId] !== payload.ownerId) {
+      if (gameState.board.roads[payload.edgeId] !== payload.ownerId) {
         console.error('[Catan] Ignoring malformed diplomacy-played payload:', payload)
         return
       }
-      applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId)
+      applyDiplomacyRemoval(payload.playerId, payload.edgeId, payload.ownerId, false)
     },
     // Cities & Knights Merchant (Task 13) — trusted-apply, same reasoning
     // MerchantMovedPayload's own comment (useRoomChannel.ts) gives: the
@@ -2483,8 +2562,7 @@ function App() {
       warn('Not a valid pillage target.')
       return
     }
-    applyPillage(vertexId, current.playerId)
-    if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: current.playerId })
+    applyPillage(vertexId, current.playerId, true)
   }
 
   // Resolves the active tied-winner progress-card deck choice with the
@@ -2547,7 +2625,7 @@ function App() {
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
-      // Cascades into applyPillage's setSettlements/setPlayers/setPillageQueue
+      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPlayers/setPillageQueue
       // calls, same deliberate "self-heal" shape as the discard-queue effect
       // above (setGamePhase('moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the
@@ -2603,10 +2681,13 @@ function App() {
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
-      lengths.set(player.id, calculateLongestRoad(player.id, roads, graph, settlements, knightOwnerByVertex))
+      lengths.set(
+        player.id,
+        calculateLongestRoad(player.id, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex),
+      )
     }
     return lengths
-  }, [players, roads, graph, settlements, knightOwnerByVertex])
+  }, [players, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex])
 
   const knightCounts = useMemo(() => {
     const counts = new Map<number, number>()
@@ -2660,8 +2741,14 @@ function App() {
   if (!winner && gameStarted) {
     const found = players.find(
       (p) =>
-        getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId) >=
-        gameRules.victoryPointTarget,
+        getPlayerScore(
+          p,
+          gameState.board.settlements,
+          longestRoadHolderId,
+          largestArmyHolderId,
+          metropolisHolders,
+          merchantHolderId,
+        ) >= gameRules.victoryPointTarget,
     )
     if (found) setWinner(found)
   }
@@ -2696,7 +2783,7 @@ function App() {
   // both road and settlement connectivity checks.
   const hasPlayerRoadAt = (vertexId: string, playerId: number): boolean => {
     const edgeIds = graph.vertexEdgeIds.get(vertexId) ?? []
-    return edgeIds.some((edgeId) => roads[edgeId] === playerId)
+    return edgeIds.some((edgeId) => gameState.board.roads[edgeId] === playerId)
   }
 
   // Cities & Knights knights: a road cannot be extended THROUGH a vertex
@@ -2716,7 +2803,11 @@ function App() {
   const isRoadPlacementConnected = (edgeId: string, playerId: number): boolean => {
     const edge = edgeById.get(edgeId)
     if (!edge) return false
-    if (settlements[edge.a]?.ownerId === playerId || settlements[edge.b]?.ownerId === playerId) return true
+    if (
+      gameState.board.settlements[edge.a]?.ownerId === playerId ||
+      gameState.board.settlements[edge.b]?.ownerId === playerId
+    )
+      return true
     const aUsable = hasPlayerRoadAt(edge.a, playerId) && !isBlockedForRoadPlacement(edge.a, playerId)
     const bUsable = hasPlayerRoadAt(edge.b, playerId) && !isBlockedForRoadPlacement(edge.b, playerId)
     return aUsable || bUsable
@@ -2747,7 +2838,7 @@ function App() {
     }
     let hasGenericPort = false
     for (const port of ports) {
-      const ownsPort = port.vertexIds.some((vertexId) => settlements[vertexId]?.ownerId === playerId)
+      const ownsPort = port.vertexIds.some((vertexId) => gameState.board.settlements[vertexId]?.ownerId === playerId)
       if (!ownsPort) continue
       if (port.type === resource) return 2
       if (port.type === '3:1') hasGenericPort = true
@@ -2810,7 +2901,7 @@ function App() {
         return
       }
       const player = localPlayer
-      const building = settlements[vertexId]
+      const building = gameState.board.settlements[vertexId]
       if (!building || building.type !== 'city' || building.ownerId !== player.id) {
         warn('Choose one of your own cities for the Metropolis.')
         return
@@ -2847,7 +2938,7 @@ function App() {
 
     const player = players[currentPlayerIndex]
     const isSetup = gamePhase === 'setup'
-    const existing = settlements[vertexId]
+    const existing = gameState.board.settlements[vertexId]
 
     // Setup placements never roll at all, so this only applies to a normal
     // turn — without it, a settlement/city could be built before rolling
@@ -2898,14 +2989,14 @@ function App() {
       }
 
       const medicineCost = { grain: 1, ore: 2 }
-      applyCityPlacement(vertexId, player.id, usingMedicine ? medicineCost : undefined)
+      // isDeciding: true — applyCityPlacement broadcasts CITY_BUILT itself
+      // (with costOverride) when true; keeping a separate broadcastCityBuilt
+      // call here too would double-broadcast to every other client.
+      applyCityPlacement(vertexId, player.id, true, usingMedicine ? medicineCost : undefined)
       // Consumed exactly once, on the actual placement — not on playMedicine
       // (which only arms the flag) and not on an earlier click, since an
       // ineligible click above returns before ever reaching here.
       if (usingMedicine) setPendingMedicineUse(null)
-      if (onlineInfo) {
-        broadcastCityBuilt({ vertexId, playerId: player.id, costOverride: usingMedicine ? medicineCost : undefined })
-      }
       return
     }
 
@@ -2924,7 +3015,10 @@ function App() {
       return
     }
     const neighbors = vertexAdjacency.get(vertexId) ?? []
-    if (!gameRules.allowAdjacentSettlements && neighbors.some((neighborId) => settlements[neighborId] != null)) {
+    if (
+      !gameRules.allowAdjacentSettlements &&
+      neighbors.some((neighborId) => gameState.board.settlements[neighborId] != null)
+    ) {
       warn('Too close to another settlement.')
       return
     }
@@ -2947,8 +3041,11 @@ function App() {
       return
     }
 
-    applySettlementPlacement(vertexId, player.id, isSetup)
-    if (onlineInfo) broadcastSettlementBuilt({ vertexId, playerId: player.id })
+    // isDeciding: true — this client decided the placement; dispatchGameAction
+    // (inside applySettlementPlacement) broadcasts it via broadcastGameAction's
+    // BUILD_SETTLEMENT case now, replacing the old direct broadcastSettlementBuilt
+    // call here (keeping both would double-broadcast to every other client).
+    applySettlementPlacement(vertexId, player.id, isSetup, true)
   }
 
   // Cities & Knights Commercial Harbor — deliberate scope simplification
@@ -3047,7 +3144,7 @@ function App() {
   const isOpenRoad = (edgeId: string): boolean => {
     const edge = edgeById.get(edgeId)
     if (!edge) return false
-    return !settlements[edge.a] && !settlements[edge.b]
+    return !gameState.board.settlements[edge.a] && !gameState.board.settlements[edge.b]
   }
 
   // Trusted-apply for the actual removal — shared by the local actor
@@ -3057,14 +3154,15 @@ function App() {
   // state's own comment) so a receiver just needs these 3 values plus
   // already-synced roads/player state — same single-broadcast trust model
   // CommercialHarborPlayedPayload's own comment describes.
-  const applyDiplomacyRemoval = (playerId: number, edgeId: string, ownerId: number) => {
+  const applyDiplomacyRemoval = (playerId: number, edgeId: string, ownerId: number, isDeciding: boolean) => {
     const actor = playerById.get(playerId)
     const owner = playerById.get(ownerId)
-    setRoads((prev) => {
-      const next = { ...prev }
-      delete next[edgeId]
-      return next
-    })
+    // false: this action's banner/broadcast needs playerId/ownerId context
+    // dispatchGameAction doesn't have — both handled explicitly below, same
+    // one-off exception as BUILD_CITY/BUILD_ROAD (Tasks 9-10).
+    dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
+    // Players-side effect stays direct — see applySettlementPlacement's own
+    // comment (Task 8).
     setPlayers((prev) =>
       prev.map((p) => {
         if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
@@ -3088,6 +3186,7 @@ function App() {
           : `${actor.name} played Diplomacy — removed ${owner?.name ?? "an opponent's"} road.`,
       )
     }
+    if (isDeciding && onlineInfo) broadcastDiplomacyPlayed({ playerId, edgeId, ownerId })
   }
 
   const playDiplomacy = (edgeId: string) => {
@@ -3101,14 +3200,13 @@ function App() {
       warn('That road is not open — it touches a building.')
       return
     }
-    const ownerId = roads[edgeId]
+    const ownerId = gameState.board.roads[edgeId]
     if (ownerId == null) {
       warn('That edge has no road to remove.')
       return
     }
-    applyDiplomacyRemoval(player.id, edgeId, ownerId)
+    applyDiplomacyRemoval(player.id, edgeId, ownerId, true)
     setPendingDiplomacyRemoval(null)
-    if (onlineInfo) broadcastDiplomacyPlayed({ playerId: player.id, edgeId, ownerId })
   }
 
   // Only spends nothing yet and opens the road-picker (a single board click,
@@ -3141,7 +3239,7 @@ function App() {
     // place. Nothing is spent here either way (the card is only removed
     // inside applyDiplomacyRemoval, once a road is actually chosen), so
     // refusing costs the player nothing.
-    if (!Object.keys(roads).some((edgeId) => isOpenRoad(edgeId))) {
+    if (!Object.keys(gameState.board.roads).some((edgeId) => isOpenRoad(edgeId))) {
       warn('No open roads available for Diplomacy.')
       return
     }
@@ -3196,7 +3294,7 @@ function App() {
       warn('Place your settlement first.')
       return
     }
-    if (roads[edgeId] != null) {
+    if (gameState.board.roads[edgeId] != null) {
       warn('That road is already occupied.')
       return
     }
@@ -3227,8 +3325,7 @@ function App() {
       return
     }
 
-    applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad)
-    if (onlineInfo) broadcastRoadBuilt({ edgeId, playerId: player.id, isFreeRoad })
+    applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
 
   // Stable callbacks for board interactions — buildSettlement/buildRoad
@@ -3440,7 +3537,7 @@ function App() {
         const currentMetropolisVertexIds = new Set(
           Object.values(metropolisVertexIds).filter((v): v is string => v != null),
         )
-        const attackResult = resolveBarbarianAttack(players, settlements, currentMetropolisVertexIds)
+        const attackResult = resolveBarbarianAttack(players, gameState.board.settlements, currentMetropolisVertexIds)
         const isFirstActivation = !robberActive
         setBarbarianTrackPosition(0)
         if (isFirstActivation) {
@@ -3586,7 +3683,7 @@ function App() {
 
         const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
         for (const vertexId of vertexIds) {
-          const building = settlements[vertexId]
+          const building = gameState.board.settlements[vertexId]
           if (!building) continue
           const owner = byId.get(building.ownerId)
           if (!owner) continue
@@ -3625,7 +3722,9 @@ function App() {
       const producedTileIds = tiles.filter((t) => t.number === total && t.id !== robberTileId).map((t) => t.id)
       const producingVertexIds = new Set(producedTileIds.flatMap((id) => graph.tileVertexIds.get(id) ?? []))
       const playersWithProduction = new Set(
-        [...producingVertexIds].map((vertexId) => settlements[vertexId]?.ownerId).filter((id): id is number => id != null),
+        [...producingVertexIds]
+          .map((vertexId) => gameState.board.settlements[vertexId]?.ownerId)
+          .filter((id): id is number => id != null),
       )
       const eligiblePlayerIds = players
         .filter((p) => p.cityImprovements.science >= 3 && !playersWithProduction.has(p.id))
@@ -3847,9 +3946,8 @@ function App() {
       for (const target of pillageQueue) {
         const vertexId = target.eligibleCityVertexIds[0]
         if (!vertexId) continue
-        applyPillage(vertexId, target.playerId)
+        applyPillage(vertexId, target.playerId, true)
         inform(`${playerById.get(target.playerId)?.name ?? 'A player'}'s pillage choice timed out — a city was chosen automatically.`)
-        if (onlineInfo) broadcastPillageResolved({ vertexId, playerId: target.playerId })
       }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)
@@ -3924,7 +4022,7 @@ function App() {
     const vertexIds = graph.tileVertexIds.get(tileId) ?? []
     const victimIds = new Set<number>()
     for (const vertexId of vertexIds) {
-      const building = settlements[vertexId]
+      const building = gameState.board.settlements[vertexId]
       // The actor is never their own victim — a player with a building on
       // the hex they taxed used to lose a card to nobody.
       if (building && building.ownerId !== playerId) victimIds.add(building.ownerId)
@@ -4014,7 +4112,7 @@ function App() {
     const vertexIds = graph.tileVertexIds.get(tileId) ?? []
     const victimIds: number[] = []
     for (const vertexId of vertexIds) {
-      const building = settlements[vertexId]
+      const building = gameState.board.settlements[vertexId]
       if (building && building.ownerId !== thief.id && !victimIds.includes(building.ownerId)) {
         // Friendly Robber: skip anyone at 2 or fewer PUBLIC victory points
         // (matches what everyone at the table can already see — a hidden
@@ -4024,7 +4122,14 @@ function App() {
           const owner = playerById.get(building.ownerId)
           if (
             owner &&
-            getPublicScore(owner, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId) <= 2
+            getPublicScore(
+              owner,
+              gameState.board.settlements,
+              longestRoadHolderId,
+              largestArmyHolderId,
+              metropolisHolders,
+              merchantHolderId,
+            ) <= 2
           )
             continue
         }
@@ -4562,7 +4667,7 @@ function App() {
     // side re-derives currentHolderLevel or the own-city filter itself.
     const { claimsMetropolis, blocked } = evaluateMetropolisPurchase(
       players,
-      settlements,
+      gameState.board.settlements,
       metropolisHolders,
       metropolisVertexIds,
       track,
@@ -4802,7 +4907,7 @@ function App() {
   // tile once even if 2+ of the player's buildings touch it (a tileIds
   // Set, not a running total over every building).
   const countAdjacentBiomeHexes = (playerId: number, biome: Biome): number => {
-    const ownedVertexIds = Object.entries(settlements)
+    const ownedVertexIds = Object.entries(gameState.board.settlements)
       .filter(([, b]) => b.ownerId === playerId)
       .map(([vertexId]) => vertexId)
     const tileIds = new Set<string>()
@@ -5286,7 +5391,7 @@ function App() {
     if (pendingTreasonPlacement) {
       const { playerId, maxStrength, active } = pendingTreasonPlacement
       const player = playerById.get(playerId)!
-      const targets = recruitableVertices(playerId, graph, roads, settlements, knightPiecesByVertex)
+      const targets = recruitableVertices(playerId, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
       if (!targets.has(vertexId)) {
         warn('Not a valid placement.')
         return
@@ -5324,7 +5429,7 @@ function App() {
         setPendingKnightRecruit(null)
         return
       }
-      const targets = recruitableVertices(playerId, graph, roads, settlements, knightPiecesByVertex)
+      const targets = recruitableVertices(playerId, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
       if (!targets.has(vertexId)) {
         warn('Not a valid knight placement.')
         return
@@ -5373,7 +5478,7 @@ function App() {
         setArmedKnightAction(null)
         return
       }
-      const targets = knightMoveTargets(knight, graph, roads, settlements, knightPiecesByVertex)
+      const targets = knightMoveTargets(knight, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
       if (!targets.has(vertexId)) {
         warn('Not a valid move.')
         return
@@ -5421,7 +5526,7 @@ function App() {
       // (knightMoveTargets over the SAME knightPiecesByVertex map), identical
       // deterministic sort-and-pick-first tie-break, so the two flows can
       // never disagree about where a displaced knight ends up.
-      const forcedTargets = [...knightMoveTargets(target, graph, roads, settlements, knightPiecesByVertex)].sort()
+      const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
       const displacedVertexId = forcedTargets[0] ?? null
       setPlayers((prev) =>
         prev.map((p) => {
@@ -5452,7 +5557,7 @@ function App() {
       setArmedKnightAction(null)
       return
     }
-    const targets = knightDisplaceTargets(mover, graph, roads, settlements, knightPiecesByVertex)
+    const targets = knightDisplaceTargets(mover, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
     const target = targets.find((k) => k.id === targetKnightId)
     if (!target) {
       warn('Not a valid displace target.')
@@ -5464,7 +5569,7 @@ function App() {
     // move, computed as if the knight were still standing where it is right
     // now (its own vertexId is the origin). Picked deterministically (lowest
     // vertex id) — CN3087 places no choice constraint on which one.
-    const forcedTargets = [...knightMoveTargets(target, graph, roads, settlements, knightPiecesByVertex)].sort()
+    const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
     const displacedVertexId = forcedTargets[0] ?? null // null => removed to supply, no empty reachable vertex
 
     setPlayers((prev) =>
@@ -5585,7 +5690,7 @@ function App() {
     }
     const player = players[currentPlayerIndex]
     const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
-    if (!canBuildCityWall(player, vertexId, settlements, totalWallsOnBoard)) {
+    if (!canBuildCityWall(player, vertexId, gameState.board.settlements, totalWallsOnBoard)) {
       warn('Cannot build a city wall there.')
       return
     }
@@ -5630,11 +5735,16 @@ function App() {
       return
     }
     const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
-    const hasEligibleCity = Object.entries(settlements).some(
+    const hasEligibleCity = Object.entries(gameState.board.settlements).some(
       ([vertexId, b]) =>
         b.ownerId === player.id &&
         b.type === 'city' &&
-        canBuildCityWall({ ...player, resources: { ...player.resources, brick: 999 } }, vertexId, settlements, totalWallsOnBoard),
+        canBuildCityWall(
+          { ...player, resources: { ...player.resources, brick: 999 } },
+          vertexId,
+          gameState.board.settlements,
+          totalWallsOnBoard,
+        ),
     )
     if (!hasEligibleCity) {
       warn('No eligible city for a free wall.')
@@ -5663,7 +5773,12 @@ function App() {
     const player = playerById.get(playerId)!
     const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
     if (
-      !canBuildCityWall({ ...player, resources: { ...player.resources, brick: 999 } }, vertexId, settlements, totalWallsOnBoard)
+      !canBuildCityWall(
+        { ...player, resources: { ...player.resources, brick: 999 } },
+        vertexId,
+        gameState.board.settlements,
+        totalWallsOnBoard,
+      )
     ) {
       warn('Not a valid free wall target.')
       return
@@ -5788,7 +5903,7 @@ function App() {
     if (!announcer) return []
     const announcerVp = getPlayerScore(
       announcer,
-      settlements,
+      gameState.board.settlements,
       longestRoadHolderId,
       largestArmyHolderId,
       metropolisHolders,
@@ -5796,7 +5911,14 @@ function App() {
     )
     return players.filter((p) => {
       if (p.id === announcerId) return false
-      const vp = getPlayerScore(p, settlements, longestRoadHolderId, largestArmyHolderId, metropolisHolders, merchantHolderId)
+      const vp = getPlayerScore(
+        p,
+        gameState.board.settlements,
+        longestRoadHolderId,
+        largestArmyHolderId,
+        metropolisHolders,
+        merchantHolderId,
+      )
       return comparison === 'gte' ? vp >= announcerVp : vp > announcerVp
     })
   }
@@ -6136,14 +6258,14 @@ function App() {
     const player = playerById.get(playerId)
     if (!player) return []
     const ownVertexIds = [
-      ...Object.entries(settlements)
+      ...Object.entries(gameState.board.settlements)
         .filter(([, b]) => b.ownerId === player.id)
         .map(([v]) => v),
       ...player.knightPieces.map((k) => k.vertexId),
     ]
     const seen = new Map<string, KnightPiece>()
     for (const origin of ownVertexIds) {
-      for (const target of reachableOpponentKnights(origin, player.id, graph, roads, settlements, knightPiecesByVertex)) {
+      for (const target of reachableOpponentKnights(origin, player.id, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)) {
         seen.set(target.id, target)
       }
     }
@@ -6256,7 +6378,7 @@ function App() {
     const removed = [...target.knightPieces].sort(
       (a, b) => KNIGHT_STRENGTH_VALUE[a.strength] - KNIGHT_STRENGTH_VALUE[b.strength] || a.id.localeCompare(b.id),
     )[0]
-    const eligiblePlacementVertices = recruitableVertices(player.id, graph, roads, settlements, knightPiecesByVertex)
+    const eligiblePlacementVertices = recruitableVertices(player.id, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
     // Whether the acting player can ACTUALLY place a replacement — shares
     // treasonPlacementStrengthOptions with handleKnightVertexSelect's own
     // `available` lookup below rather than a separate approximation. A
@@ -6498,8 +6620,7 @@ function App() {
     )
     setCurrentPlayerIndex(freshStartingPlayerIndex)
     setLastRoll(null)
-    setSettlements({})
-    setRoads({})
+    dispatch({ type: 'RESET_BOARD' })
     setRevealedTileIds(new Set())
     setBanner(null)
     setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
@@ -6602,6 +6723,7 @@ function App() {
     // no current player can ever clear) the instant the new game starts.
     setActiveBarbarianAttack(null)
     setPillageQueue([])
+    resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
     setGamePhase('setup')
     setSetupStepIndex(0)
@@ -6677,8 +6799,7 @@ function App() {
       isHost: online.isHost,
       hostName: snapshot.hostName,
     })
-    setSettlements(snapshot.settlements)
-    setRoads(snapshot.roads)
+    dispatch({ type: 'RESTORE_BOARD', settlements: snapshot.settlements, roads: snapshot.roads })
     setCurrentPlayerIndex(snapshot.currentPlayerIndex)
     setRobberTileId(snapshot.robberTileId)
     setGamePhase(snapshot.gamePhase)
@@ -6763,6 +6884,7 @@ function App() {
     // resetGame's own clearing of these same three.
     setActiveBarbarianAttack(null)
     setPillageQueue([])
+    resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
@@ -6927,8 +7049,8 @@ function App() {
       startingPlayerIndex,
       playerNames,
       players,
-      settlements,
-      roads,
+      settlements: gameState.board.settlements,
+      roads: gameState.board.roads,
       currentPlayerIndex,
       robberTileId,
       gamePhase,
@@ -6967,8 +7089,8 @@ function App() {
     startingPlayerIndex,
     playerNames,
     players,
-    settlements,
-    roads,
+    gameState.board.settlements,
+    gameState.board.roads,
     currentPlayerIndex,
     robberTileId,
     gamePhase,
@@ -7120,8 +7242,8 @@ function App() {
           <BoardInteractions
             key={boardInstance}
             graph={graph}
-            settlements={settlements}
-            roads={roads}
+            settlements={gameState.board.settlements}
+            roads={gameState.board.roads}
             players={players}
             metropolisVertexIds={metropolisVertexIds}
             onBuildSettlement={buildSettlement}
@@ -7180,7 +7302,7 @@ function App() {
             tiles={tiles}
             merchantTileId={merchantTileId}
             placingPlayerId={pendingMerchantPlacement === localPlayer.id ? pendingMerchantPlacement : null}
-            settlements={settlements}
+            settlements={gameState.board.settlements}
             vertexTileIds={graph.vertexTileIds}
             onSelectTile={handleMerchantTileSelect}
           />
@@ -7198,21 +7320,21 @@ function App() {
               vertexById={graph.vertexById}
               recruitTargets={
                 pendingKnightRecruit != null
-                  ? recruitableVertices(pendingKnightRecruit, graph, roads, settlements, knightPiecesByVertex)
+                  ? recruitableVertices(pendingKnightRecruit, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
                   : // Cities & Knights Treason (Task 14) — the replacement-knight
                     // placement reuses Recruit's own eligible-vertex rule
                     // (recruitableVertices) and this same board-marker
                     // affordance, so it lights up here rather than needing a
                     // dedicated marker set of its own.
                     pendingTreasonPlacement
-                    ? recruitableVertices(pendingTreasonPlacement.playerId, graph, roads, settlements, knightPiecesByVertex)
+                    ? recruitableVertices(pendingTreasonPlacement.playerId, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)
                     : null
               }
               moveTargets={
                 armedKnightAction?.mode === 'move'
                   ? (() => {
                       const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
-                      return knight ? knightMoveTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
+                      return knight ? knightMoveTargets(knight, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex) : null
                     })()
                   : null
               }
@@ -7227,7 +7349,7 @@ function App() {
                   : armedKnightAction?.mode === 'displace'
                     ? (() => {
                         const knight = players.flatMap((p) => p.knightPieces).find((k) => k.id === armedKnightAction.knightId)
-                        return knight ? knightDisplaceTargets(knight, graph, roads, settlements, knightPiecesByVertex) : null
+                        return knight ? knightDisplaceTargets(knight, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex) : null
                       })()
                     : null
               }
@@ -7331,7 +7453,7 @@ function App() {
         devDeckCount={devDeck.length}
         onBuyDevCard={buyDevCard}
         winner={winner}
-        settlements={settlements}
+        settlements={gameState.board.settlements}
         onReturnToMenu={returnToMenu}
         pendingTrade={pendingTrade}
         localPlayerId={onlineInfo?.localPlayerId ?? null}

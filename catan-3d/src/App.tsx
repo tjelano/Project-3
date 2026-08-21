@@ -703,9 +703,9 @@ function App() {
   // it dispatches, fires the banner/sfx via describeBoardAction, and (for
   // actions whose broadcast payload matches the GameAction shape exactly)
   // broadcasts via broadcastGameAction. (2) When an action's broadcast
-  // payload needs a field the GameAction type doesn't carry (BUILD_ROAD's
-  // isFreeRoad, REMOVE_ROAD's playerId/ownerId context), the apply function
-  // still calls this for the dispatch+banner+
+  // payload needs a field the GameAction type doesn't carry (REMOVE_ROAD's
+  // playerId/ownerId context), the apply function still calls this for the
+  // dispatch+banner+
   // sfx but passes isDeciding: false, then broadcasts explicitly at its own
   // tail instead — see broadcastGameAction's comment below for which cases
   // go through it generically. RESET_BOARD/RESTORE_BOARD are the one full
@@ -728,11 +728,11 @@ function App() {
   // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
-  // generically (BUILD_SETTLEMENT, BUILD_CITY, and PILLAGE_CITY do; an action
-  // whose broadcast payload carries a field the GameAction doesn't, e.g.
-  // applyRoadPlacement's isFreeRoad, broadcasts itself directly at its own
-  // call site instead, with dispatchGameAction called at isDeciding: false
-  // so it never double-broadcasts).
+  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, and PILLAGE_CITY
+  // do; an action whose broadcast payload carries a field the GameAction
+  // doesn't, e.g. REMOVE_ROAD's playerId/ownerId context, broadcasts itself
+  // directly at its own call site instead, with dispatchGameAction called at
+  // isDeciding: false so it never double-broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
       case 'BUILD_SETTLEMENT':
@@ -740,6 +740,9 @@ function App() {
         break
       case 'BUILD_CITY':
         broadcastCityBuilt({ vertexId: action.vertexId, playerId: action.playerId, costOverride: action.costOverride })
+        break
+      case 'BUILD_ROAD':
+        broadcastRoadBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeRoad: action.isFreeRoad })
         break
       case 'PILLAGE_CITY':
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
@@ -936,26 +939,8 @@ function App() {
     dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId, costOverride }, isDeciding)
   }
 
-  // isFreeRoad — Road Building card / free setup road, same reasoning as
-  // applyCityPlacement's costOverride just above: RoadBuiltPayload needs
-  // isFreeRoad, which BUILD_ROAD's GameAction shape doesn't carry, so it's
-  // broadcast explicitly below instead of generically through
-  // broadcastGameAction (see that function's own comment) — no BUILD_ROAD
-  // case is added there.
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
-    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId }, false)
-    // Players-side effect stays direct — see applySettlementPlacement's own
-    // comment (Task 8).
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              resources: isSetup || isFreeRoad ? p.resources : deductCost(p.resources, ROAD_COST),
-              roadsRemaining: p.roadsRemaining - 1,
-            }
-          : p,
-      ) })
+    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId, isSetup, isFreeRoad }, isDeciding)
     if (isFreeRoad) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
 
     if (isSetup) {
@@ -977,7 +962,6 @@ function App() {
         setSetupStage('settlement')
       }
     }
-    if (isDeciding && onlineInfo) broadcastRoadBuilt({ edgeId, playerId, isFreeRoad })
   }
 
   const applyRobberMove = (

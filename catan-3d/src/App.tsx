@@ -290,7 +290,11 @@ function App() {
     [playerCount, startingPlayerIndex],
   )
 
-  const [players, setPlayers] = useState(() => createInitialPlayers(3))
+  const [gameState, dispatch] = useReducer(reduceGame, initialGameState)
+  // Read-only — every existing read site (`players.find(...)`, `players={players}`,
+  // etc.) keeps working unchanged. Only write sites change, in this task and
+  // the ones that follow it.
+  const players = gameState.players
   // O(1) lookup map for players to avoid O(N) array finds in frequent game loops/callbacks.
   // Expected performance impact: ~5x faster lookup vs Array.find for typical 3-4 player sizes.
   const playerById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players])
@@ -318,7 +322,6 @@ function App() {
   const colorTokenByPlayerId = useMemo(() => new Map(players.map((p) => [p.id, p.colorToken])), [players])
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
   const [lastRoll, setLastRoll] = useState<number | null>(null)
-  const [gameState, dispatch] = useReducer(reduceGame, initialGameState)
   // Which tiles have had a settlement built on a touching vertex — drives
   // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
   // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
@@ -700,9 +703,9 @@ function App() {
   // it dispatches, fires the banner/sfx via describeBoardAction, and (for
   // actions whose broadcast payload matches the GameAction shape exactly)
   // broadcasts via broadcastGameAction. (2) When an action's broadcast
-  // payload needs a field the GameAction type doesn't carry (BUILD_CITY's
-  // costOverride, BUILD_ROAD's isFreeRoad, REMOVE_ROAD's playerId/ownerId
-  // context), the apply function still calls this for the dispatch+banner+
+  // payload needs a field the GameAction type doesn't carry (REMOVE_ROAD's
+  // playerId/ownerId context), the apply function still calls this for the
+  // dispatch+banner+
   // sfx but passes isDeciding: false, then broadcasts explicitly at its own
   // tail instead — see broadcastGameAction's comment below for which cases
   // go through it generically. RESET_BOARD/RESTORE_BOARD are the one full
@@ -725,16 +728,21 @@ function App() {
   // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
-  // generically (BUILD_SETTLEMENT and PILLAGE_CITY do; an action whose
-  // broadcast payload carries a field the GameAction doesn't, e.g.
-  // applyCityPlacement's cost override or applyRoadPlacement's isFreeRoad,
-  // broadcasts itself directly at its own call site instead, with
-  // dispatchGameAction called at isDeciding: false so it never double-
-  // broadcasts).
+  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, and PILLAGE_CITY
+  // do; an action whose broadcast payload carries a field the GameAction
+  // doesn't, e.g. REMOVE_ROAD's playerId/ownerId context, broadcasts itself
+  // directly at its own call site instead, with dispatchGameAction called at
+  // isDeciding: false so it never double-broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
       case 'BUILD_SETTLEMENT':
         broadcastSettlementBuilt({ vertexId: action.vertexId, playerId: action.playerId })
+        break
+      case 'BUILD_CITY':
+        broadcastCityBuilt({ vertexId: action.vertexId, playerId: action.playerId, costOverride: action.costOverride })
+        break
+      case 'BUILD_ROAD':
+        broadcastRoadBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeRoad: action.isFreeRoad })
         break
       case 'PILLAGE_CITY':
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
@@ -866,7 +874,7 @@ function App() {
     // calls this — so both the local end-turn action and the remote
     // TURN_PASSED receiver apply the identical reset.
     setKnightsPromotedThisTurn(new Set())
-    setPlayers((prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)) })
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to
@@ -913,23 +921,8 @@ function App() {
   // initializing. Order of declaration among sibling function expressions
   // in the same scope doesn't affect when they're safe to CALL.
   const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
-    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId }, isDeciding)
+    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId, isSetup }, isDeciding)
     setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
-    // Players-side effect stays a direct setPlayers call — `players` isn't
-    // migrated in this plan (87 call sites, its own future plan). This is a
-    // deliberate transitional state: the board write above goes through the
-    // reducer, this one doesn't yet, until players migrates.
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              resources: isSetup ? p.resources : deductCost(p.resources, SETTLEMENT_COST),
-              settlementsRemaining: p.settlementsRemaining - 1,
-            }
-          : p,
-      ),
-    )
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
@@ -943,49 +936,11 @@ function App() {
   // when absent, so every non-Medicine caller (setup, an ordinary city
   // upgrade, the broadcast receiver for those) is unaffected.
   const applyCityPlacement = (vertexId: string, playerId: number, isDeciding: boolean, costOverride?: Partial<Resources>) => {
-    // false: this action's broadcast needs costOverride, which BUILD_CITY's
-    // GameAction shape doesn't carry (a players-domain field, not board-
-    // domain) — so it's broadcast explicitly below instead of generically
-    // through broadcastGameAction (see that function's own comment).
-    dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId }, false)
-    // Players-side effect stays direct — see applySettlementPlacement's own
-    // comment (Task 8).
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              resources: deductCost(p.resources, costOverride ?? CITY_COST),
-              settlementsRemaining: p.settlementsRemaining + 1,
-              citiesRemaining: p.citiesRemaining - 1,
-            }
-          : p,
-      ),
-    )
-    if (isDeciding && onlineInfo) broadcastCityBuilt({ vertexId, playerId, costOverride })
+    dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId, costOverride }, isDeciding)
   }
 
-  // isFreeRoad — Road Building card / free setup road, same reasoning as
-  // applyCityPlacement's costOverride just above: RoadBuiltPayload needs
-  // isFreeRoad, which BUILD_ROAD's GameAction shape doesn't carry, so it's
-  // broadcast explicitly below instead of generically through
-  // broadcastGameAction (see that function's own comment) — no BUILD_ROAD
-  // case is added there.
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
-    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId }, false)
-    // Players-side effect stays direct — see applySettlementPlacement's own
-    // comment (Task 8).
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              resources: isSetup || isFreeRoad ? p.resources : deductCost(p.resources, ROAD_COST),
-              roadsRemaining: p.roadsRemaining - 1,
-            }
-          : p,
-      ),
-    )
+    dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId, isSetup, isFreeRoad }, isDeciding)
     if (isFreeRoad) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
 
     if (isSetup) {
@@ -1007,7 +962,6 @@ function App() {
         setSetupStage('settlement')
       }
     }
-    if (isDeciding && onlineInfo) broadcastRoadBuilt({ edgeId, playerId, isFreeRoad })
   }
 
   const applyRobberMove = (
@@ -1038,7 +992,7 @@ function App() {
       // Same "which bucket by membership in COMMODITY_ORDER" disambiguation
       // applyCommodityTrade already uses — the two pools never overlap.
       const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id === victimId) {
             return isCommodity
@@ -1051,8 +1005,7 @@ function App() {
               : { ...p, resources: { ...p.resources, [safeStolenItem]: p.resources[safeStolenItem as ResourceType] + 1 } }
           }
           return p
-        }),
-      )
+        }) })
       const thief = playerById.get(thiefId)
       const victim = playerById.get(victimId)
       if (thief && victim) {
@@ -1103,14 +1056,13 @@ function App() {
   // spends it explicitly right before calling these — see the network
   // handlers below.
   const applyYearOfPlentyEffect = (playerId: number, picks: ResourceType[]) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const resources = { ...p.resources }
         for (const resource of picks) resources[resource] += 1
         return { ...p, resources }
-      }),
-    )
+      }) })
     const player = playerById.get(playerId)
     const summary = picks.map((resource) => RESOURCE_LABELS[resource]).join(' and ')
     if (player) inform(`${player.name} took ${summary} from the bank via Year of Plenty.`)
@@ -1119,7 +1071,7 @@ function App() {
   const applyMonopolyEffect = (playerId: number, resource: ResourceType) => {
     let seized = 0
     const victimNotes: string[] = []
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
       const byId = new Map(next.map((p) => [p.id, p]))
       const currentEntry = byId.get(playerId)
@@ -1134,7 +1086,7 @@ function App() {
         currentEntry.resources[resource] += amount
       }
       return next
-    })
+    } })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1157,7 +1109,7 @@ function App() {
   const applyResourceMonopolyProgressEffect = (playerId: number, resource: ResourceType) => {
     let collected = 0
     const victimNotes: string[] = []
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       const next = prev.map((p) => {
         if (p.id === playerId || p.resources[resource] <= 0) return p
         const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
@@ -1168,7 +1120,7 @@ function App() {
       return next.map((p) =>
         p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + collected } } : p,
       )
-    })
+    } })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1190,7 +1142,7 @@ function App() {
   const applyTradeMonopolyEffect = (playerId: number, commodity: CommodityType) => {
     let collected = 0
     const victimNotes: string[] = []
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       const next = prev.map((p) => {
         if (p.id === playerId || p.commodities[commodity] <= 0) return p
         victimNotes.push(`1 from ${p.name}`)
@@ -1200,7 +1152,7 @@ function App() {
       return next.map((p) =>
         p.id === playerId ? { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + collected } } : p,
       )
-    })
+    } })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1221,7 +1173,7 @@ function App() {
     const toPlayer = playerById.get(toPlayerId)
     if (!fromPlayer || !toPlayer) return
 
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === fromPlayerId) {
           return {
@@ -1244,8 +1196,7 @@ function App() {
           }
         }
         return p
-      }),
-    )
+      }) })
     inform(
       `${fromPlayer.name} traded 1 ${RESOURCE_LABELS[offerResource]} for 1 ${RESOURCE_LABELS[wantResource]} with ${toPlayer.name}!`,
     )
@@ -1260,13 +1211,12 @@ function App() {
   // whatever that player's holdings happen to be on THIS client — no risk
   // of clobbering a concurrent change from something else.
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
-      }),
-    )
+      }) })
     const remaining = discardPlayerIds.filter((id) => id !== playerId)
     setDiscardPlayerIds(remaining)
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
@@ -1293,14 +1243,13 @@ function App() {
   // client's copy of that player's hand), so sorting descending and
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const next = [...p.progressCards]
         for (const index of [...indices].sort((a, b) => b - a)) next.splice(index, 1)
         return { ...p, progressCards: next }
-      }),
-    )
+      }) })
     setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
@@ -1309,9 +1258,8 @@ function App() {
   // which also broadcasts) and receiving clients (onScienceFreeResourcePicked),
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + 1 } } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + 1 } } : p)) })
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
@@ -1348,7 +1296,7 @@ function App() {
     if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
     resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id === playerId
           ? {
@@ -1366,8 +1314,7 @@ function App() {
               settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
             }
           : p,
-      ),
-    )
+      ) })
     // The inform() banner now fires via dispatchGameAction -> describeBoardAction
     // (Task 6) — do NOT call inform() here too, or the message doubles.
     // Filtered by playerId, not sliced off the front — activePillageTarget
@@ -1390,7 +1337,7 @@ function App() {
   // own independently-shuffled local copy, so each caller does its own deck
   // update after calling this.
   const applyBarbarianWinnerDraw = (playerId: number, card: ProgressCardType) => {
-    setPlayers((prev) => prev.map((p) => (p.id === playerId ? { ...p, progressCards: [...p.progressCards, card] } : p)))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === playerId ? { ...p, progressCards: [...p.progressCards, card] } : p)) })
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
@@ -1405,13 +1352,12 @@ function App() {
   // value sent over the wire — same trust model as every other trusted-apply
   // function in this file (applyDiscard, applyScienceFreeResourcePick, etc).
   const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, track)
         return { ...p, commodities, cityImprovements }
-      }),
-    )
+      }) })
   }
 
   // Trusted state mutation for a batch of progress-card draws from one
@@ -1427,12 +1373,11 @@ function App() {
   // mutation.
   const applyProgressCardDraws = (draws: { playerId: number; card: ProgressCardType }[]) => {
     if (draws.length === 0) return
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         const drawn = draws.filter((d) => d.playerId === p.id).map((d) => d.card)
         return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
-      }),
-    )
+      }) })
     // Deterministic — every client (roller and receivers alike) computes
     // this from its own just-updated hand, no broadcast needed. Merges
     // rather than overwrites, same reasoning as scienceFreeResourcePlayerIds
@@ -1483,7 +1428,7 @@ function App() {
   // either a resource or a different commodity (the rulebook allows both),
   // so which bucket gets the +1 is resolved by membership in COMMODITY_ORDER.
   const applyCommodityTrade = (playerId: number, give: CommodityType, receive: ResourceType | CommodityType) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== playerId) return p
         const commodities = { ...p.commodities, [give]: p.commodities[give] - 2 }
@@ -1493,8 +1438,7 @@ function App() {
         }
         const receiveResource = receive as ResourceType
         return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
-      }),
-    )
+      }) })
   }
 
   // A player's own color never changes once the match starts, so this is
@@ -1702,11 +1646,10 @@ function App() {
         console.error('[Catan] Ignoring malformed resource-monopoly payload:', payload)
         return
       }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p,
-        ),
-      )
+        ) })
       // applyResourceMonopolyProgressEffect, NOT applyMonopolyEffect — see
       // that function's own comment for why Resource Monopoly's take-2-or-
       // fewer effect can't reuse base Monopoly's take-all one.
@@ -1717,11 +1660,10 @@ function App() {
         console.error('[Catan] Ignoring malformed trade-monopoly payload:', payload)
         return
       }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p,
-        ),
-      )
+        ) })
       applyTradeMonopolyEffect(payload.playerId, payload.commodity)
     },
     onTradeOffered: (payload) => {
@@ -1777,7 +1719,7 @@ function App() {
     // silently drifts, permanently, until it happens to cross the 7-card
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === payload.playerId
             ? {
@@ -1787,8 +1729,7 @@ function App() {
                 devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, payload.card],
               }
             : p,
-        ),
-      )
+        ) })
       setDevDeck((prev) => prev.slice(1))
     },
     // Same reasoning as onDevCardBought above — a city improvement purchase
@@ -1814,7 +1755,7 @@ function App() {
       // at the exact same final count, without ever needing to know
       // anything about THIS client's own (irrelevant) craneDiscountPlayerId.
       if (payload.craneDiscount) {
-        setPlayers((prev) =>
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
           prev.map((p) =>
             p.id === payload.playerId
               ? {
@@ -1825,8 +1766,7 @@ function App() {
                   },
                 }
               : p,
-          ),
-        )
+          ) })
       }
     },
     onProgressCardsDrawn: (payload) => {
@@ -1897,21 +1837,19 @@ function App() {
         // that player's hand here; the actual swap arrives separately via
         // onInventionSwapped once the actor finishes picking (applyInventionSwap
         // is safely reused verbatim for that, no player-specific state).
-        setPlayers((prev) =>
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
           prev.map((p) =>
             p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p,
-          ),
-        )
+          ) })
       } else if (payload.card === 'merchantFleet') {
         // Same reasoning as Invention just above — the named type stays
         // local to the acting client (see playMerchantFleet's own comment),
         // so a receiver only needs to remove the card from that player's
         // hand; merchantFleetRate itself is never set on this client.
-        setPlayers((prev) =>
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
           prev.map((p) =>
             p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p,
-          ),
-        )
+          ) })
       } else if (payload.card === 'guildDues' || payload.card === 'espionage') {
         // Same split as Invention/Merchant Fleet above — the target-and-
         // cards picker (pendingGuildDues/pendingEspionage) is local-only UI
@@ -1919,18 +1857,16 @@ function App() {
         // card here; the actual take arrives separately via
         // onGuildDuesTaken/onEspionageTaken once the actor confirms their
         // picks in OpponentHandPicker.
-        setPlayers((prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, payload.card) } : p)),
-        )
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, payload.card) } : p)) })
       } else if (payload.card === 'intrigue') {
         // Cities & Knights Intrigue (Task 14) — same split as Guild Dues/
         // Espionage just above: pendingIntrigueDisplace is local-only UI
         // state on the acting client, so a receiver just removes the spent
         // card here; the actual displacement arrives separately via
         // onIntrigueResolved once the actor picks a knight on the board.
-        setPlayers((prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)),
-        )
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)) })
       } else if (payload.card === 'taxation') {
         // Cities & Knights Taxation (Task 10) — same split as Guild Dues/
         // Espionage/Intrigue above: pendingTaxation (the hex picker) is
@@ -1938,9 +1874,8 @@ function App() {
         // removes the spent card here; the actual multi-victim steal
         // arrives separately via onTaxationResolved once the actor picks a
         // hex on the board.
-        setPlayers((prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)),
-        )
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)) })
       }
     },
     onInventionSwapped: (payload) => applyInventionSwap(payload.tileAId, payload.tileBId),
@@ -1996,7 +1931,7 @@ function App() {
         console.error('[Catan] Ignoring malformed bank-trade payload:', payload)
         return
       }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === payload.playerId
             ? {
@@ -2008,8 +1943,7 @@ function App() {
                 },
               }
             : p,
-        ),
-      )
+        ) })
     },
     // Broadcast-sourced — same validation shape as onBankTrade just above,
     // since this payload also indexes straight into commodities[]/resources[]
@@ -2117,7 +2051,7 @@ function App() {
     // for why reusing the paid path unconditionally here would desync
     // every other client's resources/supply for a Treason placement.
     onKnightRecruited: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === payload.knight.ownerId
             ? {
@@ -2130,15 +2064,14 @@ function App() {
                 knightPieces: [...p.knightPieces, payload.knight],
               }
             : p,
-        ),
-      )
+        ) })
     },
     // Cities & Knights knight activate/promote (Task 8) — same trusted-apply
     // reasoning as onKnightRecruited just above: the sending client already
     // validated cost/state locally (canActivateKnight/canPromoteKnight)
     // before ever broadcasting.
     onKnightActivated: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
@@ -2147,11 +2080,10 @@ function App() {
                 resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
                 knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: true } : k)),
               },
-        ),
-      )
+        ) })
     },
     onKnightPromoted: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id !== payload.playerId) return p
           const knight = p.knightPieces.find((k) => k.id === payload.knightId)
@@ -2166,8 +2098,7 @@ function App() {
             },
             knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, strength: payload.newStrength } : k)),
           }
-        }),
-      )
+        }) })
       setKnightsPromotedThisTurn((prev) => new Set(prev).add(payload.knightId))
     },
     // Cities & Knights knight move (Task 9) — same trusted-apply reasoning
@@ -2175,13 +2106,12 @@ function App() {
     // sending client already validated the move locally (knightMoveTargets)
     // before ever broadcasting.
     onKnightMoved: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
             : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, vertexId: payload.vertexId, active: false } : k)) },
-        ),
-      )
+        ) })
     },
     // Cities & Knights knight displace (Task 10) — same trusted-apply
     // reasoning as onKnightMoved above, but mirrors the local resolution's
@@ -2191,7 +2121,7 @@ function App() {
     // its own owner's pieces or, when displacedVertexId is null, is removed
     // and returned to that owner's supply.
     onKnightDisplaced: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id === payload.moverId) {
             return {
@@ -2218,21 +2148,19 @@ function App() {
             }
           }
           return p
-        }),
-      )
+        }) })
     },
     // Cities & Knights "Chase Away the Robber" (Task 11) — same trusted-apply
     // reasoning as onKnightDisplaced above: the sending client already
     // validated the knight's adjacency to the robber's hex locally
     // (armChaseRobber) before ever broadcasting.
     onKnightDeactivatedAfterChase: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
             : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: false } : k)) },
-        ),
-      )
+        ) })
     },
     // Cities & Knights city walls (Task 12) — same trusted-apply reasoning
     // as onKnightDeactivatedAfterChase above: the sending client already
@@ -2241,7 +2169,7 @@ function App() {
     // skips the deduction for Engineering's free wall — see
     // CityWallBuiltPayload.isFree's own comment in useRoomChannel.ts.
     onCityWallBuilt: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
@@ -2250,8 +2178,7 @@ function App() {
                 resources: payload.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST),
                 cityWalls: [...p.cityWalls, payload.vertexId],
               },
-        ),
-      )
+        ) })
     },
     // Cities & Knights Smithing (Task 13) — same trusted-apply reasoning as
     // onCityWallBuilt above, but re-derives each promoted knight's new
@@ -2268,7 +2195,7 @@ function App() {
     // `supply` below (same pattern playSmithing's own apply step uses) can't
     // go negative as long as the sender validated correctly.
     onSmithingPlayed: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id !== payload.playerId) return p
           let supply = { ...p.knightSupply }
@@ -2280,8 +2207,7 @@ function App() {
             return { ...k, strength: next }
           })
           return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
-        }),
-      )
+        }) })
       setKnightsPromotedThisTurn((prev) => {
         const next = new Set(prev)
         for (const knightId of payload.knightIds) next.add(knightId)
@@ -2292,13 +2218,12 @@ function App() {
     // as onSmithingPlayed above: the sending client already validated the
     // card was in hand before ever broadcasting.
     onEncouragementPlayed: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== payload.playerId
             ? p
             : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
-        ),
-      )
+        ) })
     },
     // Cities & Knights Intrigue (Task 14) — trusted-apply, mirrors the local
     // resolution exactly (handleKnightSelect's own pendingIntrigueDisplace
@@ -2307,7 +2232,7 @@ function App() {
     // 'intrigue' branch above, same two-broadcast split Guild Dues/Espionage
     // already use.
     onIntrigueResolved: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id !== payload.displacedOwnerId) return p
           if (payload.displacedVertexId) {
@@ -2324,8 +2249,7 @@ function App() {
             knightPieces: p.knightPieces.filter((k) => k.id !== payload.targetKnightId),
             knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
           }
-        }),
-      )
+        }) })
     },
     // Cities & Knights Treason (Task 14) — trusted-apply, self-contained
     // (see TreasonRemovedPayload's own comment for why this doesn't need a
@@ -2336,7 +2260,7 @@ function App() {
     // separately via onKnightRecruited — Task 7's existing receiver, reused
     // verbatim (see playTreason's own comment).
     onTreasonRemoved: (payload) => {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id === payload.actingPlayerId) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
           if (p.id === payload.targetPlayerId) {
@@ -2347,8 +2271,7 @@ function App() {
             }
           }
           return p
-        }),
-      )
+        }) })
     },
     // Cities & Knights Taxation (Task 10) — trusted-apply of resolveTaxation's
     // own already-resolved `steals` array (same model as onPillageResolved/
@@ -2374,7 +2297,7 @@ function App() {
       const gained = payload.steals.filter(
         (s): s is { victimId: number; item: StolenItem } => s.item != null && isValidItem(s.item),
       )
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           const steal = payload.steals.find((s) => s.victimId === p.id)
           if (steal && steal.item != null) {
@@ -2402,8 +2325,7 @@ function App() {
             return { ...p, resources, commodities }
           }
           return p
-        }),
-      )
+        }) })
       const tile = tileById.get(payload.tileId)
       const actor = playerById.get(payload.playerId)
       if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
@@ -2850,18 +2772,20 @@ function App() {
   // kickstart a player's hand when they place their second setup settlement.
   const grantResourcesForVertex = (vertexId: string, ownerId: number) => {
     const tileIds = graph.vertexTileIds.get(vertexId) ?? []
-    setPlayers((prev) =>
-      prev.map((p) => {
-        if (p.id !== ownerId) return p
-        const resources = { ...p.resources }
-        for (const tileId of tileIds) {
-          const tile = tileById.get(tileId)
-          const resource = tile && BIOME_TO_RESOURCE[tile.biome]
-          if (resource) resources[resource] += 1
-        }
-        return { ...p, resources }
-      }),
-    )
+    const resources: Partial<Resources> = {}
+    for (const tileId of tileIds) {
+      const tile = tileById.get(tileId)
+      const resource = tile && BIOME_TO_RESOURCE[tile.biome]
+      if (resource) resources[resource] = (resources[resource] ?? 0) + 1
+    }
+    // Always isDeciding: false — this is never broadcast. Every client
+    // (the deciding client AND every receiver) independently computes the
+    // identical resource delta from the same static tile/vertex data when
+    // THEIR OWN applySettlementPlacement call runs (whether locally decided
+    // or received via onSettlementBuilt). Broadcasting it too would double-
+    // apply the grant on every receiver, so this function takes no
+    // `isDeciding` parameter at all — there's nothing for a caller to decide.
+    dispatchGameAction({ type: 'GRANT_SETUP_RESOURCES', playerId: ownerId, resources }, false)
   }
 
   // Superset of canPerformAction() for the two placement handlers, which
@@ -3073,7 +2997,7 @@ function App() {
   // which are only ever invoked well after the whole component body has
   // finished running once).
   const applyCommercialHarborEffect = (announcerId: number, resource: ResourceType, otherIdsInOrder: number[]) => {
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       let next = prev.map((p) =>
         p.id === announcerId ? { ...p, progressCards: removeOne(p.progressCards, 'commercialHarbor') } : p,
       )
@@ -3105,7 +3029,7 @@ function App() {
         })
       }
       return next
-    })
+    } })
   }
 
   const playCommercialHarbor = (resource: ResourceType) => {
@@ -3163,7 +3087,7 @@ function App() {
     dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
     // Players-side effect stays direct — see applySettlementPlacement's own
     // comment (Task 8).
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
         // Returned to the OWNER's own supply, never the announcer's — a
@@ -3173,8 +3097,7 @@ function App() {
         // not via this counter).
         if (p.id === ownerId && ownerId !== playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
         return p
-      }),
-    )
+      }) })
     // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
     // counter Road Building/setup free roads already use (buildRoadRaw
     // checks it directly) — not a second, parallel "free road" concept.
@@ -3376,9 +3299,8 @@ function App() {
     if (result.defendersWin) {
       const soleWinner = result.winners.find((w) => !w.tied)
       if (soleWinner) {
-        setPlayers((prev) =>
-          prev.map((p) => (p.id === soleWinner.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p)),
-        )
+        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+          prev.map((p) => (p.id === soleWinner.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p)) })
         const winnerPlayer = playerById.get(soleWinner.playerId)
         if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
       } else if (gameRules.citiesAndKnightsProgressCards) {
@@ -3398,7 +3320,7 @@ function App() {
     // Every knight on the board becomes inactive, regardless of
     // participation — CN3087 p.11: unconditional, not scoped to only the
     // knights that were actually counted.
-    setPlayers((prev) => prev.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) })))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) })) })
   }
 
   // Triggered by the Roll Dice button: this is always the LOCAL player's own
@@ -3668,7 +3590,7 @@ function App() {
       messages.push(`The Robber blocks ${BIOME_LABELS[robberTile.biome]} — no resources from that hex.`)
     }
 
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       const next = prev.map((p) => ({ ...p, resources: { ...p.resources }, commodities: { ...p.commodities } }))
       const byId = new Map(next.map((p) => [p.id, p]))
 
@@ -3710,7 +3632,7 @@ function App() {
       }
 
       return next
-    })
+    } })
 
     // Science level 3: a player who received nothing this roll gets 1 free
     // resource of their choice — never on a 7 (a 7 doesn't produce at all,
@@ -3752,7 +3674,7 @@ function App() {
     // here already guarantees roller is still the active player.
     if (gameRules.doublesRerollRule && doublesCount >= 3 && roller) {
       debugLog('doubles-reroll hand wipe', { rollerId: roller.id, rollerName: roller.name, doublesCount, isStillRollersTurn })
-      setPlayers((prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)))
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)) })
       inform(`${roller.name} rolled doubles three times in a row — hand emptied!`)
     }
 
@@ -4044,7 +3966,7 @@ function App() {
     // deduct-and-credit pass; these cards used to just vanish. Same
     // COMMODITY_ORDER-membership disambiguation applyCommodityTrade and
     // applyRobberMove already use — the two pools never overlap.
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         const steal = steals.find((s) => s.victimId === p.id)
         if (steal?.item) {
@@ -4069,8 +3991,7 @@ function App() {
           return { ...p, resources, commodities }
         }
         return p
-      }),
-    )
+      }) })
     const tile = tileById.get(tileId)
     const actor = playerById.get(playerId)
     if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
@@ -4169,11 +4090,10 @@ function App() {
     // owner and this thief are always the same player.
     if (chasingRobberKnightId) {
       const chaserId = chasingRobberKnightId
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== thief.id ? p : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === chaserId ? { ...k, active: false } : k)) },
-        ),
-      )
+        ) })
       setChasingRobberKnightId(null)
       if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
     }
@@ -4310,7 +4230,7 @@ function App() {
       return
     }
 
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p, index) =>
         index === currentPlayerIndex
           ? {
@@ -4322,8 +4242,7 @@ function App() {
               },
             }
           : p,
-      ),
-    )
+      ) })
     inform(`${player.name} traded ${rate} ${RESOURCE_LABELS[give]} for 1 ${RESOURCE_LABELS[receive]}.`)
     if (onlineInfo) broadcastBankTrade({ playerId: player.id, give, receive, rate })
   }
@@ -4582,7 +4501,7 @@ function App() {
 
     const [card, ...remaining] = devDeck
     setDevDeck(remaining)
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p, index) =>
         index === currentPlayerIndex
           ? {
@@ -4592,8 +4511,7 @@ function App() {
               devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, card],
             }
           : p,
-      ),
-    )
+      ) })
     inform(`${player.name} bought a development card.`)
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }
@@ -4699,7 +4617,7 @@ function App() {
     // would deduct the full cost with no refund, permanently desyncing this
     // player's commodity count between clients.
     if (hasCraneDiscount) {
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === player.id
             ? {
@@ -4710,8 +4628,7 @@ function App() {
                 },
               }
             : p,
-        ),
-      )
+        ) })
       setCraneDiscountPlayerId(null)
     }
     inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
@@ -4755,7 +4672,7 @@ function App() {
   // works identically for the local actor and for a receiving client
   // applying a remote play.
   const spendDevCard = (playerId: number, type: DevCardType) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id === playerId
           ? {
@@ -4764,8 +4681,7 @@ function App() {
               knightsPlayed: type === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed,
             }
           : p,
-      ),
-    )
+      ) })
     setDevCardPlayedThisTurn(true)
   }
 
@@ -4835,9 +4751,8 @@ function App() {
       warn('No Resource Monopoly card to play.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p)) })
     setDevCardPicker('resourceMonopolyProgress')
   }
 
@@ -4856,9 +4771,8 @@ function App() {
       warn('No Trade Monopoly card to play.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p)) })
     setDevCardPicker('tradeMonopolyProgress')
   }
 
@@ -4894,9 +4808,8 @@ function App() {
       warn('No Alchemy card to play.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'alchemy') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'alchemy') } : p)) })
     setAlchemyPreset([d1, d2])
     inform(`${player.name} played Alchemy — the next roll's production dice are fixed.`)
   }
@@ -4935,13 +4848,12 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'fields')
     const amount = hexCount * 2
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id === playerId
           ? { ...p, resources: { ...p.resources, grain: p.resources.grain + amount }, progressCards: removeOne(p.progressCards, 'irrigation') }
           : p,
-      ),
-    )
+      ) })
     inform(`${player.name} played Irrigation — gained ${amount} Grain (${hexCount} field hexes).`)
   }
 
@@ -4977,13 +4889,12 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'mountains')
     const amount = hexCount * 2
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id === playerId
           ? { ...p, resources: { ...p.resources, ore: p.resources.ore + amount }, progressCards: removeOne(p.progressCards, 'mining') }
           : p,
-      ),
-    )
+      ) })
     inform(`${player.name} played Mining — gained ${amount} Ore (${hexCount} mountain hexes).`)
   }
 
@@ -5017,9 +4928,8 @@ function App() {
   const applyCraneEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p)) })
     setCraneDiscountPlayerId(playerId)
     inform(`${player.name} played Crane — next city improvement purchase costs 1 less.`)
   }
@@ -5053,9 +4963,8 @@ function App() {
   const applyMedicineEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p)) })
     setPendingMedicineUse(playerId)
     inform(`${player.name} played Medicine — next settlement upgraded to a city costs 1 Wheat + 2 Ore.`)
   }
@@ -5083,7 +4992,7 @@ function App() {
     }
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('progressRoadBuilding')) return
-    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'progressRoadBuilding') } : p)))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'progressRoadBuilding') } : p)) })
     setFreeRoadsRemaining((prev) => prev + 2)
     inform(`${player.name} played (progress card) Road Building — place 2 free roads.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'progressRoadBuilding' })
@@ -5160,9 +5069,8 @@ function App() {
       warn('Finish the current tile swap first.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p)) })
     setPendingInventionSwap({ playerId: player.id, firstTileId: null })
     inform(`${player.name} played Invention — choose 2 number tiles to swap.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'invention' })
@@ -5187,9 +5095,8 @@ function App() {
       warn('No Merchant Fleet card to play.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p)) })
     setMerchantFleetRate({ playerId: player.id, type })
     const label = (COMMODITY_ORDER as string[]).includes(type)
       ? COMMODITY_LABELS[type as CommodityType]
@@ -5218,9 +5125,8 @@ function App() {
       warn('No Merchant card to play.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchant') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchant') } : p)) })
     setPendingMerchantPlacement(player.id)
     inform(`${player.name} played Merchant — choose a land hex next to one of your buildings.`)
   }
@@ -5402,13 +5308,12 @@ function App() {
         return
       }
       const newKnight: KnightPiece = { id: nextKnightId(playerId), ownerId: playerId, strength: available, active, vertexId }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== playerId
             ? p
             : { ...p, knightSupply: { ...p.knightSupply, [available]: p.knightSupply[available] - 1 }, knightPieces: [...p.knightPieces, newKnight] },
-        ),
-      )
+        ) })
       setPendingTreasonPlacement(null)
       // Deliberately reuses Task 7's KnightRecruitedPayload/onKnightRecruited
       // — a "knight appears at this vertex with this strength/status" event
@@ -5441,7 +5346,7 @@ function App() {
         active: false,
         vertexId,
       }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id === playerId
             ? {
@@ -5451,8 +5356,7 @@ function App() {
                 knightPieces: [...p.knightPieces, newKnight],
               }
             : p,
-        ),
-      )
+        ) })
       setPendingKnightRecruit(null)
       if (onlineInfo) broadcastKnightRecruited({ knight: newKnight, isFree: false })
       return
@@ -5483,13 +5387,12 @@ function App() {
         warn('Not a valid move.')
         return
       }
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) =>
           p.id !== player.id
             ? p
             : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, vertexId, active: false } : k)) },
-        ),
-      )
+        ) })
       setArmedKnightAction(null)
       if (onlineInfo) broadcastKnightMoved({ playerId: player.id, knightId, vertexId })
       return
@@ -5528,7 +5431,7 @@ function App() {
       // never disagree about where a displaced knight ends up.
       const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
       const displacedVertexId = forcedTargets[0] ?? null
-      setPlayers((prev) =>
+      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
         prev.map((p) => {
           if (p.id !== target.ownerId) return p
           if (displacedVertexId) {
@@ -5539,8 +5442,7 @@ function App() {
             knightPieces: p.knightPieces.filter((k) => k.id !== target.id),
             knightSupply: { ...p.knightSupply, [target.strength]: p.knightSupply[target.strength] + 1 },
           }
-        }),
-      )
+        }) })
       setPendingIntrigueDisplace(null)
       if (onlineInfo) broadcastIntrigueResolved({ displacedOwnerId: target.ownerId, targetKnightId, displacedVertexId })
       return
@@ -5572,7 +5474,7 @@ function App() {
     const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
     const displacedVertexId = forcedTargets[0] ?? null // null => removed to supply, no empty reachable vertex
 
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === player.id) {
           return {
@@ -5591,8 +5493,7 @@ function App() {
           }
         }
         return p
-      }),
-    )
+      }) })
     setArmedKnightAction(null)
     if (onlineInfo) {
       broadcastKnightDisplaced({
@@ -5621,7 +5522,7 @@ function App() {
       warn('Cannot activate that knight.')
       return
     }
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id !== player.id
           ? p
@@ -5630,8 +5531,7 @@ function App() {
               resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
               knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, active: true } : k)),
             },
-      ),
-    )
+      ) })
     if (onlineInfo) broadcastKnightActivated({ playerId: player.id, knightId })
   }
 
@@ -5660,7 +5560,7 @@ function App() {
       return
     }
     const next = nextKnightStrength(knight.strength)!
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id !== player.id
           ? p
@@ -5670,8 +5570,7 @@ function App() {
               knightSupply: { ...p.knightSupply, [knight.strength]: p.knightSupply[knight.strength] + 1, [next]: p.knightSupply[next] - 1 },
               knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, strength: next } : k)),
             },
-      ),
-    )
+      ) })
     setKnightsPromotedThisTurn((prev) => new Set(prev).add(knightId))
     if (onlineInfo) broadcastKnightPromoted({ playerId: player.id, knightId, newStrength: next })
   }
@@ -5694,13 +5593,12 @@ function App() {
       warn('Cannot build a city wall there.')
       return
     }
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id !== player.id
           ? p
           : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, vertexId] },
-      ),
-    )
+      ) })
     if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId, isFree: false })
   }
 
@@ -5750,9 +5648,8 @@ function App() {
       warn('No eligible city for a free wall.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'engineering') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'engineering') } : p)) })
     setPendingFreeCityWall(player.id)
     inform(`${player.name} played Engineering — choose a city for a free wall.`)
   }
@@ -5783,7 +5680,7 @@ function App() {
       warn('Not a valid free wall target.')
       return
     }
-    setPlayers((prev) => prev.map((p) => (p.id !== playerId ? p : { ...p, cityWalls: [...p.cityWalls, vertexId] })))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id !== playerId ? p : { ...p, cityWalls: [...p.cityWalls, vertexId] })) })
     setPendingFreeCityWall(null)
     // isFree: true — unlike buildCityWall's own broadcast just above, this
     // never deducted CITY_WALL_COST locally, so every other client's
@@ -5828,7 +5725,7 @@ function App() {
       warn('No knights eligible to promote.')
       return
     }
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id !== player.id) return p
         let supply = { ...p.knightSupply }
@@ -5840,8 +5737,7 @@ function App() {
           return { ...k, strength: next }
         })
         return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
-      }),
-    )
+      }) })
     setKnightsPromotedThisTurn((prev) => {
       const next = new Set(prev)
       for (const k of toPromote) next.add(k.id)
@@ -5877,13 +5773,12 @@ function App() {
       warn('No Encouragement card to play.')
       return
     }
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) =>
         p.id !== player.id
           ? p
           : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
-      ),
-    )
+      ) })
     inform(`${player.name} played Encouragement — all knights activated.`)
     if (onlineInfo) broadcastEncouragementPlayed({ playerId: player.id })
   }
@@ -5941,7 +5836,7 @@ function App() {
     const announcer = playerById.get(announcerId)
     if (!announcer) return
     const affected = playersMeetingVpThreshold(announcerId, 'gte')
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
         if (!affected.some((a) => a.id === p.id)) return p
@@ -5949,8 +5844,7 @@ function App() {
         const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
-      }),
-    )
+      }) })
     inform(`${announcer.name} played Sabotage — ${affected.length} player(s) discarded half their hand.`)
   }
 
@@ -5997,7 +5891,7 @@ function App() {
         totalTaken += count as number
       }
     }
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === announcerId) {
           const resources = { ...p.resources }
@@ -6012,8 +5906,7 @@ function App() {
         if (!counts) return p
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
-      }),
-    )
+      }) })
     inform(`${announcer.name} played Wedding — received ${totalTaken} card${totalTaken === 1 ? '' : 's'} from ${affected.length} player(s).`)
   }
 
@@ -6044,7 +5937,7 @@ function App() {
   // randomness involved in a player's own choice of which held cards to
   // give up.
   const applyGuildDuesTake = (takerId: number, targetId: number, picks: (ResourceType | CommodityType)[]) => {
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === targetId) {
           let resources = { ...p.resources }
@@ -6065,8 +5958,7 @@ function App() {
           return { ...p, resources, commodities }
         }
         return p
-      }),
-    )
+      }) })
   }
 
   const playGuildDues = () => {
@@ -6085,9 +5977,8 @@ function App() {
       warn('No player currently has more VP than you.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'guildDues') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'guildDues') } : p)) })
     // picker lets the player switch targets among eligibleTargets before
     // confirming, via PlayerTargetPicker (see GameHud.tsx's own Guild Dues
     // dialog and guildDuesEligibleTargets, below).
@@ -6129,7 +6020,7 @@ function App() {
   // optional, so confirmEspionage below tolerates 0 picks (looked, took
   // nothing) as well as exactly 1.
   const applyEspionageTake = (takerId: number, targetId: number, cardIndex: number) => {
-    setPlayers((prev) => {
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
       const target = prev.find((p) => p.id === targetId)
       const card = target?.progressCards[cardIndex]
       // VP cards can't be taken — re-verified here (the receiver), not just
@@ -6145,7 +6036,7 @@ function App() {
         if (p.id === takerId) return { ...p, progressCards: [...p.progressCards, card] }
         return p
       })
-    })
+    } })
   }
 
   const playEspionage = () => {
@@ -6164,9 +6055,8 @@ function App() {
       warn('No other player to target.')
       return
     }
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'espionage') } : p)),
-    )
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
+      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'espionage') } : p)) })
     setPendingEspionage({ targetId: otherPlayersList[0].id })
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'espionage' })
   }
@@ -6231,7 +6121,7 @@ function App() {
       warn('No Taxation card to play.')
       return
     }
-    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)) })
     setPendingTaxation(player.id)
     setGamePhase('moveRobber')
     inform(`${player.name} played Taxation — choose a hex for the robber.`)
@@ -6306,7 +6196,7 @@ function App() {
       warn('No knight available to displace with Intrigue.')
       return
     }
-    setPlayers((prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)))
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)) })
     setPendingIntrigueDisplace(player.id)
     inform(`${player.name} played Intrigue — choose an opponent knight to displace.`)
     // Same two-broadcast split Guild Dues/Espionage/Invention already use
@@ -6397,7 +6287,7 @@ function App() {
     // with the resolve-time check closes that gap the same way Task 13's
     // Smithing fix closed its own running-supply gap.
     const canPlace = eligiblePlacementVertices.size > 0 && treasonPlacementStrengthOptions(removed.strength).some((s) => player.knightSupply[s] > 0)
-    setPlayers((prev) =>
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
       prev.map((p) => {
         if (p.id === player.id) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
         if (p.id === targetPlayerId) {
@@ -6408,8 +6298,7 @@ function App() {
           }
         }
         return p
-      }),
-    )
+      }) })
     inform(`${player.name} played Treason on ${target.name} — removed their ${removed.strength} knight.`)
     if (onlineInfo) broadcastTreasonRemoved({ actingPlayerId: player.id, targetPlayerId, removedKnight: removed })
     if (canPlace) {
@@ -6581,14 +6470,12 @@ function App() {
     // whatever was last entered, so those flows don't reset names to defaults.
     const resolvedNames = names ?? playerNames
     if (names) setPlayerNames(names)
-    setPlayers(
-      createInitialPlayers(
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: () => createInitialPlayers(
         count,
         resolvedNames,
         isFreshSubmission ? colorTokens : undefined,
         effectiveRules.victoryPointTarget,
-      ),
-    )
+      ) })
     // createInitialPlayers assigns ids in `resolvedNames` order (1-based),
     // so this is the one place a client learns "which seat am I" — every
     // client built its players array from the identical names array, so the
@@ -6790,7 +6677,7 @@ function App() {
       // same pre-feature-snapshot gap as the fields above.
       defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
     }))
-    setPlayers(normalizedPlayers)
+    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: () => normalizedPlayers })
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
     setOnlineInfo({
       roomCode: online.roomCode,

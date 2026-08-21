@@ -18,5 +18,11 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Mirrors tsc's noUnusedParameters underscore-prefix exemption, which
+      // this project relies on for intentionally-unused reducer params
+      // (e.g. `_fullState` in slice reducers that don't need it yet).
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
   },
 ])

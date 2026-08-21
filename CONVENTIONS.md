@@ -98,7 +98,7 @@ onPillageResolved: (payload) => {
 },
 ```
 
-Same three-part shape shows up throughout `App.tsx`: `applyRobberMove`/`onRobberMoved`, `applyBarbarianWinnerDraw`/`onBarbarianWinnerDrawResolved`, `resolveTaxation`/`onTaxationResolved`.
+Same three-part shape shows up throughout `App.tsx`: `applyRobberMove`/`onRobberMoved`, `applyBarbarianWinnerDraw`/`onBarbarianWinnerDrawResolved`, `applyTaxationResolved`/`onTaxationResolved` (local actor's call site: `resolveTaxation`).
 
 ### Don't do this
 

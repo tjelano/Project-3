@@ -23,7 +23,7 @@ export type PlayersAction =
   | { type: 'COMMERCIAL_HARBOR_PLAYED'; announcerId: number; resource: ResourceType; otherIdsInOrder: number[] }
   | { type: 'BANK_TRADE'; playerId: number; give: ResourceType; receive: ResourceType; rate: number }
 
-export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
+export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
     case 'LEGACY_SET_PLAYERS':
       return action.updater(players)
@@ -85,17 +85,30 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         return p
       })
     }
-    case 'PILLAGE_CITY':
+    case 'PILLAGE_CITY': {
+      // Same ownership guard reduceBoard's own PILLAGE_CITY case uses —
+      // reject anything that isn't a city this player actually owns, so a
+      // future dispatcher of this action (snapshot replay, undo, a new call
+      // site) can't hand a player free supply the way an unguarded
+      // dispatch could.
+      const building = fullState.board.settlements[action.vertexId]
+      if (!building || building.type !== 'city' || building.ownerId !== action.playerId) return players
       return players.map((p) =>
         p.id === action.playerId
           ? {
               ...p,
               cityWalls: p.cityWalls.filter((v) => v !== action.vertexId),
+              // Exact reverse of BUILD_CITY's own supply bookkeeping above:
+              // the city returns to supply and a settlement piece is spent
+              // taking its place. Without this a pillaged player could never
+              // rebuild the city they just lost. Clamped at 0 as a safety
+              // net, same as everywhere else supply counts are decremented.
               citiesRemaining: p.citiesRemaining + 1,
               settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
             }
           : p,
       )
+    }
     case 'TRADE_RESOLVED':
       return players.map((p) => {
         if (p.id === action.fromPlayerId) {
@@ -113,6 +126,13 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         return { ...p, resources, commodities }
       })
     case 'COMMODITY_TRADED':
+      // Trade level 3's 2:1 commodity trade. The rate is hardcoded at 2 here
+      // rather than trusted over the wire (CommodityTradedPayload carries no
+      // rate field at all) since this ability, unlike bank trades, has no
+      // port-derived variance — it's always exactly 2:1. `receive` can name
+      // either a resource or a different commodity (the rulebook allows
+      // both), so which bucket gets the +1 is resolved by membership in
+      // COMMODITY_ORDER.
       return players.map((p) => {
         if (p.id !== action.playerId) return p
         const commodities = { ...p.commodities, [action.give]: p.commodities[action.give] - 2 }

@@ -990,8 +990,10 @@ function App() {
     let stealNote = ''
     if (victimId != null && safeStolenItem != null) {
       dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
-      // Same "which bucket by membership in COMMODITY_ORDER" disambiguation
-      // applyCommodityTrade already uses — the two pools never overlap.
+      // Same "which bucket by membership in COMMODITY_ORDER" idiom the
+      // reducers use (see players.ts's COMMODITY_TRADED and ROBBER_MOVED
+      // cases) — just for picking the right label here, the two pools never
+      // overlap.
       const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
       const thief = playerById.get(thiefId)
       const victim = playerById.get(victimId)
@@ -1358,12 +1360,9 @@ function App() {
 
   // Trusted state mutation for Trade level 3's 2:1 commodity trade — shared
   // by the local actor (tradeCommodity, below, which also broadcasts) and
-  // receiving clients (onCommodityTraded). The rate is hardcoded at 2 here
-  // rather than trusted over the wire (CommodityTradedPayload carries no
-  // rate field at all) since this ability, unlike bank trades, has no
-  // port-derived variance — it's always exactly 2:1. `receive` can name
-  // either a resource or a different commodity (the rulebook allows both),
-  // so which bucket gets the +1 is resolved by membership in COMMODITY_ORDER.
+  // receiving clients (onCommodityTraded). Just dispatches: the hardcoded
+  // 2:1 rate and which bucket (resource vs. commodity) receives the +1 are
+  // resolved in reducePlayers's COMMODITY_TRADED case, not here.
   const applyCommodityTrade = (playerId: number, give: CommodityType, receive: ResourceType | CommodityType) => {
     dispatch({ type: 'COMMODITY_TRADED', playerId, give, receive })
   }

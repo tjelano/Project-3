@@ -18,6 +18,22 @@ describe('reduceGame', () => {
     expect(player.settlementsRemaining).toBe(initialGameState.players[0].settlementsRemaining - 1)
   })
 
+  it('routes PILLAGE_CITY through both reduceBoard and reducePlayers', () => {
+    const playerId = initialGameState.players[0].id
+    const before = {
+      ...initialGameState,
+      board: { ...initialGameState.board, settlements: { V1: { ownerId: playerId, type: 'city' as const } } },
+      players: initialGameState.players.map((p) => (p.id === playerId ? { ...p, cityWalls: ['V1'] } : p)),
+    }
+    const beforePlayer = before.players.find((p) => p.id === playerId)!
+    const result = reduceGame(before, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId })
+    expect(result.board.settlements['V1']).toEqual({ ownerId: playerId, type: 'settlement' })
+    const player = result.players.find((p) => p.id === playerId)!
+    expect(player.cityWalls).toEqual([])
+    expect(player.citiesRemaining).toBe(beforePlayer.citiesRemaining + 1)
+    expect(player.settlementsRemaining).toBe(Math.max(0, beforePlayer.settlementsRemaining - 1))
+  })
+
   it('routes a players-only action (GRANT_SETUP_RESOURCES) without touching board', () => {
     const result = reduceGame(initialGameState, {
       type: 'GRANT_SETUP_RESOURCES',

@@ -179,10 +179,15 @@ describe('reducePlayers — ROBBER_MOVED', () => {
 })
 
 describe('reducePlayers — PILLAGE_CITY', () => {
+  const cityAt = (vertexId: string, ownerId: number) => ({
+    ...initialGameState,
+    board: { ...initialGameState.board, settlements: { [vertexId]: { ownerId, type: 'city' as const } } },
+  })
+
   it('removes the vertex from cityWalls, returns a city to supply, takes a settlement out', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, cityWalls: ['V1', 'V2'] }))
     const before = players[0]
-    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, cityAt('V1', players[0].id))
     const player = result.find((p) => p.id === players[0].id)!
     expect(player.cityWalls).toEqual(['V2'])
     expect(player.citiesRemaining).toBe(before.citiesRemaining + 1)
@@ -191,14 +196,24 @@ describe('reducePlayers — PILLAGE_CITY', () => {
 
   it('clamps settlementsRemaining at 0', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, settlementsRemaining: 0 }))
-    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, cityAt('V1', players[0].id))
     expect(result.find((p) => p.id === players[0].id)!.settlementsRemaining).toBe(0)
   })
 
   it('leaves every other player untouched', () => {
     const players = createInitialPlayers(2)
-    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, cityAt('V1', players[0].id))
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('no-ops when the vertex is not a city owned by the acting player', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, cityWalls: ['V1'] }))
+    // Not a city at all (falls back to initialGameState's empty board).
+    const notACity = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    expect(notACity).toEqual(players)
+    // A city, but owned by a different player.
+    const wrongOwner = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, cityAt('V1', players[1].id))
+    expect(wrongOwner).toEqual(players)
   })
 })
 

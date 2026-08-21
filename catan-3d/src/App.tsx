@@ -916,23 +916,8 @@ function App() {
   // initializing. Order of declaration among sibling function expressions
   // in the same scope doesn't affect when they're safe to CALL.
   const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
-    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId }, isDeciding)
+    dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId, isSetup }, isDeciding)
     setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
-    // Players-side effect goes through LEGACY_SET_PLAYERS, not a real typed
-    // action yet — the board write above (BUILD_SETTLEMENT) already deducts
-    // this same cost via reducePlayers, so this dispatch double-deducts
-    // until Tasks 5-7 give this function its own real action and delete it.
-    // Known, deliberate transitional state — see task-4-brief.md.
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              resources: isSetup ? p.resources : deductCost(p.resources, SETTLEMENT_COST),
-              settlementsRemaining: p.settlementsRemaining - 1,
-            }
-          : p,
-      ) })
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
@@ -2819,17 +2804,20 @@ function App() {
   // kickstart a player's hand when they place their second setup settlement.
   const grantResourcesForVertex = (vertexId: string, ownerId: number) => {
     const tileIds = graph.vertexTileIds.get(vertexId) ?? []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== ownerId) return p
-        const resources = { ...p.resources }
-        for (const tileId of tileIds) {
-          const tile = tileById.get(tileId)
-          const resource = tile && BIOME_TO_RESOURCE[tile.biome]
-          if (resource) resources[resource] += 1
-        }
-        return { ...p, resources }
-      }) })
+    const resources: Partial<Resources> = {}
+    for (const tileId of tileIds) {
+      const tile = tileById.get(tileId)
+      const resource = tile && BIOME_TO_RESOURCE[tile.biome]
+      if (resource) resources[resource] = (resources[resource] ?? 0) + 1
+    }
+    // Always isDeciding: false — this is never broadcast. Every client
+    // (the deciding client AND every receiver) independently computes the
+    // identical resource delta from the same static tile/vertex data when
+    // THEIR OWN applySettlementPlacement call runs (whether locally decided
+    // or received via onSettlementBuilt). Broadcasting it too would double-
+    // apply the grant on every receiver, so this function takes no
+    // `isDeciding` parameter at all — there's nothing for a caller to decide.
+    dispatchGameAction({ type: 'GRANT_SETUP_RESOURCES', playerId: ownerId, resources }, false)
   }
 
   // Superset of canPerformAction() for the two placement handlers, which

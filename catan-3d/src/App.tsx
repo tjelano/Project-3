@@ -1160,30 +1160,7 @@ function App() {
     const toPlayer = playerById.get(toPlayerId)
     if (!fromPlayer || !toPlayer) return
 
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === fromPlayerId) {
-          return {
-            ...p,
-            resources: {
-              ...p.resources,
-              [offerResource]: p.resources[offerResource] - 1,
-              [wantResource]: p.resources[wantResource] + 1,
-            },
-          }
-        }
-        if (p.id === toPlayerId) {
-          return {
-            ...p,
-            resources: {
-              ...p.resources,
-              [wantResource]: p.resources[wantResource] - 1,
-              [offerResource]: p.resources[offerResource] + 1,
-            },
-          }
-        }
-        return p
-      }) })
+    dispatch({ type: 'TRADE_RESOLVED', fromPlayerId, toPlayerId, offerResource, wantResource })
     inform(
       `${fromPlayer.name} traded 1 ${RESOURCE_LABELS[offerResource]} for 1 ${RESOURCE_LABELS[wantResource]} with ${toPlayer.name}!`,
     )

@@ -202,6 +202,33 @@ describe('reducePlayers — PILLAGE_CITY', () => {
   })
 })
 
+describe('reducePlayers — TRADE_RESOLVED', () => {
+  it('swaps 1 offerResource for 1 wantResource between the two traders', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 2, brick: 2, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerResource: 'lumber', wantResource: 'brick' },
+      initialGameState,
+    )
+    const from = result.find((p) => p.id === players[0].id)!
+    const to = result.find((p) => p.id === players[1].id)!
+    expect(from.resources.lumber).toBe(1)
+    expect(from.resources.brick).toBe(3)
+    expect(to.resources.lumber).toBe(3)
+    expect(to.resources.brick).toBe(1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(3)
+    const result = reducePlayers(
+      players,
+      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerResource: 'lumber', wantResource: 'brick' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

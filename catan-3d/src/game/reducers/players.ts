@@ -16,6 +16,7 @@ export type PlayersAction =
   // of placing the settlement itself.
   | { type: 'GRANT_SETUP_RESOURCES'; playerId: number; resources: Partial<Resources> }
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
+  | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerResource: ResourceType; wantResource: ResourceType }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -90,6 +91,16 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
             }
           : p,
       )
+    case 'TRADE_RESOLVED':
+      return players.map((p) => {
+        if (p.id === action.fromPlayerId) {
+          return { ...p, resources: { ...p.resources, [action.offerResource]: p.resources[action.offerResource] - 1, [action.wantResource]: p.resources[action.wantResource] + 1 } }
+        }
+        if (p.id === action.toPlayerId) {
+          return { ...p, resources: { ...p.resources, [action.wantResource]: p.resources[action.wantResource] - 1, [action.offerResource]: p.resources[action.offerResource] + 1 } }
+        }
+        return p
+      })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

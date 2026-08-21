@@ -337,6 +337,75 @@ describe('reducePlayers — COMMERCIAL_HARBOR_PLAYED', () => {
     )
     expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(1)
   })
+
+  it('trades with multiple targets in order, re-reading announcer resources from each iteration', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? (['commercialHarbor' as const]) : [],
+      resources: i === 0 ? { lumber: 2, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i > 0 ? { paper: 0, cloth: 2, coin: 0 } : { paper: 0, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [players[1].id, players[2].id] },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const target1 = result.find((p) => p.id === players[1].id)!
+    const target2 = result.find((p) => p.id === players[2].id)!
+    expect(announcer.resources.lumber).toBe(0)
+    expect(announcer.commodities.cloth).toBe(2)
+    expect(target1.resources.lumber).toBe(1)
+    expect(target1.commodities.cloth).toBe(1)
+    expect(target2.resources.lumber).toBe(1)
+    expect(target2.commodities.cloth).toBe(1)
+  })
+
+  it('breaks early when announcer runs out of resources, leaving later targets untouched', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? (['commercialHarbor' as const]) : [],
+      resources: i === 0 ? { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i > 0 ? { paper: 0, cloth: 2, coin: 0 } : { paper: 0, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [players[1].id, players[2].id] },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const target1 = result.find((p) => p.id === players[1].id)!
+    const target2 = result.find((p) => p.id === players[2].id)!
+    expect(announcer.resources.lumber).toBe(0)
+    expect(announcer.commodities.cloth).toBe(1)
+    expect(target1.resources.lumber).toBe(1)
+    expect(target1.commodities.cloth).toBe(1)
+    expect(target2.resources.lumber).toBe(0)
+    expect(target2.commodities.cloth).toBe(2)
+  })
+
+  it('continues when a target has no commodities, proceeds to next target', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? (['commercialHarbor' as const]) : [],
+      resources: i === 0 ? { lumber: 2, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i === 1 ? { paper: 0, cloth: 0, coin: 0 } : i === 2 ? { paper: 0, cloth: 2, coin: 0 } : { paper: 0, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [players[1].id, players[2].id] },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const target1 = result.find((p) => p.id === players[1].id)!
+    const target2 = result.find((p) => p.id === players[2].id)!
+    expect(announcer.resources.lumber).toBe(1)
+    expect(announcer.commodities.cloth).toBe(1)
+    expect(target1.resources.lumber).toBe(0)
+    expect(target1.commodities.cloth).toBe(0)
+    expect(target2.resources.lumber).toBe(1)
+    expect(target2.commodities.cloth).toBe(1)
+  })
 })
 
 describe('reducePlayers — action not owned by this reducer', () => {

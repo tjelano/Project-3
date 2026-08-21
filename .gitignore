@@ -1,0 +1,4 @@
+# graphify build cache - regenerable, not the actual graph output
+graphify-out/cache/
+graphify-out/.graphify_python
+graphify-out/.graphify_root

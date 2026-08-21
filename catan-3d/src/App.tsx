@@ -1365,17 +1365,7 @@ function App() {
   // either a resource or a different commodity (the rulebook allows both),
   // so which bucket gets the +1 is resolved by membership in COMMODITY_ORDER.
   const applyCommodityTrade = (playerId: number, give: CommodityType, receive: ResourceType | CommodityType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const commodities = { ...p.commodities, [give]: p.commodities[give] - 2 }
-        if ((COMMODITY_ORDER as string[]).includes(receive)) {
-          const receiveCommodity = receive as CommodityType
-          return { ...p, commodities: { ...commodities, [receiveCommodity]: commodities[receiveCommodity] + 1 } }
-        }
-        const receiveResource = receive as ResourceType
-        return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
-      }) })
+    dispatch({ type: 'COMMODITY_TRADED', playerId, give, receive })
   }
 
   // A player's own color never changes once the match starts, so this is

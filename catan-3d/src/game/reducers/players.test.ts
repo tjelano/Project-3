@@ -253,6 +253,46 @@ describe('reducePlayers — DISCARD_CONFIRMED', () => {
   })
 })
 
+describe('reducePlayers — COMMODITY_TRADED', () => {
+  it('deducts 2 of give, adds 1 to receive when receive is a commodity', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, commodities: { paper: 3, cloth: 0, coin: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMODITY_TRADED', playerId: players[0].id, give: 'paper', receive: 'cloth' },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.commodities.paper).toBe(1)
+    expect(player.commodities.cloth).toBe(1)
+  })
+
+  it('deducts 2 of give, adds 1 to receive when receive is a resource', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      commodities: { paper: 3, cloth: 0, coin: 0 },
+      resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMODITY_TRADED', playerId: players[0].id, give: 'paper', receive: 'ore' },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.commodities.paper).toBe(1)
+    expect(player.resources.ore).toBe(1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, commodities: { paper: 3, cloth: 0, coin: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMODITY_TRADED', playerId: players[0].id, give: 'paper', receive: 'cloth' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

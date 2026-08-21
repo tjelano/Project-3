@@ -19,6 +19,7 @@ export type PlayersAction =
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerResource: ResourceType; wantResource: ResourceType }
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
+  | { type: 'COMMODITY_TRADED'; playerId: number; give: CommodityType; receive: ResourceType | CommodityType }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -108,6 +109,17 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         if (p.id !== action.playerId) return p
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, action.counts)
         return { ...p, resources, commodities }
+      })
+    case 'COMMODITY_TRADED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const commodities = { ...p.commodities, [action.give]: p.commodities[action.give] - 2 }
+        if ((COMMODITY_ORDER as string[]).includes(action.receive)) {
+          const receiveCommodity = action.receive as CommodityType
+          return { ...p, commodities: { ...commodities, [receiveCommodity]: commodities[receiveCommodity] + 1 } }
+        }
+        const receiveResource = action.receive as ResourceType
+        return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
       })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

@@ -229,6 +229,30 @@ describe('reducePlayers — TRADE_RESOLVED', () => {
   })
 })
 
+describe('reducePlayers — DISCARD_CONFIRMED', () => {
+  it('subtracts the given resource/commodity counts from the named player', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      resources: { lumber: 4, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: { paper: 2, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'DISCARD_CONFIRMED', playerId: players[0].id, counts: { lumber: 2, paper: 1 } },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.lumber).toBe(2)
+    expect(player.commodities.paper).toBe(1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'DISCARD_CONFIRMED', playerId: players[0].id, counts: {} }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

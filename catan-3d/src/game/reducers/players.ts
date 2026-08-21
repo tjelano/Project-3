@@ -1,6 +1,7 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType } from '../types'
 import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER } from '../types'
 import type { GameAction, GameState } from '../gameState'
+import { applyDiscardCounts } from '../discard'
 
 export type PlayersAction =
   // Bridge for every setPlayers call site not yet individually migrated to
@@ -17,6 +18,7 @@ export type PlayersAction =
   | { type: 'GRANT_SETUP_RESOURCES'; playerId: number; resources: Partial<Resources> }
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerResource: ResourceType; wantResource: ResourceType }
+  | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -100,6 +102,12 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
           return { ...p, resources: { ...p.resources, [action.wantResource]: p.resources[action.wantResource] - 1, [action.offerResource]: p.resources[action.offerResource] + 1 } }
         }
         return p
+      })
+    case 'DISCARD_CONFIRMED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, action.counts)
+        return { ...p, resources, commodities }
       })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

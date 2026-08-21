@@ -1175,12 +1175,7 @@ function App() {
   // whatever that player's holdings happen to be on THIS client — no risk
   // of clobbering a concurrent change from something else.
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
-        return { ...p, resources, commodities }
-      }) })
+    dispatch({ type: 'DISCARD_CONFIRMED', playerId, counts })
     const remaining = discardPlayerIds.filter((id) => id !== playerId)
     setDiscardPlayerIds(remaining)
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })

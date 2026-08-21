@@ -124,7 +124,7 @@ Reducers are pure functions — every migrated sub-reducer becomes directly unit
 ## Out of Scope
 
 - Network-protocol unification (`useRoomChannel.ts`'s ~48 broadcast wrappers → one typed `GameEvent` union) — audit finding #2, deferred, made easier by this spec, not required by it.
-- `GameHud.tsx`'s 96-prop boundary cleanup — audit finding #3, deferred; a smaller `GameState` object makes deriving a focused HUD view-model easier later, but that derivation isn't part of this spec.
+- `GameHud.tsx`'s 96-prop boundary cleanup — audit finding #3, deferred; a smaller `GameState` object makes deriving a focused HUD view-model easier later, but that derivation isn't part of this spec. **Revisit trigger:** once every slice listed in this spec is migrated (players, then turn/knights/barbarians/progressCards/cityImprovements/merchant/rules), `GameState` is the single source of truth and this becomes a natural next phase — a `GameHud` view-model derived from `gameState` via context/selector instead of ~25+ threaded props. Not scoped in detail here on purpose — the exact shape depends on what the slices actually look like once they land.
 - Persistence/snapshot restructuring (`MatchSnapshot` serialization currently hand-copies individual fields in parallel with live state) — audit finding #4, deferred. Once `GameState` exists, snapshot save/restore naturally simplifies toward "serialize/restore one object," but that restructuring is its own project.
 - JS bundle splitting (4.15MB unsplit) — audit finding #5, unrelated to state management, deferred.
 - The full from-scratch UI rebuild using the `impeccable` skill and proper UI kits — user-flagged, explicitly far-future, not started until raised explicitly.

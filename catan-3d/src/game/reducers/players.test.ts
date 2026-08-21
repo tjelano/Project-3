@@ -423,6 +423,33 @@ describe('reducePlayers — COMMERCIAL_HARBOR_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — DEFENDER_OF_CATAN_AWARDED', () => {
+  it('increments defenderOfCatanCount for the named player only', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'DEFENDER_OF_CATAN_AWARDED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.defenderOfCatanCount).toBe(players[0].defenderOfCatanCount + 1)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — ALL_KNIGHTS_DEACTIVATED', () => {
+  it('sets active to false on every knight for every player', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      knightPieces: [{ id: `k${i}`, ownerId: p.id, strength: 'basic' as const, active: true, vertexId: `V${i}` }],
+    }))
+    const result = reducePlayers(players, { type: 'ALL_KNIGHTS_DEACTIVATED' }, initialGameState)
+    expect(result[0].knightPieces[0].active).toBe(false)
+    expect(result[1].knightPieces[0].active).toBe(false)
+  })
+
+  it('leaves a player with no knights unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'ALL_KNIGHTS_DEACTIVATED' }, initialGameState)
+    expect(result[0].knightPieces).toEqual([])
+  })
+})
+
 describe('reducePlayers — BANK_TRADE', () => {
   it('deducts rate*give, adds 1 receive, for the named player only', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 4, brick: 0, wool: 0, grain: 0, ore: 0 } }))

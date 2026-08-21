@@ -22,6 +22,8 @@ export type PlayersAction =
   | { type: 'COMMODITY_TRADED'; playerId: number; give: CommodityType; receive: ResourceType | CommodityType }
   | { type: 'COMMERCIAL_HARBOR_PLAYED'; announcerId: number; resource: ResourceType; otherIdsInOrder: number[] }
   | { type: 'BANK_TRADE'; playerId: number; give: ResourceType; receive: ResourceType; rate: number }
+  | { type: 'DEFENDER_OF_CATAN_AWARDED'; playerId: number }
+  | { type: 'ALL_KNIGHTS_DEACTIVATED' }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -174,6 +176,10 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? { ...p, resources: { ...p.resources, [action.give]: p.resources[action.give] - action.rate, [action.receive]: p.resources[action.receive] + 1 } }
           : p,
       )
+    case 'DEFENDER_OF_CATAN_AWARDED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p))
+    case 'ALL_KNIGHTS_DEACTIVATED':
+      return players.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) }))
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

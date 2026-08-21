@@ -3181,8 +3181,7 @@ function App() {
     if (result.defendersWin) {
       const soleWinner = result.winners.find((w) => !w.tied)
       if (soleWinner) {
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) => (p.id === soleWinner.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p)) })
+        dispatch({ type: 'DEFENDER_OF_CATAN_AWARDED', playerId: soleWinner.playerId })
         const winnerPlayer = playerById.get(soleWinner.playerId)
         if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
       } else if (gameRules.citiesAndKnightsProgressCards) {
@@ -3202,7 +3201,7 @@ function App() {
     // Every knight on the board becomes inactive, regardless of
     // participation — CN3087 p.11: unconditional, not scoped to only the
     // knights that were actually counted.
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) })) })
+    dispatch({ type: 'ALL_KNIGHTS_DEACTIVATED' })
   }
 
   // Triggered by the Roll Dice button: this is always the LOCAL player's own

@@ -129,6 +129,55 @@ describe('reducePlayers — GRANT_SETUP_RESOURCES', () => {
   })
 })
 
+describe('reducePlayers — ROBBER_MOVED', () => {
+  it('moves a resource from victim to thief', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'ROBBER_MOVED', tileId: 'T1', thiefId: players[1].id, victimId: players[0].id, stolenItem: 'lumber' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(2)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(4)
+  })
+
+  it('moves a commodity from victim to thief', () => {
+    const players = createInitialPlayers(2)
+    const playersWithCommodities = players.map((p, i) =>
+      i === 0
+        ? { ...p, commodities: { paper: 2, cloth: 0, coin: 0 } }
+        : p
+    )
+    const result = reducePlayers(
+      playersWithCommodities,
+      { type: 'ROBBER_MOVED', tileId: 'T1', thiefId: playersWithCommodities[1].id, victimId: playersWithCommodities[0].id, stolenItem: 'paper' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === playersWithCommodities[0].id)!.commodities.paper).toBe(1)
+    expect(result.find((p) => p.id === playersWithCommodities[1].id)!.commodities.paper).toBe(1)
+  })
+
+  it('does nothing when stolenItem is null', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'ROBBER_MOVED', tileId: 'T1', thiefId: players[1].id, victimId: players[0].id, stolenItem: null },
+      initialGameState,
+    )
+    expect(result).toEqual(players)
+  })
+
+  it('does nothing when victimId is null', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'ROBBER_MOVED', tileId: 'T1', thiefId: players[1].id, victimId: null, stolenItem: 'lumber' },
+      initialGameState,
+    )
+    expect(result).toEqual(players)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

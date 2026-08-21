@@ -1,5 +1,5 @@
-import type { Player, Resources, ResourceType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER } from '../types'
 import type { GameAction, GameState } from '../gameState'
 
 export type PlayersAction =
@@ -15,6 +15,7 @@ export type PlayersAction =
   // separate players-state change (only fires conditionally), not a variant
   // of placing the settlement itself.
   | { type: 'GRANT_SETUP_RESOURCES'; playerId: number; resources: Partial<Resources> }
+  | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -60,6 +61,24 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         }
         return { ...p, resources }
       })
+    case 'ROBBER_MOVED': {
+      if (action.victimId == null || action.stolenItem == null) return players
+      const stolenItem = action.stolenItem
+      const isCommodity = (COMMODITY_ORDER as string[]).includes(stolenItem)
+      return players.map((p) => {
+        if (p.id === action.victimId) {
+          return isCommodity
+            ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] - 1 } }
+            : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] - 1 } }
+        }
+        if (p.id === action.thiefId) {
+          return isCommodity
+            ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] + 1 } }
+            : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] + 1 } }
+        }
+        return p
+      })
+    }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

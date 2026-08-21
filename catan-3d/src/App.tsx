@@ -989,23 +989,10 @@ function App() {
 
     let stealNote = ''
     if (victimId != null && safeStolenItem != null) {
+      dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
       // Same "which bucket by membership in COMMODITY_ORDER" disambiguation
       // applyCommodityTrade already uses — the two pools never overlap.
       const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id === victimId) {
-            return isCommodity
-              ? { ...p, commodities: { ...p.commodities, [safeStolenItem]: p.commodities[safeStolenItem as CommodityType] - 1 } }
-              : { ...p, resources: { ...p.resources, [safeStolenItem]: p.resources[safeStolenItem as ResourceType] - 1 } }
-          }
-          if (p.id === thiefId) {
-            return isCommodity
-              ? { ...p, commodities: { ...p.commodities, [safeStolenItem]: p.commodities[safeStolenItem as CommodityType] + 1 } }
-              : { ...p, resources: { ...p.resources, [safeStolenItem]: p.resources[safeStolenItem as ResourceType] + 1 } }
-          }
-          return p
-        }) })
       const thief = playerById.get(thiefId)
       const victim = playerById.get(victimId)
       if (thief && victim) {

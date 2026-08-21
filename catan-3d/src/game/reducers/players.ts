@@ -24,6 +24,8 @@ export type PlayersAction =
   | { type: 'BANK_TRADE'; playerId: number; give: ResourceType; receive: ResourceType; rate: number }
   | { type: 'DEFENDER_OF_CATAN_AWARDED'; playerId: number }
   | { type: 'ALL_KNIGHTS_DEACTIVATED' }
+  | { type: 'TAXATION_ARMED'; playerId: number }
+  | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -180,6 +182,34 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) => (p.id === action.playerId ? { ...p, defenderOfCatanCount: p.defenderOfCatanCount + 1 } : p))
     case 'ALL_KNIGHTS_DEACTIVATED':
       return players.map((p) => ({ ...p, knightPieces: p.knightPieces.map((k) => ({ ...k, active: false })) }))
+    case 'TAXATION_ARMED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p))
+    case 'TAXATION_RESOLVED':
+      return players.map((p) => {
+        const steal = action.steals.find((s) => s.victimId === p.id)
+        if (steal?.item) {
+          const item = steal.item
+          return (COMMODITY_ORDER as string[]).includes(item)
+            ? { ...p, commodities: { ...p.commodities, [item]: p.commodities[item as CommodityType] - 1 } }
+            : { ...p, resources: { ...p.resources, [item]: p.resources[item as ResourceType] - 1 } }
+        }
+        if (p.id === action.playerId) {
+          const resources = { ...p.resources }
+          const commodities = { ...p.commodities }
+          for (const s of action.steals) {
+            if (!s.item) continue
+            if ((COMMODITY_ORDER as string[]).includes(s.item)) {
+              const commodity = s.item as CommodityType
+              commodities[commodity] += 1
+            } else {
+              const resource = s.item as ResourceType
+              resources[resource] += 1
+            }
+          }
+          return { ...p, resources, commodities }
+        }
+        return p
+      })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

@@ -1800,8 +1800,7 @@ function App() {
         // removes the spent card here; the actual multi-victim steal
         // arrives separately via onTaxationResolved once the actor picks a
         // hex on the board.
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)) })
+        dispatch({ type: 'TAXATION_ARMED', playerId: payload.playerId })
       }
     },
     onInventionSwapped: (payload) => applyInventionSwap(payload.tileAId, payload.tileBId),
@@ -2199,52 +2198,7 @@ function App() {
     // aborting the whole payload. The spent card itself was already removed
     // via the earlier onProgressCardPlayed 'taxation' branch above.
     onTaxationResolved: (payload) => {
-      setRobberTileId(payload.tileId)
-      playSfx('robber')
-      // Only the entries that survive validation are credited to the actor,
-      // so the actor's gain always matches the victims' loss on this client
-      // — resolveTaxation's own deduct-and-credit pass, kept in step. (Both
-      // sides used to only debit victims, so the two clients agreed with
-      // each other while both silently destroying the cards.)
-      const isValidItem = (item: StolenItem): boolean =>
-        (RESOURCE_ORDER as string[]).includes(item) || (COMMODITY_ORDER as string[]).includes(item)
-      const gained = payload.steals.filter(
-        (s): s is { victimId: number; item: StolenItem } => s.item != null && isValidItem(s.item),
-      )
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          const steal = payload.steals.find((s) => s.victimId === p.id)
-          if (steal && steal.item != null) {
-            if (!isValidItem(steal.item)) {
-              console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen item:', steal.item)
-              return p
-            }
-            const item = steal.item
-            return (COMMODITY_ORDER as string[]).includes(item)
-              ? { ...p, commodities: { ...p.commodities, [item]: p.commodities[item as CommodityType] - 1 } }
-              : { ...p, resources: { ...p.resources, [item]: p.resources[item as ResourceType] - 1 } }
-          }
-          if (p.id === payload.playerId) {
-            const resources = { ...p.resources }
-            const commodities = { ...p.commodities }
-            for (const s of gained) {
-              if ((COMMODITY_ORDER as string[]).includes(s.item)) {
-                const commodity = s.item as CommodityType
-                commodities[commodity] += 1
-              } else {
-                const resource = s.item as ResourceType
-                resources[resource] += 1
-              }
-            }
-            return { ...p, resources, commodities }
-          }
-          return p
-        }) })
-      const tile = tileById.get(payload.tileId)
-      const actor = playerById.get(payload.playerId)
-      if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
-      setPendingTaxation(null)
-      setGamePhase('playing')
+      applyTaxationResolved(payload.playerId, payload.tileId, payload.steals, false)
     },
     // The active player's live vertex/edge hover, mirrored so spectators
     // can see what they're considering — Supabase broadcasts don't echo
@@ -3813,6 +3767,33 @@ function App() {
   // `players` is safe here for the same reason those two functions give:
   // this only ever runs from a live click handler (moveRobber's leading
   // branch), so it IS the current render's state, not a stale snapshot.
+  // Trusted state mutation for a resolved Taxation steal — shared by the
+  // local actor (resolveTaxation, below, which also broadcasts) and
+  // receiving clients (onTaxationResolved). Validates each stolen item
+  // against RESOURCE_ORDER/COMMODITY_ORDER before dispatch, same reasoning
+  // applyRobberMove's own safeStolenItem guard gives — an invalid entry only
+  // drops THAT ONE victim's steal rather than the whole payload.
+  const applyTaxationResolved = (playerId: number, tileId: string, steals: { victimId: number; item: StolenItem | null }[], isDeciding: boolean) => {
+    setRobberTileId(tileId)
+    playSfx('robber')
+    const isValidItem = (item: StolenItem): boolean =>
+      (RESOURCE_ORDER as string[]).includes(item) || (COMMODITY_ORDER as string[]).includes(item)
+    const safeSteals = steals.map((s) => {
+      if (s.item != null && !isValidItem(s.item)) {
+        console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen item:', s.item)
+        return { victimId: s.victimId, item: null }
+      }
+      return s
+    })
+    dispatch({ type: 'TAXATION_RESOLVED', playerId, tileId, steals: safeSteals })
+    const tile = tileById.get(tileId)
+    const actor = playerById.get(playerId)
+    if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
+    setPendingTaxation(null)
+    setGamePhase('playing')
+    if (isDeciding && onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals: safeSteals })
+  }
+
   const resolveTaxation = (tileId: string) => {
     const playerId = pendingTaxation
     if (playerId == null) return
@@ -3820,8 +3801,6 @@ function App() {
       warn('The Robber must move to a new hex!')
       return
     }
-    setRobberTileId(tileId)
-    playSfx('robber')
     const vertexIds = graph.tileVertexIds.get(tileId) ?? []
     const victimIds = new Set<number>()
     for (const vertexId of vertexIds) {
@@ -3847,38 +3826,7 @@ function App() {
     // deduct-and-credit pass; these cards used to just vanish. Same
     // COMMODITY_ORDER-membership disambiguation applyCommodityTrade and
     // applyRobberMove already use — the two pools never overlap.
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        const steal = steals.find((s) => s.victimId === p.id)
-        if (steal?.item) {
-          const item = steal.item
-          return (COMMODITY_ORDER as string[]).includes(item)
-            ? { ...p, commodities: { ...p.commodities, [item]: p.commodities[item as CommodityType] - 1 } }
-            : { ...p, resources: { ...p.resources, [item]: p.resources[item as ResourceType] - 1 } }
-        }
-        if (p.id === playerId) {
-          const resources = { ...p.resources }
-          const commodities = { ...p.commodities }
-          for (const s of steals) {
-            if (!s.item) continue
-            if ((COMMODITY_ORDER as string[]).includes(s.item)) {
-              const commodity = s.item as CommodityType
-              commodities[commodity] += 1
-            } else {
-              const resource = s.item as ResourceType
-              resources[resource] += 1
-            }
-          }
-          return { ...p, resources, commodities }
-        }
-        return p
-      }) })
-    const tile = tileById.get(tileId)
-    const actor = playerById.get(playerId)
-    if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
-    setPendingTaxation(null)
-    setGamePhase('playing')
-    if (onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals })
+    applyTaxationResolved(playerId, tileId, steals, true)
   }
 
   const moveRobber = (tileId: string) => {
@@ -5998,7 +5946,7 @@ function App() {
       warn('No Taxation card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'taxation') } : p)) })
+    dispatch({ type: 'TAXATION_ARMED', playerId: player.id })
     setPendingTaxation(player.id)
     setGamePhase('moveRobber')
     inform(`${player.name} played Taxation — choose a hex for the robber.`)

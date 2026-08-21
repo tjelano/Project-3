@@ -465,6 +465,65 @@ describe('reducePlayers — BANK_TRADE', () => {
   })
 })
 
+describe('reducePlayers — TAXATION_ARMED', () => {
+  it('removes one taxation card from the named player only', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['taxation' as const] }))
+    const result = reducePlayers(players, { type: 'TAXATION_ARMED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+    expect(result.find((p) => p.id === players[1].id)!.progressCards).toEqual(['taxation'])
+  })
+})
+
+describe('reducePlayers — TAXATION_RESOLVED', () => {
+  it('deducts each victim\'s stolen item and credits the actor', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      resources: i === 1 ? { lumber: 2, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'TAXATION_RESOLVED', playerId: players[0].id, tileId: 'T1', steals: [{ victimId: players[1].id, item: 'lumber' }] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(1)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(1)
+  })
+
+  it('skips a victim with nothing to steal (item: null)', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'TAXATION_RESOLVED', playerId: players[0].id, tileId: 'T1', steals: [{ victimId: players[1].id, item: null }] },
+      initialGameState,
+    )
+    expect(result).toEqual(players)
+  })
+
+  it('credits multiple stolen items of mixed resource/commodity types to the actor', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      resources: i === 1 ? { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i === 2 ? { paper: 1, cloth: 0, coin: 0 } : { paper: 0, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      {
+        type: 'TAXATION_RESOLVED',
+        playerId: players[0].id,
+        tileId: 'T1',
+        steals: [
+          { victimId: players[1].id, item: 'lumber' },
+          { victimId: players[2].id, item: 'paper' },
+        ],
+      },
+      initialGameState,
+    )
+    const actor = result.find((p) => p.id === players[0].id)!
+    expect(actor.resources.lumber).toBe(1)
+    expect(actor.commodities.paper).toBe(1)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

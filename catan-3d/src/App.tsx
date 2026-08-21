@@ -2924,39 +2924,7 @@ function App() {
   // which are only ever invoked well after the whole component body has
   // finished running once).
   const applyCommercialHarborEffect = (announcerId: number, resource: ResourceType, otherIdsInOrder: number[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      let next = prev.map((p) =>
-        p.id === announcerId ? { ...p, progressCards: removeOne(p.progressCards, 'commercialHarbor') } : p,
-      )
-      for (const targetId of otherIdsInOrder) {
-        const announcer = next.find((p) => p.id === announcerId)!
-        if (announcer.resources[resource] <= 0) break
-        const target = next.find((p) => p.id === targetId)!
-        const heldCommodities = COMMODITY_ORDER.filter((c) => target.commodities[c] > 0).sort(
-          (a, b) => target.commodities[b] - target.commodities[a],
-        )
-        if (heldCommodities.length === 0) continue
-        const commodity = heldCommodities[0]
-        next = next.map((p) => {
-          if (p.id === announcerId) {
-            return {
-              ...p,
-              resources: { ...p.resources, [resource]: p.resources[resource] - 1 },
-              commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + 1 },
-            }
-          }
-          if (p.id === targetId) {
-            return {
-              ...p,
-              resources: { ...p.resources, [resource]: p.resources[resource] + 1 },
-              commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 },
-            }
-          }
-          return p
-        })
-      }
-      return next
-    } })
+    dispatch({ type: 'COMMERCIAL_HARBOR_PLAYED', announcerId, resource, otherIdsInOrder })
   }
 
   const playCommercialHarbor = (resource: ResourceType) => {

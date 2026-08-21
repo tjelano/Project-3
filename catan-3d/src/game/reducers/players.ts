@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
 
@@ -20,6 +20,7 @@ export type PlayersAction =
   | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerResource: ResourceType; wantResource: ResourceType }
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'COMMODITY_TRADED'; playerId: number; give: CommodityType; receive: ResourceType | CommodityType }
+  | { type: 'COMMERCIAL_HARBOR_PLAYED'; announcerId: number; resource: ResourceType; otherIdsInOrder: number[] }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -121,6 +122,31 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         const receiveResource = action.receive as ResourceType
         return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
       })
+    case 'COMMERCIAL_HARBOR_PLAYED': {
+      let next = players.map((p) =>
+        p.id === action.announcerId ? { ...p, progressCards: removeOne(p.progressCards, 'commercialHarbor') } : p,
+      )
+      for (const targetId of action.otherIdsInOrder) {
+        const announcer = next.find((p) => p.id === action.announcerId)!
+        if (announcer.resources[action.resource] <= 0) break
+        const target = next.find((p) => p.id === targetId)!
+        const heldCommodities = COMMODITY_ORDER.filter((c) => target.commodities[c] > 0).sort(
+          (a, b) => target.commodities[b] - target.commodities[a],
+        )
+        if (heldCommodities.length === 0) continue
+        const commodity = heldCommodities[0]
+        next = next.map((p) => {
+          if (p.id === action.announcerId) {
+            return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] - 1 }, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + 1 } }
+          }
+          if (p.id === targetId) {
+            return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 }, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 } }
+          }
+          return p
+        })
+      }
+      return next
+    }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

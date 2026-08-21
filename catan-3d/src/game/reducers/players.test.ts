@@ -293,6 +293,52 @@ describe('reducePlayers — COMMODITY_TRADED', () => {
   })
 })
 
+describe('reducePlayers — COMMERCIAL_HARBOR_PLAYED', () => {
+  it("removes one commercialHarbor card from the announcer's hand", () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['commercialHarbor' as const] }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+  })
+
+  it("trades 1 resource for the target's most-held commodity, once per target, until the announcer runs out", () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? (['commercialHarbor' as const]) : [],
+      resources: i === 0 ? { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i === 1 ? { paper: 0, cloth: 3, coin: 1 } : { paper: 0, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [players[1].id] },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(announcer.resources.lumber).toBe(0)
+    expect(announcer.commodities.cloth).toBe(1)
+    expect(target.resources.lumber).toBe(1)
+    expect(target.commodities.cloth).toBe(2)
+  })
+
+  it('skips a target holding no commodities', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? (['commercialHarbor' as const]) : [],
+      resources: i === 0 ? { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'COMMERCIAL_HARBOR_PLAYED', announcerId: players[0].id, resource: 'lumber', otherIdsInOrder: [players[1].id] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(1)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

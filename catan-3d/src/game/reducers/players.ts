@@ -21,6 +21,7 @@ export type PlayersAction =
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'COMMODITY_TRADED'; playerId: number; give: CommodityType; receive: ResourceType | CommodityType }
   | { type: 'COMMERCIAL_HARBOR_PLAYED'; announcerId: number; resource: ResourceType; otherIdsInOrder: number[] }
+  | { type: 'BANK_TRADE'; playerId: number; give: ResourceType; receive: ResourceType; rate: number }
 
 export function reducePlayers(players: Player[], action: GameAction, _fullState: GameState): Player[] {
   switch (action.type) {
@@ -147,6 +148,12 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
       }
       return next
     }
+    case 'BANK_TRADE':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: { ...p.resources, [action.give]: p.resources[action.give] - action.rate, [action.receive]: p.resources[action.receive] + 1 } }
+          : p,
+      )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

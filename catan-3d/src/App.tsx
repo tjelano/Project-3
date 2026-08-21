@@ -1858,19 +1858,7 @@ function App() {
         console.error('[Catan] Ignoring malformed bank-trade payload:', payload)
         return
       }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.playerId
-            ? {
-                ...p,
-                resources: {
-                  ...p.resources,
-                  [payload.give]: p.resources[payload.give] - payload.rate,
-                  [payload.receive]: p.resources[payload.receive] + 1,
-                },
-              }
-            : p,
-        ) })
+      applyBankTrade(payload.playerId, payload.give, payload.receive, payload.rate, false)
     },
     // Broadcast-sourced — same validation shape as onBankTrade just above,
     // since this payload also indexes straight into commodities[]/resources[]
@@ -4094,6 +4082,16 @@ function App() {
     endTurn()
   }
 
+  // Trusted state mutation for a bank trade — shared by the local actor
+  // (bankTrade, below, which also broadcasts) and receiving clients
+  // (onBankTrade), same trusted-apply split as applyDiscard/applyPillage/etc.
+  const applyBankTrade = (playerId: number, give: ResourceType, receive: ResourceType, rate: number, isDeciding: boolean) => {
+    dispatch({ type: 'BANK_TRADE', playerId, give, receive, rate })
+    const player = playerById.get(playerId)
+    if (player) inform(`${player.name} traded ${rate} ${RESOURCE_LABELS[give]} for 1 ${RESOURCE_LABELS[receive]}.`)
+    if (isDeciding && onlineInfo) broadcastBankTrade({ playerId, give, receive, rate })
+  }
+
   const bankTrade = (give: ResourceType, receive: ResourceType) => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing') {
@@ -4125,21 +4123,7 @@ function App() {
       return
     }
 
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
-          ? {
-              ...p,
-              resources: {
-                ...p.resources,
-                [give]: p.resources[give] - rate,
-                [receive]: p.resources[receive] + 1,
-              },
-            }
-          : p,
-      ) })
-    inform(`${player.name} traded ${rate} ${RESOURCE_LABELS[give]} for 1 ${RESOURCE_LABELS[receive]}.`)
-    if (onlineInfo) broadcastBankTrade({ playerId: player.id, give, receive, rate })
+    applyBankTrade(player.id, give, receive, rate, true)
   }
 
   // Cities & Knights Trade level 3 — trade 2 of any one commodity for 1 of

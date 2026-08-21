@@ -408,6 +408,21 @@ describe('reducePlayers — COMMERCIAL_HARBOR_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — BANK_TRADE', () => {
+  it('deducts rate*give, adds 1 receive, for the named player only', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 4, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'BANK_TRADE', playerId: players[0].id, give: 'lumber', receive: 'brick', rate: 4 },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.lumber).toBe(0)
+    expect(player.resources.brick).toBe(1)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

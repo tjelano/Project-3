@@ -1271,15 +1271,12 @@ function App() {
     // city for this player in the first place.
     const building = gameState.board.settlements[vertexId]
     if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-    // Same-tick dedupe guard — see the ref's own comment above. This is
-    // ALSO what stops a duplicate/racing invocation from double-adjusting
-    // citiesRemaining/settlementsRemaining/cityWalls below, and from
-    // calling dispatchGameAction a second time (which would duplicate the
-    // "city was pillaged" banner, since dispatchGameAction fires
-    // describeBoardAction's banner unconditionally on every call — not
-    // just on a real state change). Whatever protects the future
-    // players-reducer-case once `players` migrates needs to account for
-    // the banner too, not just the resource-counter fields named below.
+    // Same-tick dedupe guard — see the ref's own comment above. Prevents
+    // duplicate dispatchGameAction calls, which would double-fire both the
+    // "city was pillaged" banner (via describeBoardAction) and the reducer
+    // application (reduceBoard and reducePlayers both run against the same
+    // action). Players-side state mutations now live in reducePlayers's
+    // PILLAGE_CITY case, so the guard protects both reducer passes equally.
     if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
     resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)

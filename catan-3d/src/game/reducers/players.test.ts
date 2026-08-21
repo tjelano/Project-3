@@ -178,6 +178,30 @@ describe('reducePlayers — ROBBER_MOVED', () => {
   })
 })
 
+describe('reducePlayers — PILLAGE_CITY', () => {
+  it('removes the vertex from cityWalls, returns a city to supply, takes a settlement out', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, cityWalls: ['V1', 'V2'] }))
+    const before = players[0]
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.cityWalls).toEqual(['V2'])
+    expect(player.citiesRemaining).toBe(before.citiesRemaining + 1)
+    expect(player.settlementsRemaining).toBe(Math.max(0, before.settlementsRemaining - 1))
+  })
+
+  it('clamps settlementsRemaining at 0', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, settlementsRemaining: 0 }))
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.settlementsRemaining).toBe(0)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'PILLAGE_CITY', vertexId: 'V1', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

@@ -79,6 +79,17 @@ export function reducePlayers(players: Player[], action: GameAction, _fullState:
         return p
       })
     }
+    case 'PILLAGE_CITY':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? {
+              ...p,
+              cityWalls: p.cityWalls.filter((v) => v !== action.vertexId),
+              citiesRemaining: p.citiesRemaining + 1,
+              settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
+            }
+          : p,
+      )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

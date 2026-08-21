@@ -1283,25 +1283,6 @@ function App() {
     if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
     resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              cityWalls: p.cityWalls.filter((v) => v !== vertexId),
-              // Exact reverse of applyCityPlacement's own supply bookkeeping
-              // (settlementsRemaining + 1 / citiesRemaining - 1 when a
-              // settlement becomes a city): the city piece goes back in the
-              // box and a settlement piece comes out to occupy the vertex.
-              // Without this a pillaged player could never rebuild the city
-              // they just lost, since citiesRemaining stayed spent. Clamped
-              // at 0 — a player who upgraded a city and then built out every
-              // remaining settlement piece holds 0 in supply when pillaged.
-              citiesRemaining: p.citiesRemaining + 1,
-              settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
-            }
-          : p,
-      ) })
     // The inform() banner now fires via dispatchGameAction -> describeBoardAction
     // (Task 6) — do NOT call inform() here too, or the message doubles.
     // Filtered by playerId, not sliced off the front — activePillageTarget

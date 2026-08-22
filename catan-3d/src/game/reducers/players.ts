@@ -44,6 +44,7 @@ export type PlayersAction =
   | { type: 'CRANE_PLAYED'; playerId: number }
   | { type: 'MEDICINE_PLAYED'; playerId: number }
   | { type: 'YEAR_OF_PLENTY_PLAYED'; playerId: number; picks: ResourceType[] }
+  | { type: 'MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -370,6 +371,20 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         for (const resource of action.picks) resources[resource] += 1
         return { ...p, resources }
       })
+    case 'MONOPOLY_PLAYED': {
+      const next = players.map((p) => ({ ...p, resources: { ...p.resources } }))
+      const byId = new Map(next.map((p) => [p.id, p]))
+      const currentEntry = byId.get(action.playerId)
+      if (!currentEntry) return players
+      for (const p of next) {
+        if (p.id === action.playerId) continue
+        const amount = p.resources[action.resource]
+        if (amount <= 0) continue
+        p.resources[action.resource] = 0
+        currentEntry.resources[action.resource] += amount
+      }
+      return next
+    }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

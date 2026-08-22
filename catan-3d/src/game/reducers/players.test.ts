@@ -964,6 +964,22 @@ describe('reducePlayers — YEAR_OF_PLENTY_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — MONOPOLY_PLAYED', () => {
+  it('takes all of a resource from every other player', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, resources: { lumber: i === 0 ? 0 : 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(6)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(0)
+    expect(result.find((p) => p.id === players[2].id)!.resources.lumber).toBe(0)
+  })
+
+  it('is a no-op when no other player holds the resource', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(0)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

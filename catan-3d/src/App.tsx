@@ -1049,24 +1049,21 @@ function App() {
   }
 
   const applyMonopolyEffect = (playerId: number, resource: ResourceType) => {
+    // seized/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/resource and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see MONOPOLY_PLAYED in reducers/players.ts).
     let seized = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
-      const byId = new Map(next.map((p) => [p.id, p]))
-      const currentEntry = byId.get(playerId)
-      if (!currentEntry) return prev
-      for (const p of next) {
-        if (p.id === playerId) continue
-        const amount = p.resources[resource]
-        if (amount <= 0) continue
-        victimNotes.push(`${amount} from ${p.name}`)
-        seized += amount
-        p.resources[resource] = 0
-        currentEntry.resources[resource] += amount
-      }
-      return next
-    } })
+    for (const p of players) {
+      if (p.id === playerId) continue
+      const amount = p.resources[resource]
+      if (amount <= 0) continue
+      victimNotes.push(`${amount} from ${p.name}`)
+      seized += amount
+    }
+    dispatch({ type: 'MONOPOLY_PLAYED', playerId, resource })
     const player = playerById.get(playerId)
     if (player) {
       inform(

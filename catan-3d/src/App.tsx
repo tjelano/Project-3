@@ -37,7 +37,7 @@ import { createSeededRandom, shuffle } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
-import { autoDiscardCounts, applyDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
+import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
@@ -72,7 +72,6 @@ import {
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
   PROGRESS_CARD_ORDER,
-  PROGRESS_CARD_VP_TYPES,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   ROAD_COST,
@@ -87,7 +86,6 @@ import {
   emptyCommodities,
   emptyResources,
   getPublicScore,
-  removeOne,
   type CommodityType,
   type DevCardType,
   type GameRules,
@@ -1042,37 +1040,28 @@ function App() {
   // spends it explicitly right before calling these — see the network
   // handlers below.
   const applyYearOfPlentyEffect = (playerId: number, picks: ResourceType[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const resources = { ...p.resources }
-        for (const resource of picks) resources[resource] += 1
-        return { ...p, resources }
-      }) })
+    dispatch({ type: 'YEAR_OF_PLENTY_PLAYED', playerId, picks })
     const player = playerById.get(playerId)
     const summary = picks.map((resource) => RESOURCE_LABELS[resource]).join(' and ')
     if (player) inform(`${player.name} took ${summary} from the bank via Year of Plenty.`)
   }
 
   const applyMonopolyEffect = (playerId: number, resource: ResourceType) => {
+    // seized/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/resource and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see MONOPOLY_PLAYED in reducers/players.ts).
     let seized = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources } }))
-      const byId = new Map(next.map((p) => [p.id, p]))
-      const currentEntry = byId.get(playerId)
-      if (!currentEntry) return prev
-      for (const p of next) {
-        if (p.id === playerId) continue
-        const amount = p.resources[resource]
-        if (amount <= 0) continue
-        victimNotes.push(`${amount} from ${p.name}`)
-        seized += amount
-        p.resources[resource] = 0
-        currentEntry.resources[resource] += amount
-      }
-      return next
-    } })
+    for (const p of players) {
+      if (p.id === playerId) continue
+      const amount = p.resources[resource]
+      if (amount <= 0) continue
+      victimNotes.push(`${amount} from ${p.name}`)
+      seized += amount
+    }
+    dispatch({ type: 'MONOPOLY_PLAYED', playerId, resource })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1093,20 +1082,20 @@ function App() {
   // branch, below) and the receiving client (onResourceMonopolyPlayed),
   // same trust model as every other progress-card effect in this file.
   const applyResourceMonopolyProgressEffect = (playerId: number, resource: ResourceType) => {
+    // collected/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/resource and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see RESOURCE_MONOPOLY_PLAYED in reducers/players.ts).
     let collected = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => {
-        if (p.id === playerId || p.resources[resource] <= 0) return p
-        const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
-        victimNotes.push(`${take} from ${p.name}`)
-        collected += take
-        return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - take } }
-      })
-      return next.map((p) =>
-        p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + collected } } : p,
-      )
-    } })
+    for (const p of players) {
+      if (p.id === playerId || p.resources[resource] <= 0) continue
+      const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
+      victimNotes.push(`${take} from ${p.name}`)
+      collected += take
+    }
+    dispatch({ type: 'RESOURCE_MONOPOLY_PLAYED', playerId, resource })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1126,19 +1115,19 @@ function App() {
   // (onTradeMonopolyPlayed), same trust model as every other progress-card
   // effect in this file.
   const applyTradeMonopolyEffect = (playerId: number, commodity: CommodityType) => {
+    // collected/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/commodity and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see TRADE_MONOPOLY_PLAYED in reducers/players.ts).
     let collected = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => {
-        if (p.id === playerId || p.commodities[commodity] <= 0) return p
-        victimNotes.push(`1 from ${p.name}`)
-        collected += 1
-        return { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 } }
-      })
-      return next.map((p) =>
-        p.id === playerId ? { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + collected } } : p,
-      )
-    } })
+    for (const p of players) {
+      if (p.id === playerId || p.commodities[commodity] <= 0) continue
+      victimNotes.push(`1 from ${p.name}`)
+      collected += 1
+    }
+    dispatch({ type: 'TRADE_MONOPOLY_PLAYED', playerId, commodity })
     const player = playerById.get(playerId)
     if (player) {
       inform(
@@ -1201,13 +1190,7 @@ function App() {
   // client's copy of that player's hand), so sorting descending and
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const next = [...p.progressCards]
-        for (const index of [...indices].sort((a, b) => b - a)) next.splice(index, 1)
-        return { ...p, progressCards: next }
-      }) })
+    dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
     setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
@@ -1216,8 +1199,7 @@ function App() {
   // which also broadcasts) and receiving clients (onScienceFreeResourcePicked),
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + 1 } } : p)) })
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
@@ -1309,11 +1291,7 @@ function App() {
   // mutation.
   const applyProgressCardDraws = (draws: { playerId: number; card: ProgressCardType }[]) => {
     if (draws.length === 0) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        const drawn = draws.filter((d) => d.playerId === p.id).map((d) => d.card)
-        return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
-      }) })
+    dispatch({ type: 'PROGRESS_CARDS_DRAWN', draws })
     // Deterministic — every client (roller and receivers alike) computes
     // this from its own just-updated hand, no broadcast needed. Merges
     // rather than overwrites, same reasoning as scienceFreeResourcePlayerIds
@@ -2787,17 +2765,7 @@ function App() {
     dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
     // Players-side effect stays direct — see applySettlementPlacement's own
     // comment (Task 8).
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
-        // Returned to the OWNER's own supply, never the announcer's — a
-        // removed road just goes back to whoever built it, same as any
-        // other "un-build" (the announcer only gets something extra when
-        // the removed road was their OWN, via the free-rebuild branch below,
-        // not via this counter).
-        if (p.id === ownerId && ownerId !== playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
-        return p
-      }) })
+    dispatch({ type: 'DIPLOMACY_PLAYED', playerId, ownerId })
     // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
     // counter Road Building/setup free roads already use (buildRoadRaw
     // checks it directly) — not a second, parallel "free road" concept.
@@ -4542,12 +4510,7 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'fields')
     const amount = hexCount * 2
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? { ...p, resources: { ...p.resources, grain: p.resources.grain + amount }, progressCards: removeOne(p.progressCards, 'irrigation') }
-          : p,
-      ) })
+    dispatch({ type: 'IRRIGATION_PLAYED', playerId, hexCount })
     inform(`${player.name} played Irrigation — gained ${amount} Grain (${hexCount} field hexes).`)
   }
 
@@ -4583,12 +4546,7 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'mountains')
     const amount = hexCount * 2
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? { ...p, resources: { ...p.resources, ore: p.resources.ore + amount }, progressCards: removeOne(p.progressCards, 'mining') }
-          : p,
-      ) })
+    dispatch({ type: 'MINING_PLAYED', playerId, hexCount })
     inform(`${player.name} played Mining — gained ${amount} Ore (${hexCount} mountain hexes).`)
   }
 
@@ -4622,8 +4580,7 @@ function App() {
   const applyCraneEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p)) })
+    dispatch({ type: 'CRANE_PLAYED', playerId })
     setCraneDiscountPlayerId(playerId)
     inform(`${player.name} played Crane — next city improvement purchase costs 1 less.`)
   }
@@ -4657,8 +4614,7 @@ function App() {
   const applyMedicineEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p)) })
+    dispatch({ type: 'MEDICINE_PLAYED', playerId })
     setPendingMedicineUse(playerId)
     inform(`${player.name} played Medicine — next settlement upgraded to a city costs 1 Wheat + 2 Ore.`)
   }
@@ -5440,15 +5396,7 @@ function App() {
     const announcer = playerById.get(announcerId)
     if (!announcer) return
     const affected = playersMeetingVpThreshold(announcerId, 'gte')
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
-        if (!affected.some((a) => a.id === p.id)) return p
-        const handSize = discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
-        const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
-        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
-        return { ...p, resources, commodities }
-      }) })
+    dispatch({ type: 'SABOTAGE_PLAYED', announcerId, affected: affected.map((p) => p.id), countsCommodities: gameRules.citiesAndKnightsCommodities })
     inform(`${announcer.name} played Sabotage — ${affected.length} player(s) discarded half their hand.`)
   }
 
@@ -5495,22 +5443,12 @@ function App() {
         totalTaken += count as number
       }
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === announcerId) {
-          const resources = { ...p.resources }
-          const commodities = { ...p.commodities }
-          for (const [type, count] of Object.entries(takenTotals)) {
-            if (RESOURCE_ORDER.includes(type as ResourceType)) resources[type as ResourceType] += count as number
-            else commodities[type as CommodityType] += count as number
-          }
-          return { ...p, resources, commodities, progressCards: removeOne(p.progressCards, 'wedding') }
-        }
-        const counts = perPlayerCounts.get(p.id)
-        if (!counts) return p
-        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
-        return { ...p, resources, commodities }
-      }) })
+    dispatch({
+      type: 'WEDDING_PLAYED',
+      announcerId,
+      perPlayerCounts: Array.from(perPlayerCounts, ([playerId, counts]) => ({ playerId, counts })),
+      takenTotals,
+    })
     inform(`${announcer.name} played Wedding — received ${totalTaken} card${totalTaken === 1 ? '' : 's'} from ${affected.length} player(s).`)
   }
 
@@ -5541,28 +5479,7 @@ function App() {
   // randomness involved in a player's own choice of which held cards to
   // give up.
   const applyGuildDuesTake = (takerId: number, targetId: number, picks: (ResourceType | CommodityType)[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === targetId) {
-          let resources = { ...p.resources }
-          let commodities = { ...p.commodities }
-          for (const pick of picks) {
-            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: Math.max(0, resources[pick as ResourceType] - 1) }
-            else commodities = { ...commodities, [pick]: Math.max(0, commodities[pick as CommodityType] - 1) }
-          }
-          return { ...p, resources, commodities }
-        }
-        if (p.id === takerId) {
-          let resources = { ...p.resources }
-          let commodities = { ...p.commodities }
-          for (const pick of picks) {
-            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: resources[pick as ResourceType] + 1 }
-            else commodities = { ...commodities, [pick]: commodities[pick as CommodityType] + 1 }
-          }
-          return { ...p, resources, commodities }
-        }
-        return p
-      }) })
+    dispatch({ type: 'GUILD_DUES_TAKEN', takerId, targetId, picks })
   }
 
   const playGuildDues = () => {
@@ -5623,23 +5540,7 @@ function App() {
   // optional, so confirmEspionage below tolerates 0 picks (looked, took
   // nothing) as well as exactly 1.
   const applyEspionageTake = (takerId: number, targetId: number, cardIndex: number) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const target = prev.find((p) => p.id === targetId)
-      const card = target?.progressCards[cardIndex]
-      // VP cards can't be taken — re-verified here (the receiver), not just
-      // picker-side, since a receiving client must never trust that an
-      // incoming index was already screened by the sender's own UI.
-      if (!card || PROGRESS_CARD_VP_TYPES.has(card)) return prev
-      return prev.map((p) => {
-        if (p.id === targetId) {
-          const next = [...p.progressCards]
-          next.splice(cardIndex, 1)
-          return { ...p, progressCards: next }
-        }
-        if (p.id === takerId) return { ...p, progressCards: [...p.progressCards, card] }
-        return p
-      })
-    } })
+    dispatch({ type: 'ESPIONAGE_TAKEN', takerId, targetId, cardIndex })
   }
 
   const playEspionage = () => {

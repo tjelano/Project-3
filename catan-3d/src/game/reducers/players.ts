@@ -1,7 +1,7 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES } from '../types'
 import type { GameAction, GameState } from '../gameState'
-import { applyDiscardCounts } from '../discard'
+import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
 
 export type PlayersAction =
@@ -38,7 +38,23 @@ export type PlayersAction =
   | { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE'; playerId: number; knightId: string }
   | { type: 'TREASON_KNIGHT_REMOVED'; actingPlayerId: number; targetPlayerId: number; removedKnight: KnightPiece }
   | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
+  | { type: 'DIPLOMACY_PLAYED'; playerId: number; ownerId: number }
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
+  | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
+  | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
+  | { type: 'CRANE_PLAYED'; playerId: number }
+  | { type: 'MEDICINE_PLAYED'; playerId: number }
+  | { type: 'YEAR_OF_PLENTY_PLAYED'; playerId: number; picks: ResourceType[] }
+  | { type: 'MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
+  | { type: 'RESOURCE_MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
+  | { type: 'TRADE_MONOPOLY_PLAYED'; playerId: number; commodity: CommodityType }
+  | { type: 'PROGRESS_DISCARD_CONFIRMED'; playerId: number; indices: number[] }
+  | { type: 'SCIENCE_FREE_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
+  | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
+  | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
+  | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
+  | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
+  | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -336,12 +352,163 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) =>
         p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, action.card) } : p,
       )
+    case 'DIPLOMACY_PLAYED':
+      return players.map((p) => {
+        if (p.id === action.playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
+        // Returned to the OWNER's own supply, never the announcer's — a
+        // removed road just goes back to whoever built it, same as any
+        // other "un-build" (the announcer only gets something extra when
+        // the removed road was their OWN, via the free-rebuild branch in
+        // App.tsx's applyDiplomacyRemoval, not via this counter).
+        if (p.id === action.ownerId && action.ownerId !== action.playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
+        return p
+      })
     case 'DEV_CARD_SPENT':
       return players.map((p) =>
         p.id === action.playerId
           ? { ...p, devCards: removeOne(p.devCards, action.devCardType), knightsPlayed: action.devCardType === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed }
           : p,
       )
+    case 'IRRIGATION_PLAYED':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: { ...p.resources, grain: p.resources.grain + action.hexCount * 2 }, progressCards: removeOne(p.progressCards, 'irrigation') }
+          : p,
+      )
+    case 'MINING_PLAYED':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: { ...p.resources, ore: p.resources.ore + action.hexCount * 2 }, progressCards: removeOne(p.progressCards, 'mining') }
+          : p,
+      )
+    case 'CRANE_PLAYED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p))
+    case 'MEDICINE_PLAYED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p))
+    case 'YEAR_OF_PLENTY_PLAYED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const resources = { ...p.resources }
+        for (const resource of action.picks) resources[resource] += 1
+        return { ...p, resources }
+      })
+    case 'MONOPOLY_PLAYED': {
+      const next = players.map((p) => ({ ...p, resources: { ...p.resources } }))
+      const byId = new Map(next.map((p) => [p.id, p]))
+      const currentEntry = byId.get(action.playerId)
+      if (!currentEntry) return players
+      for (const p of next) {
+        if (p.id === action.playerId) continue
+        const amount = p.resources[action.resource]
+        if (amount <= 0) continue
+        p.resources[action.resource] = 0
+        currentEntry.resources[action.resource] += amount
+      }
+      return next
+    }
+    case 'RESOURCE_MONOPOLY_PLAYED': {
+      let collected = 0
+      const next = players.map((p) => {
+        if (p.id === action.playerId || p.resources[action.resource] <= 0) return p
+        const take = Math.min(2, p.resources[action.resource])
+        collected += take
+        return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] - take } }
+      })
+      return next.map((p) =>
+        p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + collected } } : p,
+      )
+    }
+    case 'TRADE_MONOPOLY_PLAYED': {
+      let collected = 0
+      const next = players.map((p) => {
+        if (p.id === action.playerId || p.commodities[action.commodity] <= 0) return p
+        collected += 1
+        return { ...p, commodities: { ...p.commodities, [action.commodity]: p.commodities[action.commodity] - 1 } }
+      })
+      return next.map((p) =>
+        p.id === action.playerId ? { ...p, commodities: { ...p.commodities, [action.commodity]: p.commodities[action.commodity] + collected } } : p,
+      )
+    }
+    case 'PROGRESS_DISCARD_CONFIRMED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const next = [...p.progressCards]
+        for (const index of [...action.indices].sort((a, b) => b - a)) next.splice(index, 1)
+        return { ...p, progressCards: next }
+      })
+    case 'SCIENCE_FREE_RESOURCE_PICKED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 } } : p))
+    case 'PROGRESS_CARDS_DRAWN':
+      return players.map((p) => {
+        const drawn = action.draws.filter((d) => d.playerId === p.id).map((d) => d.card)
+        return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
+      })
+    case 'SABOTAGE_PLAYED':
+      return players.map((p) => {
+        if (p.id === action.announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
+        if (!action.affected.includes(p.id)) return p
+        const handSize = discardHandSize(p.resources, p.commodities, action.countsCommodities)
+        const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
+      })
+    case 'GUILD_DUES_TAKEN':
+      return players.map((p) => {
+        if (p.id === action.targetId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of action.picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: Math.max(0, resources[pick as ResourceType] - 1) }
+            else commodities = { ...commodities, [pick]: Math.max(0, commodities[pick as CommodityType] - 1) }
+          }
+          return { ...p, resources, commodities }
+        }
+        if (p.id === action.takerId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of action.picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: resources[pick as ResourceType] + 1 }
+            else commodities = { ...commodities, [pick]: commodities[pick as CommodityType] + 1 }
+          }
+          return { ...p, resources, commodities }
+        }
+        return p
+      })
+    case 'WEDDING_PLAYED': {
+      const countsByPlayerId = new Map(action.perPlayerCounts.map((entry) => [entry.playerId, entry.counts]))
+      return players.map((p) => {
+        if (p.id === action.announcerId) {
+          const resources = { ...p.resources }
+          const commodities = { ...p.commodities }
+          for (const [type, count] of Object.entries(action.takenTotals)) {
+            if (RESOURCE_ORDER.includes(type as ResourceType)) resources[type as ResourceType] += count as number
+            else commodities[type as CommodityType] += count as number
+          }
+          return { ...p, resources, commodities, progressCards: removeOne(p.progressCards, 'wedding') }
+        }
+        const counts = countsByPlayerId.get(p.id)
+        if (!counts) return p
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
+      })
+    }
+    case 'ESPIONAGE_TAKEN': {
+      const target = players.find((p) => p.id === action.targetId)
+      const card = target?.progressCards[action.cardIndex]
+      // VP cards can't be taken — re-verified here (the receiver), not just
+      // picker-side, since a receiving client must never trust that an
+      // incoming index was already screened by the sender's own UI.
+      if (!card || PROGRESS_CARD_VP_TYPES.has(card)) return players
+      return players.map((p) => {
+        if (p.id === action.targetId) {
+          const next = [...p.progressCards]
+          next.splice(action.cardIndex, 1)
+          return { ...p, progressCards: next }
+        }
+        if (p.id === action.takerId) return { ...p, progressCards: [...p.progressCards, card] }
+        return p
+      })
+    }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

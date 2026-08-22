@@ -866,6 +866,20 @@ describe('reducePlayers — PROGRESS_CARD_SPENT', () => {
   })
 })
 
+describe('reducePlayers — PROGRESS_DISCARD_CONFIRMED', () => {
+  it('removes the cards at the given indices, high-to-low so indices stay valid mid-splice', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['alchemy' as const, 'wedding' as const, 'sabotage' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_DISCARD_CONFIRMED', playerId: players[0].id, indices: [0, 2] }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['wedding'])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['alchemy' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_DISCARD_CONFIRMED', playerId: players[0].id, indices: [] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — DEV_CARD_SPENT', () => {
   it('removes one instance of the named dev card and bumps knightsPlayed only for knight', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['knight' as const, 'knight' as const], knightsPlayed: 1 }))
@@ -887,6 +901,260 @@ describe('reducePlayers — DEV_CARD_SPENT', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['roadBuilding' as const] }))
     const result = reducePlayers(players, { type: 'DEV_CARD_SPENT', playerId: players[0].id, devCardType: 'roadBuilding' }, initialGameState)
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — IRRIGATION_PLAYED', () => {
+  it('adds hexCount*2 grain and removes one irrigation card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }, progressCards: ['irrigation' as const] }))
+    const result = reducePlayers(players, { type: 'IRRIGATION_PLAYED', playerId: players[0].id, hexCount: 3 }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.grain).toBe(6)
+    expect(player.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['irrigation' as const] }))
+    const result = reducePlayers(players, { type: 'IRRIGATION_PLAYED', playerId: players[0].id, hexCount: 1 }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — MINING_PLAYED', () => {
+  it('adds hexCount*2 ore and removes one mining card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }, progressCards: ['mining' as const] }))
+    const result = reducePlayers(players, { type: 'MINING_PLAYED', playerId: players[0].id, hexCount: 2 }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.ore).toBe(4)
+    expect(player.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['mining' as const] }))
+    const result = reducePlayers(players, { type: 'MINING_PLAYED', playerId: players[0].id, hexCount: 1 }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — CRANE_PLAYED', () => {
+  it('removes one crane card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['crane' as const] }))
+    const result = reducePlayers(players, { type: 'CRANE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['crane' as const] }))
+    const result = reducePlayers(players, { type: 'CRANE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — MEDICINE_PLAYED', () => {
+  it('removes one medicine card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['medicine' as const] }))
+    const result = reducePlayers(players, { type: 'MEDICINE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['medicine' as const] }))
+    const result = reducePlayers(players, { type: 'MEDICINE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — YEAR_OF_PLENTY_PLAYED', () => {
+  it('adds 1 of each picked resource, allowing duplicates', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'YEAR_OF_PLENTY_PLAYED', playerId: players[0].id, picks: ['lumber', 'lumber'] }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(2)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'YEAR_OF_PLENTY_PLAYED', playerId: players[0].id, picks: ['ore'] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — MONOPOLY_PLAYED', () => {
+  it('takes all of a resource from every other player', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, resources: { lumber: i === 0 ? 0 : 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(6)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(0)
+    expect(result.find((p) => p.id === players[2].id)!.resources.lumber).toBe(0)
+  })
+
+  it('is a no-op when no other player holds the resource', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(0)
+  })
+})
+
+describe('reducePlayers — RESOURCE_MONOPOLY_PLAYED', () => {
+  it('takes up to 2 of a resource from each other player, capped at their holdings', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, resources: { lumber: i === 1 ? 5 : i === 2 ? 1 : 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'RESOURCE_MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(3)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(3)
+    expect(result.find((p) => p.id === players[2].id)!.resources.lumber).toBe(0)
+  })
+})
+
+describe('reducePlayers — TRADE_MONOPOLY_PLAYED', () => {
+  it('takes 1 of a commodity from each other player who holds any', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, commodities: { paper: i === 1 ? 2 : i === 2 ? 0 : 0, cloth: 0, coin: 0 } }))
+    const result = reducePlayers(players, { type: 'TRADE_MONOPOLY_PLAYED', playerId: players[0].id, commodity: 'paper' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.commodities.paper).toBe(1)
+    expect(result.find((p) => p.id === players[1].id)!.commodities.paper).toBe(1)
+    expect(result.find((p) => p.id === players[2].id)!.commodities.paper).toBe(0)
+  })
+})
+
+describe('reducePlayers — SCIENCE_FREE_RESOURCE_PICKED', () => {
+  it('adds 1 of the picked resource', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId: players[0].id, resource: 'ore' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.ore).toBe(1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId: players[0].id, resource: 'ore' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — PROGRESS_CARDS_DRAWN', () => {
+  it('appends each drawn card to the matching player', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: [] }))
+    const result = reducePlayers(
+      players,
+      { type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId: players[0].id, card: 'alchemy' }, { playerId: players[1].id, card: 'crane' }] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['alchemy'])
+    expect(result.find((p) => p.id === players[1].id)!.progressCards).toEqual(['crane'])
+  })
+
+  it('leaves a player with no matching draw untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId: players[0].id, card: 'alchemy' }] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — DIPLOMACY_PLAYED', () => {
+  it('removes one diplomacy card from the player and credits a road to the road owner', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['diplomacy' as const] : [], roadsRemaining: 10 }))
+    const result = reducePlayers(players, { type: 'DIPLOMACY_PLAYED', playerId: players[0].id, ownerId: players[1].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+    expect(result.find((p) => p.id === players[1].id)!.roadsRemaining).toBe(11)
+  })
+
+  it('does not double-credit when the player removes their own road', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['diplomacy' as const] : [], roadsRemaining: 10 }))
+    const result = reducePlayers(players, { type: 'DIPLOMACY_PLAYED', playerId: players[0].id, ownerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.roadsRemaining).toBe(10)
+  })
+})
+
+describe('reducePlayers — SABOTAGE_PLAYED', () => {
+  it('removes one sabotage card from the announcer and auto-discards half the hand of every named affected player', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['sabotage' as const] : [],
+      resources: i === 1 ? { lumber: 4, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'SABOTAGE_PLAYED', announcerId: players[0].id, affected: [players[1].id], countsCommodities: false },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBeLessThan(4)
+  })
+
+  it('leaves a player not in the affected list untouched', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['sabotage' as const] : [] }))
+    const result = reducePlayers(players, { type: 'SABOTAGE_PLAYED', announcerId: players[0].id, affected: [], countsCommodities: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — WEDDING_PLAYED', () => {
+  it("credits the announcer with takenTotals, removes one wedding card, and debits each affected player by their own counts entry", () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['wedding' as const] : [],
+      resources: i === 0 ? { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 2, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      {
+        type: 'WEDDING_PLAYED',
+        announcerId: players[0].id,
+        perPlayerCounts: [{ playerId: players[1].id, counts: { lumber: 1 } }],
+        takenTotals: { lumber: 1 },
+      },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const affected = result.find((p) => p.id === players[1].id)!
+    expect(announcer.progressCards).toEqual([])
+    expect(announcer.resources.lumber).toBe(1)
+    expect(affected.resources.lumber).toBe(1)
+  })
+
+  it('leaves a player with no perPlayerCounts entry untouched', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['wedding' as const] : [] }))
+    const result = reducePlayers(players, { type: 'WEDDING_PLAYED', announcerId: players[0].id, perPlayerCounts: [], takenTotals: {} }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — GUILD_DUES_TAKEN', () => {
+  it('transfers each picked item from target to taker, clamped at 0', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      resources: i === 0 ? { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i === 0 ? { paper: 0, cloth: 0, coin: 0 } : { paper: 1, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'GUILD_DUES_TAKEN', takerId: players[0].id, targetId: players[1].id, picks: ['lumber', 'paper'] },
+      initialGameState,
+    )
+    const taker = result.find((p) => p.id === players[0].id)!
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(taker.resources.lumber).toBe(1)
+    expect(taker.commodities.paper).toBe(1)
+    expect(target.resources.lumber).toBe(0)
+    expect(target.commodities.paper).toBe(0)
+  })
+})
+
+describe('reducePlayers — ESPIONAGE_TAKEN', () => {
+  it('moves the card at the given index from target to taker', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['crane' as const, 'alchemy' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['crane'])
+    expect(result.find((p) => p.id === players[1].id)!.progressCards).toEqual(['alchemy'])
+  })
+
+  it('is a no-op when the index is out of range', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['crane' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 5 }, initialGameState)
+    expect(result).toEqual(players)
+  })
+
+  it('is a no-op when the card at that index is a VP card', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['printing' as const, 'alchemy' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
+    expect(result).toEqual(players)
   })
 })
 

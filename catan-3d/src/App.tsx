@@ -1042,13 +1042,7 @@ function App() {
   // spends it explicitly right before calling these — see the network
   // handlers below.
   const applyYearOfPlentyEffect = (playerId: number, picks: ResourceType[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const resources = { ...p.resources }
-        for (const resource of picks) resources[resource] += 1
-        return { ...p, resources }
-      }) })
+    dispatch({ type: 'YEAR_OF_PLENTY_PLAYED', playerId, picks })
     const player = playerById.get(playerId)
     const summary = picks.map((resource) => RESOURCE_LABELS[resource]).join(' and ')
     if (player) inform(`${player.name} took ${summary} from the bank via Year of Plenty.`)

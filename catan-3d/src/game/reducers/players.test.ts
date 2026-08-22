@@ -950,6 +950,20 @@ describe('reducePlayers — MEDICINE_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — YEAR_OF_PLENTY_PLAYED', () => {
+  it('adds 1 of each picked resource, allowing duplicates', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'YEAR_OF_PLENTY_PLAYED', playerId: players[0].id, picks: ['lumber', 'lumber'] }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(2)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'YEAR_OF_PLENTY_PLAYED', playerId: players[0].id, picks: ['ore'] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

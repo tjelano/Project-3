@@ -1760,10 +1760,7 @@ function App() {
         // local to the acting client (see playMerchantFleet's own comment),
         // so a receiver only needs to remove the card from that player's
         // hand; merchantFleetRate itself is never set on this client.
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) =>
-            p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p,
-          ) })
+        dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: 'merchantFleet' })
       } else if (payload.card === 'guildDues' || payload.card === 'espionage') {
         // Same split as Invention/Merchant Fleet above — the target-and-
         // cards picker (pendingGuildDues/pendingEspionage) is local-only UI
@@ -4791,8 +4788,7 @@ function App() {
       warn('No Merchant Fleet card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchantFleet') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'merchantFleet' })
     setMerchantFleetRate({ playerId: player.id, type })
     const label = (COMMODITY_ORDER as string[]).includes(type)
       ? COMMODITY_LABELS[type as CommodityType]
@@ -4821,8 +4817,7 @@ function App() {
       warn('No Merchant card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'merchant') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'merchant' })
     setPendingMerchantPlacement(player.id)
     inform(`${player.name} played Merchant — choose a land hex next to one of your buildings.`)
   }
@@ -5275,8 +5270,7 @@ function App() {
       warn('No eligible city for a free wall.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'engineering') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'engineering' })
     setPendingFreeCityWall(player.id)
     inform(`${player.name} played Engineering — choose a city for a free wall.`)
   }
@@ -5804,7 +5798,7 @@ function App() {
       warn('No knight available to displace with Intrigue.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'intrigue' })
     setPendingIntrigueDisplace(player.id)
     inform(`${player.name} played Intrigue — choose an opponent knight to displace.`)
     // Same two-broadcast split Guild Dues/Espionage/Invention already use

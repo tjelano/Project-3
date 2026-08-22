@@ -4612,8 +4612,7 @@ function App() {
   const applyCraneEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p)) })
+    dispatch({ type: 'CRANE_PLAYED', playerId })
     setCraneDiscountPlayerId(playerId)
     inform(`${player.name} played Crane — next city improvement purchase costs 1 less.`)
   }
@@ -4647,8 +4646,7 @@ function App() {
   const applyMedicineEffect = (playerId: number) => {
     const player = playerById.get(playerId)
     if (!player) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p)) })
+    dispatch({ type: 'MEDICINE_PLAYED', playerId })
     setPendingMedicineUse(playerId)
     inform(`${player.name} played Medicine — next settlement upgraded to a city costs 1 Wheat + 2 Ore.`)
   }

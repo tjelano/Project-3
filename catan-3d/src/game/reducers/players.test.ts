@@ -922,6 +922,34 @@ describe('reducePlayers — MINING_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — CRANE_PLAYED', () => {
+  it('removes one crane card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['crane' as const] }))
+    const result = reducePlayers(players, { type: 'CRANE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['crane' as const] }))
+    const result = reducePlayers(players, { type: 'CRANE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — MEDICINE_PLAYED', () => {
+  it('removes one medicine card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['medicine' as const] }))
+    const result = reducePlayers(players, { type: 'MEDICINE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['medicine' as const] }))
+    const result = reducePlayers(players, { type: 'MEDICINE_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

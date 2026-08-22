@@ -41,6 +41,8 @@ export type PlayersAction =
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
   | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
   | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
+  | { type: 'CRANE_PLAYED'; playerId: number }
+  | { type: 'MEDICINE_PLAYED'; playerId: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -356,6 +358,10 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? { ...p, resources: { ...p.resources, ore: p.resources.ore + action.hexCount * 2 }, progressCards: removeOne(p.progressCards, 'mining') }
           : p,
       )
+    case 'CRANE_PLAYED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'crane') } : p))
+    case 'MEDICINE_PLAYED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'medicine') } : p))
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

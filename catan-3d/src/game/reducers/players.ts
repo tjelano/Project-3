@@ -45,6 +45,7 @@ export type PlayersAction =
   | { type: 'MEDICINE_PLAYED'; playerId: number }
   | { type: 'YEAR_OF_PLENTY_PLAYED'; playerId: number; picks: ResourceType[] }
   | { type: 'MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
+  | { type: 'RESOURCE_MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -384,6 +385,18 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         currentEntry.resources[action.resource] += amount
       }
       return next
+    }
+    case 'RESOURCE_MONOPOLY_PLAYED': {
+      let collected = 0
+      const next = players.map((p) => {
+        if (p.id === action.playerId || p.resources[action.resource] <= 0) return p
+        const take = Math.min(2, p.resources[action.resource])
+        collected += take
+        return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] - take } }
+      })
+      return next.map((p) =>
+        p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + collected } } : p,
+      )
     }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

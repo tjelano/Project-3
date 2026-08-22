@@ -1084,20 +1084,20 @@ function App() {
   // branch, below) and the receiving client (onResourceMonopolyPlayed),
   // same trust model as every other progress-card effect in this file.
   const applyResourceMonopolyProgressEffect = (playerId: number, resource: ResourceType) => {
+    // collected/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/resource and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see RESOURCE_MONOPOLY_PLAYED in reducers/players.ts).
     let collected = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => {
-        if (p.id === playerId || p.resources[resource] <= 0) return p
-        const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
-        victimNotes.push(`${take} from ${p.name}`)
-        collected += take
-        return { ...p, resources: { ...p.resources, [resource]: p.resources[resource] - take } }
-      })
-      return next.map((p) =>
-        p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + collected } } : p,
-      )
-    } })
+    for (const p of players) {
+      if (p.id === playerId || p.resources[resource] <= 0) continue
+      const take = Math.min(2, p.resources[resource]) // "2, or their last one if they only have 1"
+      victimNotes.push(`${take} from ${p.name}`)
+      collected += take
+    }
+    dispatch({ type: 'RESOURCE_MONOPOLY_PLAYED', playerId, resource })
     const player = playerById.get(playerId)
     if (player) {
       inform(

@@ -980,6 +980,16 @@ describe('reducePlayers — MONOPOLY_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — RESOURCE_MONOPOLY_PLAYED', () => {
+  it('takes up to 2 of a resource from each other player, capped at their holdings', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, resources: { lumber: i === 1 ? 5 : i === 2 ? 1 : 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'RESOURCE_MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(3)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(3)
+    expect(result.find((p) => p.id === players[2].id)!.resources.lumber).toBe(0)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

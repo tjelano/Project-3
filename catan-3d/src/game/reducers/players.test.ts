@@ -990,6 +990,16 @@ describe('reducePlayers — RESOURCE_MONOPOLY_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — TRADE_MONOPOLY_PLAYED', () => {
+  it('takes 1 of a commodity from each other player who holds any', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, commodities: { paper: i === 1 ? 2 : i === 2 ? 0 : 0, cloth: 0, coin: 0 } }))
+    const result = reducePlayers(players, { type: 'TRADE_MONOPOLY_PLAYED', playerId: players[0].id, commodity: 'paper' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.commodities.paper).toBe(1)
+    expect(result.find((p) => p.id === players[1].id)!.commodities.paper).toBe(1)
+    expect(result.find((p) => p.id === players[2].id)!.commodities.paper).toBe(0)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

@@ -46,6 +46,7 @@ export type PlayersAction =
   | { type: 'YEAR_OF_PLENTY_PLAYED'; playerId: number; picks: ResourceType[] }
   | { type: 'MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
   | { type: 'RESOURCE_MONOPOLY_PLAYED'; playerId: number; resource: ResourceType }
+  | { type: 'TRADE_MONOPOLY_PLAYED'; playerId: number; commodity: CommodityType }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -396,6 +397,17 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       })
       return next.map((p) =>
         p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + collected } } : p,
+      )
+    }
+    case 'TRADE_MONOPOLY_PLAYED': {
+      let collected = 0
+      const next = players.map((p) => {
+        if (p.id === action.playerId || p.commodities[action.commodity] <= 0) return p
+        collected += 1
+        return { ...p, commodities: { ...p.commodities, [action.commodity]: p.commodities[action.commodity] - 1 } }
+      })
+      return next.map((p) =>
+        p.id === action.playerId ? { ...p, commodities: { ...p.commodities, [action.commodity]: p.commodities[action.commodity] + collected } } : p,
       )
     }
     default:

@@ -1117,19 +1117,19 @@ function App() {
   // (onTradeMonopolyPlayed), same trust model as every other progress-card
   // effect in this file.
   const applyTradeMonopolyEffect = (playerId: number, commodity: CommodityType) => {
+    // collected/victimNotes for the inform() message below must be computed
+    // from the CURRENT (pre-dispatch) players array — the reducer is a pure
+    // function of players/commodity and has no closure to report these back
+    // through, so this duplicates the reducer's arithmetic rather than the
+    // truth (see TRADE_MONOPOLY_PLAYED in reducers/players.ts).
     let collected = 0
     const victimNotes: string[] = []
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => {
-        if (p.id === playerId || p.commodities[commodity] <= 0) return p
-        victimNotes.push(`1 from ${p.name}`)
-        collected += 1
-        return { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 } }
-      })
-      return next.map((p) =>
-        p.id === playerId ? { ...p, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + collected } } : p,
-      )
-    } })
+    for (const p of players) {
+      if (p.id === playerId || p.commodities[commodity] <= 0) continue
+      victimNotes.push(`1 from ${p.name}`)
+      collected += 1
+    }
+    dispatch({ type: 'TRADE_MONOPOLY_PLAYED', playerId, commodity })
     const player = playerById.get(playerId)
     if (player) {
       inform(

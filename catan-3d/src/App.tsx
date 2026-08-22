@@ -1192,13 +1192,7 @@ function App() {
   // client's copy of that player's hand), so sorting descending and
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const next = [...p.progressCards]
-        for (const index of [...indices].sort((a, b) => b - a)) next.splice(index, 1)
-        return { ...p, progressCards: next }
-      }) })
+    dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
     setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 

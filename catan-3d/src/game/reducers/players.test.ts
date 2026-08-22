@@ -866,6 +866,20 @@ describe('reducePlayers — PROGRESS_CARD_SPENT', () => {
   })
 })
 
+describe('reducePlayers — PROGRESS_DISCARD_CONFIRMED', () => {
+  it('removes the cards at the given indices, high-to-low so indices stay valid mid-splice', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['alchemy' as const, 'wedding' as const, 'sabotage' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_DISCARD_CONFIRMED', playerId: players[0].id, indices: [0, 2] }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['wedding'])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['alchemy' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_DISCARD_CONFIRMED', playerId: players[0].id, indices: [] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — DEV_CARD_SPENT', () => {
   it('removes one instance of the named dev card and bumps knightsPlayed only for knight', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['knight' as const, 'knight' as const], knightsPlayed: 1 }))

@@ -1996,12 +1996,7 @@ function App() {
     // validated the knight's adjacency to the robber's hex locally
     // (armChaseRobber) before ever broadcasting.
     onKnightDeactivatedAfterChase: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: false } : k)) },
-        ) })
+      dispatch({ type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: payload.playerId, knightId: payload.knightId })
     },
     // Cities & Knights city walls (Task 12) — same trusted-apply reasoning
     // as onKnightDeactivatedAfterChase above: the sending client already
@@ -3813,10 +3808,7 @@ function App() {
     // owner and this thief are always the same player.
     if (chasingRobberKnightId) {
       const chaserId = chasingRobberKnightId
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== thief.id ? p : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === chaserId ? { ...k, active: false } : k)) },
-        ) })
+      dispatch({ type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: thief.id, knightId: chaserId })
       setChasingRobberKnightId(null)
       if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
     }

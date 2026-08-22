@@ -760,6 +760,26 @@ describe('reducePlayers — ENCOURAGEMENT_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_DEACTIVATED_AFTER_CHASE', () => {
+  it('deactivates the named knight for the named player', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: players[0].id, knightId: 'k1' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.knightPieces[0].active).toBe(false)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: players[0].id, knightId: 'k1' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

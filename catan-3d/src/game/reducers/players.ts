@@ -35,6 +35,7 @@ export type PlayersAction =
   | { type: 'KNIGHT_PROMOTED'; playerId: number; knightId: string; newStrength: KnightStrength }
   | { type: 'SMITHING_PLAYED'; playerId: number; knightIds: string[] }
   | { type: 'ENCOURAGEMENT_PLAYED'; playerId: number }
+  | { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE'; playerId: number; knightId: string }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -290,6 +291,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         p.id !== action.playerId
           ? p
           : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
+      )
+    case 'KNIGHT_DEACTIVATED_AFTER_CHASE':
+      return players.map((p) =>
+        p.id !== action.playerId
+          ? p
+          : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, active: false } : k)) },
       )
     case 'INTRIGUE_RESOLVED':
       return players.map((p) => {

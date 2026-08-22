@@ -49,6 +49,7 @@ export type PlayersAction =
   | { type: 'TRADE_MONOPOLY_PLAYED'; playerId: number; commodity: CommodityType }
   | { type: 'PROGRESS_DISCARD_CONFIRMED'; playerId: number; indices: number[] }
   | { type: 'SCIENCE_FREE_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
+  | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -421,6 +422,11 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       })
     case 'SCIENCE_FREE_RESOURCE_PICKED':
       return players.map((p) => (p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 } } : p))
+    case 'PROGRESS_CARDS_DRAWN':
+      return players.map((p) => {
+        const drawn = action.draws.filter((d) => d.playerId === p.id).map((d) => d.card)
+        return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
+      })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

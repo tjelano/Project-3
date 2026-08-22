@@ -1028,6 +1028,25 @@ describe('reducePlayers — SCIENCE_FREE_RESOURCE_PICKED', () => {
   })
 })
 
+describe('reducePlayers — PROGRESS_CARDS_DRAWN', () => {
+  it('appends each drawn card to the matching player', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: [] }))
+    const result = reducePlayers(
+      players,
+      { type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId: players[0].id, card: 'alchemy' }, { playerId: players[1].id, card: 'crane' }] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['alchemy'])
+    expect(result.find((p) => p.id === players[1].id)!.progressCards).toEqual(['crane'])
+  })
+
+  it('leaves a player with no matching draw untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId: players[0].id, card: 'alchemy' }] }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

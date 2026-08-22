@@ -1293,11 +1293,7 @@ function App() {
   // mutation.
   const applyProgressCardDraws = (draws: { playerId: number; card: ProgressCardType }[]) => {
     if (draws.length === 0) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        const drawn = draws.filter((d) => d.playerId === p.id).map((d) => d.card)
-        return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
-      }) })
+    dispatch({ type: 'PROGRESS_CARDS_DRAWN', draws })
     // Deterministic — every client (roller and receivers alike) computes
     // this from its own just-updated hand, no broadcast needed. Merges
     // rather than overwrites, same reasoning as scienceFreeResourcePlayerIds

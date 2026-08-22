@@ -575,6 +575,40 @@ describe('reducePlayers — KNIGHT_MOVED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_DISPLACED', () => {
+  it('moves the mover to the new vertex (deactivated) and relocates the displaced knight when a vertex is available', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      knightPieces: [{ id: i === 0 ? 'mover' : 'target', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'KNIGHT_DISPLACED', moverId: players[0].id, knightId: 'mover', displacedOwnerId: players[1].id, targetKnightId: 'target', newMoverVertexId: 'V1', displacedVertexId: 'V2' },
+      initialGameState,
+    )
+    const mover = result.find((p) => p.id === players[0].id)!.knightPieces[0]
+    const target = result.find((p) => p.id === players[1].id)!.knightPieces[0]
+    expect(mover.vertexId).toBe('V1')
+    expect(mover.active).toBe(false)
+    expect(target.vertexId).toBe('V2')
+  })
+
+  it('removes the displaced knight to supply when displacedVertexId is null', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      knightPieces: [{ id: i === 0 ? 'mover' : 'target', ownerId: p.id, strength: 'strong' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'KNIGHT_DISPLACED', moverId: players[0].id, knightId: 'mover', displacedOwnerId: players[1].id, targetKnightId: 'target', newMoverVertexId: 'V1', displacedVertexId: null },
+      initialGameState,
+    )
+    const targetOwner = result.find((p) => p.id === players[1].id)!
+    expect(targetOwner.knightPieces).toEqual([])
+    expect(targetOwner.knightSupply.strong).toBe(players[1].knightSupply.strong + 1)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

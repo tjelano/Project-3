@@ -2015,34 +2015,7 @@ function App() {
     // its own owner's pieces or, when displacedVertexId is null, is removed
     // and returned to that owner's supply.
     onKnightDisplaced: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id === payload.moverId) {
-            return {
-              ...p,
-              knightPieces: p.knightPieces.map((k) =>
-                k.id === payload.knightId ? { ...k, vertexId: payload.newMoverVertexId, active: false } : k,
-              ),
-            }
-          }
-          if (p.id === payload.displacedOwnerId) {
-            if (payload.displacedVertexId) {
-              return {
-                ...p,
-                knightPieces: p.knightPieces.map((k) =>
-                  k.id === payload.targetKnightId ? { ...k, vertexId: payload.displacedVertexId! } : k,
-                ),
-              }
-            }
-            const removed = p.knightPieces.find((k) => k.id === payload.targetKnightId)
-            return {
-              ...p,
-              knightPieces: p.knightPieces.filter((k) => k.id !== payload.targetKnightId),
-              knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
-            }
-          }
-          return p
-        }) })
+      dispatch({ type: 'KNIGHT_DISPLACED', moverId: payload.moverId, knightId: payload.knightId, displacedOwnerId: payload.displacedOwnerId, targetKnightId: payload.targetKnightId, newMoverVertexId: payload.newMoverVertexId, displacedVertexId: payload.displacedVertexId })
     },
     // Cities & Knights "Chase Away the Robber" (Task 11) — same trusted-apply
     // reasoning as onKnightDisplaced above: the sending client already
@@ -5260,26 +5233,7 @@ function App() {
     const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
     const displacedVertexId = forcedTargets[0] ?? null // null => removed to supply, no empty reachable vertex
 
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === player.id) {
-          return {
-            ...p,
-            knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, vertexId: target.vertexId, active: false } : k)),
-          }
-        }
-        if (p.id === targetOwner.id) {
-          if (displacedVertexId) {
-            return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === target.id ? { ...k, vertexId: displacedVertexId } : k)) }
-          }
-          return {
-            ...p,
-            knightPieces: p.knightPieces.filter((k) => k.id !== target.id),
-            knightSupply: { ...p.knightSupply, [target.strength]: p.knightSupply[target.strength] + 1 },
-          }
-        }
-        return p
-      }) })
+    dispatch({ type: 'KNIGHT_DISPLACED', moverId: player.id, knightId, displacedOwnerId: targetOwner.id, targetKnightId, newMoverVertexId: target.vertexId, displacedVertexId })
     setArmedKnightAction(null)
     if (onlineInfo) {
       broadcastKnightDisplaced({

@@ -28,6 +28,7 @@ export type PlayersAction =
   | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
   | { type: 'KNIGHT_RECRUITED'; knight: KnightPiece; isFree: boolean }
   | { type: 'KNIGHT_MOVED'; playerId: number; knightId: string; vertexId: string }
+  | { type: 'KNIGHT_DISPLACED'; moverId: number; knightId: string; displacedOwnerId: number; targetKnightId: string; newMoverVertexId: string; displacedVertexId: string | null }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -229,6 +230,24 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? p
           : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, vertexId: action.vertexId, active: false } : k)) },
       )
+    case 'KNIGHT_DISPLACED':
+      return players.map((p) => {
+        if (p.id === action.moverId) {
+          return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, vertexId: action.newMoverVertexId, active: false } : k)) }
+        }
+        if (p.id === action.displacedOwnerId) {
+          if (action.displacedVertexId) {
+            return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.targetKnightId ? { ...k, vertexId: action.displacedVertexId! } : k)) }
+          }
+          const removed = p.knightPieces.find((k) => k.id === action.targetKnightId)
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== action.targetKnightId),
+            knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
+          }
+        }
+        return p
+      })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

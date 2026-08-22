@@ -1201,8 +1201,7 @@ function App() {
   // which also broadcasts) and receiving clients (onScienceFreeResourcePicked),
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === playerId ? { ...p, resources: { ...p.resources, [resource]: p.resources[resource] + 1 } } : p)) })
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 

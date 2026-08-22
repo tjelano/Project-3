@@ -814,6 +814,42 @@ describe('reducePlayers — TREASON_KNIGHT_REMOVED', () => {
     )
     expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
   })
+
+  it("credits the knight's actual stored strength, not the action payload's, when they differ", () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['treason' as const] : [],
+      knightPieces: i === 1 ? [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }] : [],
+    }))
+    // A stale/malformed action names the right knight ID but the wrong
+    // strength — the reducer must trust the stored knight, not the payload.
+    const staleKnight = { id: 'k1', ownerId: players[1].id, strength: 'mighty' as const, active: true, vertexId: 'V1' }
+    const result = reducePlayers(
+      players,
+      { type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: players[0].id, targetPlayerId: players[1].id, removedKnight: staleKnight },
+      initialGameState,
+    )
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(target.knightPieces).toEqual([])
+    expect(target.knightSupply.basic).toBe(players[1].knightSupply.basic + 1)
+    expect(target.knightSupply.mighty).toBe(players[1].knightSupply.mighty)
+  })
+
+  it('is a no-op on the target when the named knight is already absent', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['treason' as const] : [],
+      knightPieces: [],
+    }))
+    const ghostKnight = { id: 'gone', ownerId: players[1].id, strength: 'basic' as const, active: true, vertexId: 'V1' }
+    const result = reducePlayers(
+      players,
+      { type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: players[0].id, targetPlayerId: players[1].id, removedKnight: ghostKnight },
+      initialGameState,
+    )
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(target).toEqual(players[1])
+  })
 })
 
 describe('reducePlayers — action not owned by this reducer', () => {

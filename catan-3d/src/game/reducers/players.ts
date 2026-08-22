@@ -316,10 +316,16 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) => {
         if (p.id === action.actingPlayerId) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
         if (p.id === action.targetPlayerId) {
+          // Trust the stored knight, not the action payload's copy — a
+          // stale/malformed action naming a real knight ID with a different
+          // strength must not credit the wrong supply tier, and a knight ID
+          // that no longer exists must not credit any tier at all.
+          const removed = p.knightPieces.find((k) => k.id === action.removedKnight.id)
+          if (!removed) return p
           return {
             ...p,
             knightPieces: p.knightPieces.filter((k) => k.id !== action.removedKnight.id),
-            knightSupply: { ...p.knightSupply, [action.removedKnight.strength]: p.knightSupply[action.removedKnight.strength] + 1 },
+            knightSupply: { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 },
           }
         }
         return p

@@ -3629,17 +3629,37 @@ function App() {
   // applyRobberMove's own safeStolenItem guard gives — an invalid entry only
   // drops THAT ONE victim's steal rather than the whole payload.
   const applyTaxationResolved = (playerId: number, tileId: string, steals: { victimId: number; item: StolenItem | null }[], isDeciding: boolean) => {
-    setRobberTileId(tileId)
-    playSfx('robber')
+    // A malformed/replayed payload can't be trusted at face value: a
+    // duplicate victimId would deduct once (the reducer's TAXATION_RESOLVED
+    // case looks up the victim's steal via .find(), which only ever matches
+    // the first entry) but credit the actor once per entry, minting cards
+    // from nothing. Dropping every entry after a victimId's first occurrence
+    // closes that. Same reasoning extends to a victim that doesn't exist,
+    // is the actor themself, or doesn't actually hold the claimed item.
     const isValidItem = (item: StolenItem): boolean =>
       (RESOURCE_ORDER as string[]).includes(item) || (COMMODITY_ORDER as string[]).includes(item)
-    const safeSteals = steals.map((s) => {
-      if (s.item != null && !isValidItem(s.item)) {
-        console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen item:', s.item)
-        return { victimId: s.victimId, item: null }
+    const seenVictimIds = new Set<number>()
+    const safeSteals: { victimId: number; item: StolenItem | null }[] = []
+    for (const s of steals) {
+      if (seenVictimIds.has(s.victimId)) {
+        console.error('[Catan] Ignoring taxation-resolved payload with a duplicate victimId:', s.victimId)
+        continue
       }
-      return s
-    })
+      seenVictimIds.add(s.victimId)
+      const victim = playerById.get(s.victimId)
+      if (!victim || s.victimId === playerId) {
+        console.error('[Catan] Ignoring taxation-resolved payload with an invalid victimId:', s.victimId)
+        continue
+      }
+      if (s.item != null && (!isValidItem(s.item) || !heldItemsFor(victim).includes(s.item))) {
+        console.error('[Catan] Ignoring taxation-resolved payload with an invalid stolen item:', s.item)
+        safeSteals.push({ victimId: s.victimId, item: null })
+        continue
+      }
+      safeSteals.push(s)
+    }
+    setRobberTileId(tileId)
+    playSfx('robber')
     dispatch({ type: 'TAXATION_RESOLVED', playerId, tileId, steals: safeSteals })
     const tile = tileById.get(tileId)
     const actor = playerById.get(playerId)

@@ -355,6 +355,11 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
     case 'DIPLOMACY_PLAYED':
       return players.map((p) => {
         if (p.id === action.playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
+        // Returned to the OWNER's own supply, never the announcer's — a
+        // removed road just goes back to whoever built it, same as any
+        // other "un-build" (the announcer only gets something extra when
+        // the removed road was their OWN, via the free-rebuild branch in
+        // App.tsx's applyDiplomacyRemoval, not via this counter).
         if (p.id === action.ownerId && action.ownerId !== action.playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
         return p
       })

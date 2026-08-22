@@ -36,6 +36,7 @@ export type PlayersAction =
   | { type: 'SMITHING_PLAYED'; playerId: number; knightIds: string[] }
   | { type: 'ENCOURAGEMENT_PLAYED'; playerId: number }
   | { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE'; playerId: number; knightId: string }
+  | { type: 'TREASON_KNIGHT_REMOVED'; actingPlayerId: number; targetPlayerId: number; removedKnight: KnightPiece }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -310,6 +311,18 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           knightPieces: p.knightPieces.filter((k) => k.id !== action.targetKnightId),
           knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
         }
+      })
+    case 'TREASON_KNIGHT_REMOVED':
+      return players.map((p) => {
+        if (p.id === action.actingPlayerId) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
+        if (p.id === action.targetPlayerId) {
+          return {
+            ...p,
+            knightPieces: p.knightPieces.filter((k) => k.id !== action.removedKnight.id),
+            knightSupply: { ...p.knightSupply, [action.removedKnight.strength]: p.knightSupply[action.removedKnight.strength] + 1 },
+          }
+        }
+        return p
       })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

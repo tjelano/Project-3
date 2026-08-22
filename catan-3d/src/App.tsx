@@ -2062,18 +2062,7 @@ function App() {
     // separately via onKnightRecruited — Task 7's existing receiver, reused
     // verbatim (see playTreason's own comment).
     onTreasonRemoved: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id === payload.actingPlayerId) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
-          if (p.id === payload.targetPlayerId) {
-            return {
-              ...p,
-              knightPieces: p.knightPieces.filter((k) => k.id !== payload.removedKnight.id),
-              knightSupply: { ...p.knightSupply, [payload.removedKnight.strength]: p.knightSupply[payload.removedKnight.strength] + 1 },
-            }
-          }
-          return p
-        }) })
+      dispatch({ type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: payload.actingPlayerId, targetPlayerId: payload.targetPlayerId, removedKnight: payload.removedKnight })
     },
     // Cities & Knights Taxation (Task 10) — trusted-apply of resolveTaxation's
     // own already-resolved `steals` array (same model as onPillageResolved/
@@ -5912,18 +5901,7 @@ function App() {
     // with the resolve-time check closes that gap the same way Task 13's
     // Smithing fix closed its own running-supply gap.
     const canPlace = eligiblePlacementVertices.size > 0 && treasonPlacementStrengthOptions(removed.strength).some((s) => player.knightSupply[s] > 0)
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === player.id) return { ...p, progressCards: removeOne(p.progressCards, 'treason') }
-        if (p.id === targetPlayerId) {
-          return {
-            ...p,
-            knightPieces: p.knightPieces.filter((k) => k.id !== removed.id),
-            knightSupply: { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 },
-          }
-        }
-        return p
-      }) })
+    dispatch({ type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: player.id, targetPlayerId, removedKnight: removed })
     inform(`${player.name} played Treason on ${target.name} — removed their ${removed.strength} knight.`)
     if (onlineInfo) broadcastTreasonRemoved({ actingPlayerId: player.id, targetPlayerId, removedKnight: removed })
     if (canPlace) {

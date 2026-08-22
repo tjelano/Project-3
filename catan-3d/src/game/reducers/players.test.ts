@@ -780,6 +780,42 @@ describe('reducePlayers — KNIGHT_DEACTIVATED_AFTER_CHASE', () => {
   })
 })
 
+describe('reducePlayers — TREASON_KNIGHT_REMOVED', () => {
+  it("removes the treason card from the acting player and the named knight from the target, returning it to their supply", () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['treason' as const] : [],
+      knightPieces: i === 1 ? [{ id: 'k1', ownerId: p.id, strength: 'strong' as const, active: true, vertexId: 'V1' }] : [],
+    }))
+    const knight = players[1].knightPieces[0]
+    const result = reducePlayers(
+      players,
+      { type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: players[0].id, targetPlayerId: players[1].id, removedKnight: knight },
+      initialGameState,
+    )
+    const actor = result.find((p) => p.id === players[0].id)!
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(actor.progressCards).toEqual([])
+    expect(target.knightPieces).toEqual([])
+    expect(target.knightSupply.strong).toBe(players[1].knightSupply.strong + 1)
+  })
+
+  it('leaves a third player untouched', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['treason' as const] : [],
+      knightPieces: i === 1 ? [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }] : [],
+    }))
+    const knight = players[1].knightPieces[0]
+    const result = reducePlayers(
+      players,
+      { type: 'TREASON_KNIGHT_REMOVED', actingPlayerId: players[0].id, targetPlayerId: players[1].id, removedKnight: knight },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

@@ -53,6 +53,7 @@ export type PlayersAction =
   | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
   | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
   | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
+  | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -444,6 +445,28 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
+      })
+    case 'GUILD_DUES_TAKEN':
+      return players.map((p) => {
+        if (p.id === action.targetId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of action.picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: Math.max(0, resources[pick as ResourceType] - 1) }
+            else commodities = { ...commodities, [pick]: Math.max(0, commodities[pick as CommodityType] - 1) }
+          }
+          return { ...p, resources, commodities }
+        }
+        if (p.id === action.takerId) {
+          let resources = { ...p.resources }
+          let commodities = { ...p.commodities }
+          for (const pick of action.picks) {
+            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: resources[pick as ResourceType] + 1 }
+            else commodities = { ...commodities, [pick]: commodities[pick as CommodityType] + 1 }
+          }
+          return { ...p, resources, commodities }
+        }
+        return p
       })
     case 'WEDDING_PLAYED': {
       const countsByPlayerId = new Map(action.perPlayerCounts.map((entry) => [entry.playerId, entry.counts]))

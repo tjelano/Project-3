@@ -5480,28 +5480,7 @@ function App() {
   // randomness involved in a player's own choice of which held cards to
   // give up.
   const applyGuildDuesTake = (takerId: number, targetId: number, picks: (ResourceType | CommodityType)[]) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === targetId) {
-          let resources = { ...p.resources }
-          let commodities = { ...p.commodities }
-          for (const pick of picks) {
-            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: Math.max(0, resources[pick as ResourceType] - 1) }
-            else commodities = { ...commodities, [pick]: Math.max(0, commodities[pick as CommodityType] - 1) }
-          }
-          return { ...p, resources, commodities }
-        }
-        if (p.id === takerId) {
-          let resources = { ...p.resources }
-          let commodities = { ...p.commodities }
-          for (const pick of picks) {
-            if ((RESOURCE_ORDER as readonly string[]).includes(pick)) resources = { ...resources, [pick]: resources[pick as ResourceType] + 1 }
-            else commodities = { ...commodities, [pick]: commodities[pick as CommodityType] + 1 }
-          }
-          return { ...p, resources, commodities }
-        }
-        return p
-      }) })
+    dispatch({ type: 'GUILD_DUES_TAKEN', takerId, targetId, picks })
   }
 
   const playGuildDues = () => {

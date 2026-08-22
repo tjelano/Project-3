@@ -1116,6 +1116,27 @@ describe('reducePlayers — WEDDING_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — GUILD_DUES_TAKEN', () => {
+  it('transfers each picked item from target to taker, clamped at 0', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({
+      ...p,
+      resources: i === 0 ? { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 },
+      commodities: i === 0 ? { paper: 0, cloth: 0, coin: 0 } : { paper: 1, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'GUILD_DUES_TAKEN', takerId: players[0].id, targetId: players[1].id, picks: ['lumber', 'paper'] },
+      initialGameState,
+    )
+    const taker = result.find((p) => p.id === players[0].id)!
+    const target = result.find((p) => p.id === players[1].id)!
+    expect(taker.resources.lumber).toBe(1)
+    expect(taker.commodities.paper).toBe(1)
+    expect(target.resources.lumber).toBe(0)
+    expect(target.commodities.paper).toBe(0)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

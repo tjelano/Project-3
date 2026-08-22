@@ -58,11 +58,14 @@ export type PlayersAction =
   | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
   | { type: 'CITY_IMPROVEMENT_PURCHASED'; playerId: number; track: ImprovementTrack; craneDiscount: boolean }
   | { type: 'CITY_WALL_BUILT'; playerId: number; vertexId: string; isFree: boolean }
+  | { type: 'TURN_ADVANCED'; nextPlayerIndex: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
     case 'LEGACY_SET_PLAYERS':
       return action.updater(players)
+    case 'TURN_ADVANCED':
+      return players.map((p, index) => (index === action.nextPlayerIndex ? { ...p, devCardsBoughtThisTurn: [] } : p))
     case 'BUILD_SETTLEMENT':
       return players.map((p) =>
         p.id === action.playerId

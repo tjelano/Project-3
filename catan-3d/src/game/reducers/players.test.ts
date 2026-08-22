@@ -22,6 +22,15 @@ describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
   })
 })
 
+describe('reducePlayers — TURN_ADVANCED', () => {
+  it('clears devCardsBoughtThisTurn for the player at nextPlayerIndex only', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, devCardsBoughtThisTurn: ['knight' as const] }))
+    const result = reducePlayers(players, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 }, initialGameState)
+    expect(result[0].devCardsBoughtThisTurn).toEqual(['knight'])
+    expect(result[1].devCardsBoughtThisTurn).toEqual([])
+  })
+})
+
 describe('reducePlayers — BUILD_SETTLEMENT', () => {
   it('deducts the settlement cost and decrements settlementsRemaining outside setup', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 1, brick: 1, wool: 1, grain: 1, ore: 0 } }))

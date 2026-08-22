@@ -868,7 +868,7 @@ function App() {
     // calls this — so both the local end-turn action and the remote
     // TURN_PASSED receiver apply the identical reset.
     setKnightsPromotedThisTurn(new Set())
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)) })
+    dispatch({ type: 'TURN_ADVANCED', nextPlayerIndex: nextIndex })
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to

@@ -65,7 +65,6 @@ import {
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
   IMPROVEMENT_TRACK_ORDER,
-  KNIGHT_PROMOTE_COST,
   KNIGHT_STARTING_SUPPLY,
   KNIGHT_STRENGTH_ORDER,
   KNIGHT_STRENGTH_VALUE,
@@ -1972,22 +1971,7 @@ function App() {
       dispatch({ type: 'KNIGHT_ACTIVATED', playerId: payload.playerId, knightId: payload.knightId })
     },
     onKnightPromoted: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id !== payload.playerId) return p
-          const knight = p.knightPieces.find((k) => k.id === payload.knightId)
-          if (!knight) return p
-          return {
-            ...p,
-            resources: deductCost(p.resources, KNIGHT_PROMOTE_COST),
-            knightSupply: {
-              ...p.knightSupply,
-              [knight.strength]: p.knightSupply[knight.strength] + 1,
-              [payload.newStrength]: p.knightSupply[payload.newStrength] - 1,
-            },
-            knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, strength: payload.newStrength } : k)),
-          }
-        }) })
+      dispatch({ type: 'KNIGHT_PROMOTED', playerId: payload.playerId, knightId: payload.knightId, newStrength: payload.newStrength })
       setKnightsPromotedThisTurn((prev) => new Set(prev).add(payload.knightId))
     },
     // Cities & Knights knight move (Task 9) — same trusted-apply reasoning
@@ -5253,17 +5237,7 @@ function App() {
       return
     }
     const next = nextKnightStrength(knight.strength)!
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id !== player.id
-          ? p
-          : {
-              ...p,
-              resources: deductCost(p.resources, KNIGHT_PROMOTE_COST),
-              knightSupply: { ...p.knightSupply, [knight.strength]: p.knightSupply[knight.strength] + 1, [next]: p.knightSupply[next] - 1 },
-              knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, strength: next } : k)),
-            },
-      ) })
+    dispatch({ type: 'KNIGHT_PROMOTED', playerId: player.id, knightId, newStrength: next })
     setKnightsPromotedThisTurn((prev) => new Set(prev).add(knightId))
     if (onlineInfo) broadcastKnightPromoted({ playerId: player.id, knightId, newStrength: next })
   }

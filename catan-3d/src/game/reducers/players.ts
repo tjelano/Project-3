@@ -1,5 +1,5 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
 
@@ -31,6 +31,7 @@ export type PlayersAction =
   | { type: 'KNIGHT_DISPLACED'; moverId: number; knightId: string; displacedOwnerId: number; targetKnightId: string; newMoverVertexId: string; displacedVertexId: string | null }
   | { type: 'INTRIGUE_RESOLVED'; displacedOwnerId: number; targetKnightId: string; displacedVertexId: string | null }
   | { type: 'KNIGHT_ACTIVATED'; playerId: number; knightId: string }
+  | { type: 'KNIGHT_PROMOTED'; playerId: number; knightId: string; newStrength: KnightStrength }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -256,6 +257,18 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? p
           : { ...p, resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST), knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, active: true } : k)) },
       )
+    case 'KNIGHT_PROMOTED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const knight = p.knightPieces.find((k) => k.id === action.knightId)
+        if (!knight) return p
+        return {
+          ...p,
+          resources: deductCost(p.resources, KNIGHT_PROMOTE_COST),
+          knightSupply: { ...p.knightSupply, [knight.strength]: p.knightSupply[knight.strength] + 1, [action.newStrength]: p.knightSupply[action.newStrength] - 1 },
+          knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, strength: action.newStrength } : k)),
+        }
+      })
     case 'INTRIGUE_RESOLVED':
       return players.map((p) => {
         if (p.id !== action.displacedOwnerId) return p

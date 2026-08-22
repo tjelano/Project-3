@@ -675,6 +675,28 @@ describe('reducePlayers — KNIGHT_ACTIVATED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_PROMOTED', () => {
+  it('deducts KNIGHT_PROMOTE_COST, swaps supply buckets, and updates the knight\'s strength', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      resources: { lumber: 0, brick: 0, wool: 1, grain: 0, ore: 1 },
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_PROMOTED', playerId: players[0].id, knightId: 'k1', newStrength: 'strong' }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources).toEqual({ lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 })
+    expect(player.knightSupply.basic).toBe(players[0].knightSupply.basic + 1)
+    expect(player.knightSupply.strong).toBe(players[0].knightSupply.strong - 1)
+    expect(player.knightPieces[0].strength).toBe('strong')
+  })
+
+  it('is a no-op when the knight is not found', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'KNIGHT_PROMOTED', playerId: players[0].id, knightId: 'missing', newStrength: 'strong' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!).toEqual(players[0])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

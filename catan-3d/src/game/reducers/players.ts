@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -60,6 +60,8 @@ export type PlayersAction =
   | { type: 'CITY_IMPROVEMENT_PURCHASED'; playerId: number; track: ImprovementTrack; craneDiscount: boolean }
   | { type: 'CITY_WALL_BUILT'; playerId: number; vertexId: string; isFree: boolean }
   | { type: 'TURN_ADVANCED'; nextPlayerIndex: number }
+  | { type: 'RESOURCES_PRODUCED'; productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] }
+  | { type: 'DOUBLES_REROLL_HAND_WIPED'; playerId: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -536,6 +538,20 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? p
           : { ...p, resources: action.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, action.vertexId] },
       )
+    case 'RESOURCES_PRODUCED':
+      return players.map((p) => {
+        const events = action.productions.filter((e) => e.playerId === p.id)
+        if (events.length === 0) return p
+        const resources = { ...p.resources }
+        const commodities = { ...p.commodities }
+        for (const e of events) {
+          resources[e.resource] += e.amount
+          if (e.commodity) commodities[e.commodity] += 1
+        }
+        return { ...p, resources, commodities }
+      })
+    case 'DOUBLES_REROLL_HAND_WIPED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, resources: emptyResources() } : p))
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

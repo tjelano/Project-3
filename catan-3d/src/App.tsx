@@ -81,7 +81,6 @@ import {
   getPlayerScore,
   emptyCityImprovements,
   emptyCommodities,
-  emptyResources,
   getPublicScore,
   type CommodityType,
   type DevCardType,
@@ -3211,49 +3210,44 @@ function App() {
       messages.push(`The Robber blocks ${BIOME_LABELS[robberTile.biome]} — no resources from that hex.`)
     }
 
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources }, commodities: { ...p.commodities } }))
-      const byId = new Map(next.map((p) => [p.id, p]))
+    const productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] = []
+    for (const tile of tiles) {
+      if (tile.number !== total) continue
+      if (tile.id === robberTileId) continue // blocked by the Robber
 
-      for (const tile of tiles) {
-        if (tile.number !== total) continue
-        if (tile.id === robberTileId) continue // blocked by the Robber
+      const resource = BIOME_TO_RESOURCE[tile.biome]
+      if (!resource) continue
 
-        const resource = BIOME_TO_RESOURCE[tile.biome]
-        if (!resource) continue
+      const commodity = COMMODITY_FOR_BIOME[tile.biome]
 
-        const commodity = COMMODITY_FOR_BIOME[tile.biome]
+      const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
+      for (const vertexId of vertexIds) {
+        const building = gameState.board.settlements[vertexId]
+        if (!building) continue
+        const owner = playerById.get(building.ownerId)
+        if (!owner) continue
 
-        const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
-        for (const vertexId of vertexIds) {
-          const building = gameState.board.settlements[vertexId]
-          if (!building) continue
-          const owner = byId.get(building.ownerId)
-          if (!owner) continue
+        // A city on a commodity-producing hex (forest/pasture/mountains)
+        // gets 1 resource + 1 commodity instead of 2 resource, when the
+        // house rule is on. Settlements and fields/hills/desert
+        // production are untouched.
+        if (building.type === 'city' && gameRules.citiesAndKnightsCommodities && commodity) {
+          productions.push({ playerId: owner.id, resource, amount: 1, commodity })
+          messages.push(
+            `${owner.name} city yields 1 ${RESOURCE_LABELS[resource]} + 1 ${COMMODITY_LABELS[commodity]}!`,
+          )
+          continue
+        }
 
-          // A city on a commodity-producing hex (forest/pasture/mountains)
-          // gets 1 resource + 1 commodity instead of 2 resource, when the
-          // house rule is on. Settlements and fields/hills/desert
-          // production are untouched.
-          if (building.type === 'city' && gameRules.citiesAndKnightsCommodities && commodity) {
-            owner.resources[resource] += 1
-            owner.commodities[commodity] += 1
-            messages.push(
-              `${owner.name} city yields 1 ${RESOURCE_LABELS[resource]} + 1 ${COMMODITY_LABELS[commodity]}!`,
-            )
-            continue
-          }
-
-          const amount = building.type === 'city' ? 2 : 1
-          owner.resources[resource] += amount
-          if (building.type === 'city') {
-            messages.push(`${owner.name} city yields ${amount} ${RESOURCE_LABELS[resource]}!`)
-          }
+        const amount = building.type === 'city' ? 2 : 1
+        productions.push({ playerId: owner.id, resource, amount })
+        if (building.type === 'city') {
+          messages.push(`${owner.name} city yields ${amount} ${RESOURCE_LABELS[resource]}!`)
         }
       }
+    }
 
-      return next
-    } })
+    dispatch({ type: 'RESOURCES_PRODUCED', productions })
 
     // Science level 3: a player who received nothing this roll gets 1 free
     // resource of their choice — never on a 7 (a 7 doesn't produce at all,
@@ -3295,7 +3289,7 @@ function App() {
     // here already guarantees roller is still the active player.
     if (gameRules.doublesRerollRule && doublesCount >= 3 && roller) {
       debugLog('doubles-reroll hand wipe', { rollerId: roller.id, rollerName: roller.name, doublesCount, isStillRollersTurn })
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)) })
+      dispatch({ type: 'DOUBLES_REROLL_HAND_WIPED', playerId: roller.id })
       inform(`${roller.name} rolled doubles three times in a row — hand emptied!`)
     }
 

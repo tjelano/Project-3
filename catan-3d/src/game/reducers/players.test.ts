@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { reducePlayers } from './players'
-import { createInitialPlayers } from '../types'
+import { createInitialPlayers, emptyResources } from '../types'
 import { initialGameState } from '../gameState'
 
 describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
@@ -1230,6 +1230,53 @@ describe('reducePlayers — DEV_CARD_BOUGHT', () => {
   it('leaves an untouched player unchanged', () => {
     const players = createInitialPlayers(2)
     const result = reducePlayers(players, { type: 'DEV_CARD_BOUGHT', playerId: players[0].id, card: 'knight' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — RESOURCES_PRODUCED', () => {
+  it('applies resource-only production to the named player', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [{ playerId: players[0].id, resource: 'lumber', amount: 2 }] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(players[0].resources.lumber + 2)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('applies a resource+commodity production entry together', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [{ playerId: players[0].id, resource: 'wool', amount: 1, commodity: 'cloth' }] },
+      initialGameState,
+    )
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.wool).toBe(players[0].resources.wool + 1)
+    expect(after.commodities.cloth).toBe(players[0].commodities.cloth + 1)
+  })
+
+  it('sums multiple production entries for the same player', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [
+        { playerId: players[0].id, resource: 'grain', amount: 1 },
+        { playerId: players[0].id, resource: 'grain', amount: 2 },
+      ] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.grain).toBe(players[0].resources.grain + 3)
+  })
+})
+
+describe('reducePlayers — DOUBLES_REROLL_HAND_WIPED', () => {
+  it('empties the named player\'s resources and leaves others untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 3, brick: 2, wool: 1, grain: 4, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'DOUBLES_REROLL_HAND_WIPED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources).toEqual(emptyResources())
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
   })
 })

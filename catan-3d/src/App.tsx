@@ -1251,7 +1251,7 @@ function App() {
   // own independently-shuffled local copy, so each caller does its own deck
   // update after calling this.
   const applyBarbarianWinnerDraw = (playerId: number, card: ProgressCardType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === playerId ? { ...p, progressCards: [...p.progressCards, card] } : p)) })
+    dispatch({ type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId, card }] })
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.

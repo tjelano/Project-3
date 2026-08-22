@@ -1158,6 +1158,32 @@ describe('reducePlayers — ESPIONAGE_TAKEN', () => {
   })
 })
 
+describe('reducePlayers — CITY_IMPROVEMENT_PURCHASED', () => {
+  it('deducts the improvement cost and raises the track level, no refund when craneDiscount is false', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, commodities: { ...p.commodities, cloth: 5 } }))
+    const before = players[0].commodities.cloth
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: false }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(players[0].cityImprovements.trade + 1)
+    expect(after.commodities.cloth).toBe(before - 1)
+  })
+
+  it('refunds 1 matching commodity when craneDiscount is true', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, commodities: { ...p.commodities, cloth: 5 } }))
+    const before = players[0].commodities.cloth
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(players[0].cityImprovements.trade + 1)
+    expect(after.commodities.cloth).toBe(before) // full cost deducted, then 1 refunded — net zero at level 1
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'science', craneDiscount: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

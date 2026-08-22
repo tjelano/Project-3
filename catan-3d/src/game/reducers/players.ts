@@ -1,8 +1,9 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
+import { buyImprovementLevel } from '../cityImprovements'
 
 export type PlayersAction =
   // Bridge for every setPlayers call site not yet individually migrated to
@@ -55,6 +56,7 @@ export type PlayersAction =
   | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
   | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
+  | { type: 'CITY_IMPROVEMENT_PURCHASED'; playerId: number; track: ImprovementTrack; craneDiscount: boolean }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -509,6 +511,14 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         return p
       })
     }
+    case 'CITY_IMPROVEMENT_PURCHASED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, action.track)
+        if (!action.craneDiscount) return { ...p, commodities, cityImprovements }
+        const commodity = COMMODITY_FOR_TRACK[action.track]
+        return { ...p, commodities: { ...commodities, [commodity]: commodities[commodity] + 1 }, cityImprovements }
+      })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

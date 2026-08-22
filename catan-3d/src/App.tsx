@@ -1269,13 +1269,8 @@ function App() {
   // buyImprovementLevel/improvementLevelCost, rather than trusting a cost
   // value sent over the wire — same trust model as every other trusted-apply
   // function in this file (applyDiscard, applyScienceFreeResourcePick, etc).
-  const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, track)
-        return { ...p, commodities, cityImprovements }
-      }) })
+  const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack, craneDiscount: boolean) => {
+    dispatch({ type: 'CITY_IMPROVEMENT_PURCHASED', playerId, track, craneDiscount })
   }
 
   // Trusted state mutation for a batch of progress-card draws from one
@@ -1643,26 +1638,7 @@ function App() {
         console.error('[Catan] Ignoring malformed city-improvement payload:', payload)
         return
       }
-      applyCityImprovementPurchase(payload.playerId, payload.track)
-      // Cities & Knights Crane — mirrors the acting client's own
-      // pay-full-then-refund-1 discount (see buyCityImprovement's own
-      // comment) so this client's copy of the buyer's commodities ends up
-      // at the exact same final count, without ever needing to know
-      // anything about THIS client's own (irrelevant) craneDiscountPlayerId.
-      if (payload.craneDiscount) {
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) =>
-            p.id === payload.playerId
-              ? {
-                  ...p,
-                  commodities: {
-                    ...p.commodities,
-                    [COMMODITY_FOR_TRACK[payload.track]]: p.commodities[COMMODITY_FOR_TRACK[payload.track]] + 1,
-                  },
-                }
-              : p,
-          ) })
-      }
+      applyCityImprovementPurchase(payload.playerId, payload.track, payload.craneDiscount)
     },
     onProgressCardsDrawn: (payload) => {
       // Broadcast-sourced — same validation shape as onCityImprovementPurchased:
@@ -4281,30 +4257,8 @@ function App() {
       return
     }
 
-    applyCityImprovementPurchase(player.id, track)
-    // Refund step of Crane's pay-full-then-refund-1 discount — applyCityImprovementPurchase
-    // just deducted the FULL cost via buyImprovementLevel, so 1 of the
-    // matching commodity comes back here, and the 1-time flag is cleared so
-    // it can't be reused by a later purchase. craneDiscount is carried on
-    // the broadcast below so every OTHER client applies the identical
-    // refund — without it, a receiver's own applyCityImprovementPurchase
-    // would deduct the full cost with no refund, permanently desyncing this
-    // player's commodity count between clients.
-    if (hasCraneDiscount) {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === player.id
-            ? {
-                ...p,
-                commodities: {
-                  ...p.commodities,
-                  [COMMODITY_FOR_TRACK[track]]: p.commodities[COMMODITY_FOR_TRACK[track]] + 1,
-                },
-              }
-            : p,
-        ) })
-      setCraneDiscountPlayerId(null)
-    }
+    applyCityImprovementPurchase(player.id, track, hasCraneDiscount)
+    if (hasCraneDiscount) setCraneDiscountPlayerId(null)
     inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
     if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel, craneDiscount: hasCraneDiscount })
     if (claimsMetropolis) {

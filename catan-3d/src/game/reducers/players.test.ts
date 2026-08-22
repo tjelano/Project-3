@@ -1184,6 +1184,30 @@ describe('reducePlayers — CITY_IMPROVEMENT_PURCHASED', () => {
   })
 })
 
+describe('reducePlayers — CITY_WALL_BUILT', () => {
+  it('deducts CITY_WALL_COST and appends the vertex when isFree is false', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, brick: 5 } }))
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v1', isFree: false }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.brick).toBe(3) // CITY_WALL_COST = { brick: 2 }
+    expect(after.cityWalls).toEqual(['v1'])
+  })
+
+  it('appends the vertex with no resource deduction when isFree is true', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, brick: 5 } }))
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v2', isFree: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.brick).toBe(5)
+    expect(after.cityWalls).toEqual(['v2'])
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v1', isFree: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

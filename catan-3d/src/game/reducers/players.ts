@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -57,6 +57,7 @@ export type PlayersAction =
   | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
   | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
   | { type: 'CITY_IMPROVEMENT_PURCHASED'; playerId: number; track: ImprovementTrack; craneDiscount: boolean }
+  | { type: 'CITY_WALL_BUILT'; playerId: number; vertexId: string; isFree: boolean }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -519,6 +520,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         const commodity = COMMODITY_FOR_TRACK[action.track]
         return { ...p, commodities: { ...commodities, [commodity]: commodities[commodity] + 1 }, cityImprovements }
       })
+    case 'CITY_WALL_BUILT':
+      return players.map((p) =>
+        p.id !== action.playerId
+          ? p
+          : { ...p, resources: action.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, action.vertexId] },
+      )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

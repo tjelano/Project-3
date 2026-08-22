@@ -54,7 +54,6 @@ import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
   CITY_COST,
-  CITY_WALL_COST,
   COMMODITY_FOR_BIOME,
   COMMODITY_FOR_TRACK,
   COMMODITY_LABELS,
@@ -1945,16 +1944,7 @@ function App() {
     // skips the deduction for Engineering's free wall — see
     // CityWallBuiltPayload.isFree's own comment in useRoomChannel.ts.
     onCityWallBuilt: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : {
-                ...p,
-                resources: payload.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST),
-                cityWalls: [...p.cityWalls, payload.vertexId],
-              },
-        ) })
+      applyCityWallBuilt(payload.playerId, payload.vertexId, payload.isFree)
     },
     // Cities & Knights Smithing (Task 13) — same trusted-apply reasoning as
     // onCityWallBuilt above, but re-derives each promoted knight's new
@@ -5114,6 +5104,10 @@ function App() {
   // (game/knights.ts) already checks ownership/no-existing-wall/board-wide
   // cap/affordability, so this handler just calls it directly rather than
   // re-deriving those checks inline.
+  const applyCityWallBuilt = (playerId: number, vertexId: string, isFree: boolean) => {
+    dispatch({ type: 'CITY_WALL_BUILT', playerId, vertexId, isFree })
+  }
+
   const buildCityWall = (vertexId: string) => {
     if (!isMyTurn) {
       warn("It's not your turn.")
@@ -5125,12 +5119,7 @@ function App() {
       warn('Cannot build a city wall there.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id !== player.id
-          ? p
-          : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, vertexId] },
-      ) })
+    applyCityWallBuilt(player.id, vertexId, false)
     if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId, isFree: false })
   }
 
@@ -5211,7 +5200,7 @@ function App() {
       warn('Not a valid free wall target.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id !== playerId ? p : { ...p, cityWalls: [...p.cityWalls, vertexId] })) })
+    applyCityWallBuilt(playerId, vertexId, true)
     setPendingFreeCityWall(null)
     // isFree: true — unlike buildCityWall's own broadcast just above, this
     // never deducted CITY_WALL_COST locally, so every other client's

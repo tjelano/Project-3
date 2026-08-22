@@ -39,6 +39,8 @@ export type PlayersAction =
   | { type: 'TREASON_KNIGHT_REMOVED'; actingPlayerId: number; targetPlayerId: number; removedKnight: KnightPiece }
   | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
+  | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
+  | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -340,6 +342,18 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) =>
         p.id === action.playerId
           ? { ...p, devCards: removeOne(p.devCards, action.devCardType), knightsPlayed: action.devCardType === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed }
+          : p,
+      )
+    case 'IRRIGATION_PLAYED':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: { ...p.resources, grain: p.resources.grain + action.hexCount * 2 }, progressCards: removeOne(p.progressCards, 'irrigation') }
+          : p,
+      )
+    case 'MINING_PLAYED':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: { ...p.resources, ore: p.resources.ore + action.hexCount * 2 }, progressCards: removeOne(p.progressCards, 'mining') }
           : p,
       )
     default:

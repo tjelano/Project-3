@@ -4542,12 +4542,7 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'fields')
     const amount = hexCount * 2
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? { ...p, resources: { ...p.resources, grain: p.resources.grain + amount }, progressCards: removeOne(p.progressCards, 'irrigation') }
-          : p,
-      ) })
+    dispatch({ type: 'IRRIGATION_PLAYED', playerId, hexCount })
     inform(`${player.name} played Irrigation — gained ${amount} Grain (${hexCount} field hexes).`)
   }
 
@@ -4583,12 +4578,7 @@ function App() {
     if (!player) return
     const hexCount = countAdjacentBiomeHexes(playerId, 'mountains')
     const amount = hexCount * 2
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? { ...p, resources: { ...p.resources, ore: p.resources.ore + amount }, progressCards: removeOne(p.progressCards, 'mining') }
-          : p,
-      ) })
+    dispatch({ type: 'MINING_PLAYED', playerId, hexCount })
     inform(`${player.name} played Mining — gained ${amount} Ore (${hexCount} mountain hexes).`)
   }
 

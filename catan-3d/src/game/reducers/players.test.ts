@@ -890,6 +890,38 @@ describe('reducePlayers — DEV_CARD_SPENT', () => {
   })
 })
 
+describe('reducePlayers — IRRIGATION_PLAYED', () => {
+  it('adds hexCount*2 grain and removes one irrigation card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }, progressCards: ['irrigation' as const] }))
+    const result = reducePlayers(players, { type: 'IRRIGATION_PLAYED', playerId: players[0].id, hexCount: 3 }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.grain).toBe(6)
+    expect(player.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['irrigation' as const] }))
+    const result = reducePlayers(players, { type: 'IRRIGATION_PLAYED', playerId: players[0].id, hexCount: 1 }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — MINING_PLAYED', () => {
+  it('adds hexCount*2 ore and removes one mining card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }, progressCards: ['mining' as const] }))
+    const result = reducePlayers(players, { type: 'MINING_PLAYED', playerId: players[0].id, hexCount: 2 }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.ore).toBe(4)
+    expect(player.progressCards).toEqual([])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['mining' as const] }))
+    const result = reducePlayers(players, { type: 'MINING_PLAYED', playerId: players[0].id, hexCount: 1 }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

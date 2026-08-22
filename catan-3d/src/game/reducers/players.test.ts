@@ -740,6 +740,26 @@ describe('reducePlayers — SMITHING_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — ENCOURAGEMENT_PLAYED', () => {
+  it('removes one encouragement card and activates every knight for the named player', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      progressCards: ['encouragement' as const],
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: false, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'ENCOURAGEMENT_PLAYED', playerId: players[0].id }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.progressCards).toEqual([])
+    expect(player.knightPieces[0].active).toBe(true)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['encouragement' as const] }))
+    const result = reducePlayers(players, { type: 'ENCOURAGEMENT_PLAYED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

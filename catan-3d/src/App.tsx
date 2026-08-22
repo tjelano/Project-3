@@ -2047,12 +2047,7 @@ function App() {
     // as onSmithingPlayed above: the sending client already validated the
     // card was in hand before ever broadcasting.
     onEncouragementPlayed: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
-        ) })
+      dispatch({ type: 'ENCOURAGEMENT_PLAYED', playerId: payload.playerId })
     },
     // Cities & Knights Intrigue (Task 14) — trusted-apply, mirrors the local
     // resolution exactly (handleKnightSelect's own pendingIntrigueDisplace
@@ -5416,12 +5411,7 @@ function App() {
       warn('No Encouragement card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id !== player.id
-          ? p
-          : { ...p, progressCards: removeOne(p.progressCards, 'encouragement'), knightPieces: p.knightPieces.map((k) => ({ ...k, active: true })) },
-      ) })
+    dispatch({ type: 'ENCOURAGEMENT_PLAYED', playerId: player.id })
     inform(`${player.name} played Encouragement — all knights activated.`)
     if (onlineInfo) broadcastEncouragementPlayed({ playerId: player.id })
   }

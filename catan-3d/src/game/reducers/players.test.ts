@@ -1137,6 +1137,27 @@ describe('reducePlayers — GUILD_DUES_TAKEN', () => {
   })
 })
 
+describe('reducePlayers — ESPIONAGE_TAKEN', () => {
+  it('moves the card at the given index from target to taker', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['crane' as const, 'alchemy' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['crane'])
+    expect(result.find((p) => p.id === players[1].id)!.progressCards).toEqual(['alchemy'])
+  })
+
+  it('is a no-op when the index is out of range', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['crane' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 5 }, initialGameState)
+    expect(result).toEqual(players)
+  })
+
+  it('is a no-op when the card at that index is a VP card', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['printing' as const, 'alchemy' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
+    expect(result).toEqual(players)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

@@ -72,7 +72,6 @@ import {
   LONGEST_ROAD_MIN_LENGTH,
   PROGRESS_CARD_LABELS,
   PROGRESS_CARD_ORDER,
-  PROGRESS_CARD_VP_TYPES,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   ROAD_COST,
@@ -5541,23 +5540,7 @@ function App() {
   // optional, so confirmEspionage below tolerates 0 picks (looked, took
   // nothing) as well as exactly 1.
   const applyEspionageTake = (takerId: number, targetId: number, cardIndex: number) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const target = prev.find((p) => p.id === targetId)
-      const card = target?.progressCards[cardIndex]
-      // VP cards can't be taken — re-verified here (the receiver), not just
-      // picker-side, since a receiving client must never trust that an
-      // incoming index was already screened by the sender's own UI.
-      if (!card || PROGRESS_CARD_VP_TYPES.has(card)) return prev
-      return prev.map((p) => {
-        if (p.id === targetId) {
-          const next = [...p.progressCards]
-          next.splice(cardIndex, 1)
-          return { ...p, progressCards: next }
-        }
-        if (p.id === takerId) return { ...p, progressCards: [...p.progressCards, card] }
-        return p
-      })
-    } })
+    dispatch({ type: 'ESPIONAGE_TAKEN', takerId, targetId, cardIndex })
   }
 
   const playEspionage = () => {

@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -54,6 +54,7 @@ export type PlayersAction =
   | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
   | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
+  | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -484,6 +485,23 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         if (!counts) return p
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
+      })
+    }
+    case 'ESPIONAGE_TAKEN': {
+      const target = players.find((p) => p.id === action.targetId)
+      const card = target?.progressCards[action.cardIndex]
+      // VP cards can't be taken — re-verified here (the receiver), not just
+      // picker-side, since a receiving client must never trust that an
+      // incoming index was already screened by the sender's own UI.
+      if (!card || PROGRESS_CARD_VP_TYPES.has(card)) return players
+      return players.map((p) => {
+        if (p.id === action.targetId) {
+          const next = [...p.progressCards]
+          next.splice(action.cardIndex, 1)
+          return { ...p, progressCards: next }
+        }
+        if (p.id === action.takerId) return { ...p, progressCards: [...p.progressCards, card] }
+        return p
       })
     }
     default:

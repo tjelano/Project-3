@@ -4381,16 +4381,7 @@ function App() {
   // works identically for the local actor and for a receiving client
   // applying a remote play.
   const spendDevCard = (playerId: number, type: DevCardType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? {
-              ...p,
-              devCards: removeOne(p.devCards, type),
-              knightsPlayed: type === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed,
-            }
-          : p,
-      ) })
+    dispatch({ type: 'DEV_CARD_SPENT', playerId, devCardType: type })
     setDevCardPlayedThisTurn(true)
   }
 

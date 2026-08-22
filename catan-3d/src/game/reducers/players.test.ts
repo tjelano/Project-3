@@ -866,6 +866,30 @@ describe('reducePlayers — PROGRESS_CARD_SPENT', () => {
   })
 })
 
+describe('reducePlayers — DEV_CARD_SPENT', () => {
+  it('removes one instance of the named dev card and bumps knightsPlayed only for knight', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['knight' as const, 'knight' as const], knightsPlayed: 1 }))
+    const result = reducePlayers(players, { type: 'DEV_CARD_SPENT', playerId: players[0].id, devCardType: 'knight' }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.devCards).toEqual(['knight'])
+    expect(player.knightsPlayed).toBe(2)
+  })
+
+  it('does not bump knightsPlayed for a non-knight dev card', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['monopoly' as const], knightsPlayed: 0 }))
+    const result = reducePlayers(players, { type: 'DEV_CARD_SPENT', playerId: players[0].id, devCardType: 'monopoly' }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.devCards).toEqual([])
+    expect(player.knightsPlayed).toBe(0)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, devCards: ['roadBuilding' as const] }))
+    const result = reducePlayers(players, { type: 'DEV_CARD_SPENT', playerId: players[0].id, devCardType: 'roadBuilding' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

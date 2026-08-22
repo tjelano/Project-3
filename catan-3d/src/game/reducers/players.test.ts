@@ -609,6 +609,49 @@ describe('reducePlayers — KNIGHT_DISPLACED', () => {
   })
 })
 
+describe('reducePlayers — INTRIGUE_RESOLVED', () => {
+  it('relocates the displaced knight when a vertex is available', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'target', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'INTRIGUE_RESOLVED', displacedOwnerId: players[0].id, targetKnightId: 'target', displacedVertexId: 'V2' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.knightPieces[0].vertexId).toBe('V2')
+  })
+
+  it('removes the displaced knight to supply when displacedVertexId is null', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'target', ownerId: p.id, strength: 'mighty' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'INTRIGUE_RESOLVED', displacedOwnerId: players[0].id, targetKnightId: 'target', displacedVertexId: null },
+      initialGameState,
+    )
+    const owner = result.find((p) => p.id === players[0].id)!
+    expect(owner.knightPieces).toEqual([])
+    expect(owner.knightSupply.mighty).toBe(players[0].knightSupply.mighty + 1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'target', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'INTRIGUE_RESOLVED', displacedOwnerId: players[0].id, targetKnightId: 'target', displacedVertexId: 'V2' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

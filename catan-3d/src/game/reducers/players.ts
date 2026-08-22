@@ -29,6 +29,7 @@ export type PlayersAction =
   | { type: 'KNIGHT_RECRUITED'; knight: KnightPiece; isFree: boolean }
   | { type: 'KNIGHT_MOVED'; playerId: number; knightId: string; vertexId: string }
   | { type: 'KNIGHT_DISPLACED'; moverId: number; knightId: string; displacedOwnerId: number; targetKnightId: string; newMoverVertexId: string; displacedVertexId: string | null }
+  | { type: 'INTRIGUE_RESOLVED'; displacedOwnerId: number; targetKnightId: string; displacedVertexId: string | null }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -247,6 +248,19 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           }
         }
         return p
+      })
+    case 'INTRIGUE_RESOLVED':
+      return players.map((p) => {
+        if (p.id !== action.displacedOwnerId) return p
+        if (action.displacedVertexId) {
+          return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.targetKnightId ? { ...k, vertexId: action.displacedVertexId! } : k)) }
+        }
+        const removed = p.knightPieces.find((k) => k.id === action.targetKnightId)
+        return {
+          ...p,
+          knightPieces: p.knightPieces.filter((k) => k.id !== action.targetKnightId),
+          knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
+        }
       })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

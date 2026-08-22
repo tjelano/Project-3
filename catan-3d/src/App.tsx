@@ -2099,24 +2099,7 @@ function App() {
     // 'intrigue' branch above, same two-broadcast split Guild Dues/Espionage
     // already use.
     onIntrigueResolved: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id !== payload.displacedOwnerId) return p
-          if (payload.displacedVertexId) {
-            return {
-              ...p,
-              knightPieces: p.knightPieces.map((k) =>
-                k.id === payload.targetKnightId ? { ...k, vertexId: payload.displacedVertexId! } : k,
-              ),
-            }
-          }
-          const removed = p.knightPieces.find((k) => k.id === payload.targetKnightId)
-          return {
-            ...p,
-            knightPieces: p.knightPieces.filter((k) => k.id !== payload.targetKnightId),
-            knightSupply: removed ? { ...p.knightSupply, [removed.strength]: p.knightSupply[removed.strength] + 1 } : p.knightSupply,
-          }
-        }) })
+      dispatch({ type: 'INTRIGUE_RESOLVED', displacedOwnerId: payload.displacedOwnerId, targetKnightId: payload.targetKnightId, displacedVertexId: payload.displacedVertexId })
     },
     // Cities & Knights Treason (Task 14) — trusted-apply, self-contained
     // (see TreasonRemovedPayload's own comment for why this doesn't need a
@@ -5190,18 +5173,7 @@ function App() {
       // never disagree about where a displaced knight ends up.
       const forcedTargets = [...knightMoveTargets(target, graph, gameState.board.roads, gameState.board.settlements, knightPiecesByVertex)].sort()
       const displacedVertexId = forcedTargets[0] ?? null
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id !== target.ownerId) return p
-          if (displacedVertexId) {
-            return { ...p, knightPieces: p.knightPieces.map((k) => (k.id === target.id ? { ...k, vertexId: displacedVertexId } : k)) }
-          }
-          return {
-            ...p,
-            knightPieces: p.knightPieces.filter((k) => k.id !== target.id),
-            knightSupply: { ...p.knightSupply, [target.strength]: p.knightSupply[target.strength] + 1 },
-          }
-        }) })
+      dispatch({ type: 'INTRIGUE_RESOLVED', displacedOwnerId: target.ownerId, targetKnightId, displacedVertexId })
       setPendingIntrigueDisplace(null)
       if (onlineInfo) broadcastIntrigueResolved({ displacedOwnerId: target.ownerId, targetKnightId, displacedVertexId })
       return

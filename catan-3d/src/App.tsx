@@ -37,7 +37,7 @@ import { createSeededRandom, shuffle } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
 import { revealTilesForVertex } from './game/hiddenTiles'
-import { autoDiscardCounts, applyDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
+import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
@@ -87,7 +87,6 @@ import {
   emptyCommodities,
   emptyResources,
   getPublicScore,
-  removeOne,
   type CommodityType,
   type DevCardType,
   type GameRules,
@@ -5445,22 +5444,12 @@ function App() {
         totalTaken += count as number
       }
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === announcerId) {
-          const resources = { ...p.resources }
-          const commodities = { ...p.commodities }
-          for (const [type, count] of Object.entries(takenTotals)) {
-            if (RESOURCE_ORDER.includes(type as ResourceType)) resources[type as ResourceType] += count as number
-            else commodities[type as CommodityType] += count as number
-          }
-          return { ...p, resources, commodities, progressCards: removeOne(p.progressCards, 'wedding') }
-        }
-        const counts = perPlayerCounts.get(p.id)
-        if (!counts) return p
-        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
-        return { ...p, resources, commodities }
-      }) })
+    dispatch({
+      type: 'WEDDING_PLAYED',
+      announcerId,
+      perPlayerCounts: Array.from(perPlayerCounts, ([playerId, counts]) => ({ playerId, counts })),
+      takenTotals,
+    })
     inform(`${announcer.name} played Wedding — received ${totalTaken} card${totalTaken === 1 ? '' : 's'} from ${affected.length} player(s).`)
   }
 

@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -52,6 +52,7 @@ export type PlayersAction =
   | { type: 'SCIENCE_FREE_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
   | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
   | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
+  | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -444,6 +445,24 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
         return { ...p, resources, commodities }
       })
+    case 'WEDDING_PLAYED': {
+      const countsByPlayerId = new Map(action.perPlayerCounts.map((entry) => [entry.playerId, entry.counts]))
+      return players.map((p) => {
+        if (p.id === action.announcerId) {
+          const resources = { ...p.resources }
+          const commodities = { ...p.commodities }
+          for (const [type, count] of Object.entries(action.takenTotals)) {
+            if (RESOURCE_ORDER.includes(type as ResourceType)) resources[type as ResourceType] += count as number
+            else commodities[type as CommodityType] += count as number
+          }
+          return { ...p, resources, commodities, progressCards: removeOne(p.progressCards, 'wedding') }
+        }
+        const counts = countsByPlayerId.get(p.id)
+        if (!counts) return p
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
+      })
+    }
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

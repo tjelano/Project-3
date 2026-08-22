@@ -1085,6 +1085,37 @@ describe('reducePlayers — SABOTAGE_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — WEDDING_PLAYED', () => {
+  it("credits the announcer with takenTotals, removes one wedding card, and debits each affected player by their own counts entry", () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['wedding' as const] : [],
+      resources: i === 0 ? { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 2, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      {
+        type: 'WEDDING_PLAYED',
+        announcerId: players[0].id,
+        perPlayerCounts: [{ playerId: players[1].id, counts: { lumber: 1 } }],
+        takenTotals: { lumber: 1 },
+      },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const affected = result.find((p) => p.id === players[1].id)!
+    expect(announcer.progressCards).toEqual([])
+    expect(announcer.resources.lumber).toBe(1)
+    expect(affected.resources.lumber).toBe(1)
+  })
+
+  it('leaves a player with no perPlayerCounts entry untouched', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['wedding' as const] : [] }))
+    const result = reducePlayers(players, { type: 'WEDDING_PLAYED', announcerId: players[0].id, perPlayerCounts: [], takenTotals: {} }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

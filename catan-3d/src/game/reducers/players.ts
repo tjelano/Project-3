@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
 
@@ -30,6 +30,7 @@ export type PlayersAction =
   | { type: 'KNIGHT_MOVED'; playerId: number; knightId: string; vertexId: string }
   | { type: 'KNIGHT_DISPLACED'; moverId: number; knightId: string; displacedOwnerId: number; targetKnightId: string; newMoverVertexId: string; displacedVertexId: string | null }
   | { type: 'INTRIGUE_RESOLVED'; displacedOwnerId: number; targetKnightId: string; displacedVertexId: string | null }
+  | { type: 'KNIGHT_ACTIVATED'; playerId: number; knightId: string }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -249,6 +250,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         }
         return p
       })
+    case 'KNIGHT_ACTIVATED':
+      return players.map((p) =>
+        p.id !== action.playerId
+          ? p
+          : { ...p, resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST), knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, active: true } : k)) },
+      )
     case 'INTRIGUE_RESOLVED':
       return players.map((p) => {
         if (p.id !== action.displacedOwnerId) return p

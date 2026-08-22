@@ -65,7 +65,6 @@ import {
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
   IMPROVEMENT_TRACK_ORDER,
-  KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
   KNIGHT_STARTING_SUPPLY,
   KNIGHT_STRENGTH_ORDER,
@@ -1970,16 +1969,7 @@ function App() {
     // validated cost/state locally (canActivateKnight/canPromoteKnight)
     // before ever broadcasting.
     onKnightActivated: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : {
-                ...p,
-                resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
-                knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, active: true } : k)),
-              },
-        ) })
+      dispatch({ type: 'KNIGHT_ACTIVATED', playerId: payload.playerId, knightId: payload.knightId })
     },
     onKnightPromoted: (payload) => {
       dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
@@ -5234,16 +5224,7 @@ function App() {
       warn('Cannot activate that knight.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id !== player.id
-          ? p
-          : {
-              ...p,
-              resources: deductCost(p.resources, KNIGHT_ACTIVATE_COST),
-              knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, active: true } : k)),
-            },
-      ) })
+    dispatch({ type: 'KNIGHT_ACTIVATED', playerId: player.id, knightId })
     if (onlineInfo) broadcastKnightActivated({ playerId: player.id, knightId })
   }
 

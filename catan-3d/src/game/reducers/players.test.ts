@@ -652,6 +652,29 @@ describe('reducePlayers — INTRIGUE_RESOLVED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_ACTIVATED', () => {
+  it('deducts KNIGHT_ACTIVATE_COST and activates the named knight', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      resources: { lumber: 0, brick: 0, wool: 0, grain: 1, ore: 0 },
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: false, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_ACTIVATED', playerId: players[0].id, knightId: 'k1' }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.grain).toBe(0)
+    expect(player.knightPieces[0].active).toBe(true)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: false, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_ACTIVATED', playerId: players[0].id, knightId: 'k1' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

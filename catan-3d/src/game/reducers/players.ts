@@ -2,6 +2,7 @@ import type { Player, Resources, ResourceType, StolenItem, CommodityType, Knight
 import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
+import { nextKnightStrength } from '../knights'
 
 export type PlayersAction =
   // Bridge for every setPlayers call site not yet individually migrated to
@@ -32,6 +33,7 @@ export type PlayersAction =
   | { type: 'INTRIGUE_RESOLVED'; displacedOwnerId: number; targetKnightId: string; displacedVertexId: string | null }
   | { type: 'KNIGHT_ACTIVATED'; playerId: number; knightId: string }
   | { type: 'KNIGHT_PROMOTED'; playerId: number; knightId: string; newStrength: KnightStrength }
+  | { type: 'SMITHING_PLAYED'; playerId: number; knightIds: string[] }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -268,6 +270,19 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           knightSupply: { ...p.knightSupply, [knight.strength]: p.knightSupply[knight.strength] + 1, [action.newStrength]: p.knightSupply[action.newStrength] - 1 },
           knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, strength: action.newStrength } : k)),
         }
+      })
+    case 'SMITHING_PLAYED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        let supply = { ...p.knightSupply }
+        const knightPieces = p.knightPieces.map((k) => {
+          if (!action.knightIds.includes(k.id)) return k
+          const next = nextKnightStrength(k.strength)
+          if (!next) return k
+          supply = { ...supply, [k.strength]: supply[k.strength] + 1, [next]: supply[next] - 1 }
+          return { ...k, strength: next }
+        })
+        return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
       })
     case 'INTRIGUE_RESOLVED':
       return players.map((p) => {

@@ -2036,19 +2036,7 @@ function App() {
     // `supply` below (same pattern playSmithing's own apply step uses) can't
     // go negative as long as the sender validated correctly.
     onSmithingPlayed: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) => {
-          if (p.id !== payload.playerId) return p
-          let supply = { ...p.knightSupply }
-          const knightPieces = p.knightPieces.map((k) => {
-            if (!payload.knightIds.includes(k.id)) return k
-            const next = nextKnightStrength(k.strength)
-            if (!next) return k
-            supply = { ...supply, [k.strength]: supply[k.strength] + 1, [next]: supply[next] - 1 }
-            return { ...k, strength: next }
-          })
-          return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
-        }) })
+      dispatch({ type: 'SMITHING_PLAYED', playerId: payload.playerId, knightIds: payload.knightIds })
       setKnightsPromotedThisTurn((prev) => {
         const next = new Set(prev)
         for (const knightId of payload.knightIds) next.add(knightId)
@@ -5392,19 +5380,7 @@ function App() {
       warn('No knights eligible to promote.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== player.id) return p
-        let supply = { ...p.knightSupply }
-        const knightPieces = p.knightPieces.map((k) => {
-          const promoting = toPromote.find((t) => t.id === k.id)
-          if (!promoting) return k
-          const next = nextKnightStrength(k.strength)!
-          supply = { ...supply, [k.strength]: supply[k.strength] + 1, [next]: supply[next] - 1 }
-          return { ...k, strength: next }
-        })
-        return { ...p, progressCards: removeOne(p.progressCards, 'smithing'), knightSupply: supply, knightPieces }
-      }) })
+    dispatch({ type: 'SMITHING_PLAYED', playerId: player.id, knightIds: toPromote.map((k) => k.id) })
     setKnightsPromotedThisTurn((prev) => {
       const next = new Set(prev)
       for (const k of toPromote) next.add(k.id)

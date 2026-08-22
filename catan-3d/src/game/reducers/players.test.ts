@@ -697,6 +697,54 @@ describe('reducePlayers — KNIGHT_PROMOTED', () => {
   })
 })
 
+describe('reducePlayers — SMITHING_PLAYED', () => {
+  it('promotes every listed knight one tier and removes one smithing card', () => {
+    const players = createInitialPlayers(2)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const testPlayers: any[] = [
+      {
+        ...players[0],
+        progressCards: ['smithing'],
+        knightPieces: [
+          { id: 'k1', ownerId: players[0].id, strength: 'basic', active: true, vertexId: 'V1' },
+          { id: 'k2', ownerId: players[0].id, strength: 'strong', active: true, vertexId: 'V2' },
+        ],
+      },
+      players[1],
+    ]
+    const result = reducePlayers(testPlayers, { type: 'SMITHING_PLAYED', playerId: testPlayers[0].id, knightIds: ['k1', 'k2'] }, initialGameState)
+    const player = result.find((p) => p.id === testPlayers[0].id)!
+    expect(player.progressCards).toEqual([])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(player.knightPieces.find((k: any) => k.id === 'k1')!.strength).toBe('strong')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(player.knightPieces.find((k: any) => k.id === 'k2')!.strength).toBe('mighty')
+  })
+
+  it('leaves a mighty knight unchanged (no further tier to promote to)', () => {
+    const players = createInitialPlayers(2)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const testPlayers: any[] = [
+      {
+        ...players[0],
+        progressCards: ['smithing'],
+        knightPieces: [{ id: 'k1', ownerId: players[0].id, strength: 'mighty', active: true, vertexId: 'V1' }],
+      },
+      players[1],
+    ]
+    const result = reducePlayers(testPlayers, { type: 'SMITHING_PLAYED', playerId: testPlayers[0].id, knightIds: ['k1'] }, initialGameState)
+    expect(result.find((p) => p.id === testPlayers[0].id)!.knightPieces[0].strength).toBe('mighty')
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const testPlayers: any[] = [{ ...players[0], progressCards: ['smithing'] }, players[1]]
+    const result = reducePlayers(testPlayers, { type: 'SMITHING_PLAYED', playerId: testPlayers[0].id, knightIds: [] }, initialGameState)
+    expect(result.find((p) => p.id === testPlayers[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

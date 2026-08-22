@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -41,6 +41,7 @@ export type PlayersAction =
   | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
   | { type: 'DIPLOMACY_PLAYED'; playerId: number; ownerId: number }
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
+  | { type: 'DEV_CARD_BOUGHT'; playerId: number; card: DevCardType }
   | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
   | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
   | { type: 'CRANE_PLAYED'; playerId: number }
@@ -373,6 +374,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) =>
         p.id === action.playerId
           ? { ...p, devCards: removeOne(p.devCards, action.devCardType), knightsPlayed: action.devCardType === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed }
+          : p,
+      )
+    case 'DEV_CARD_BOUGHT':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: deductCost(p.resources, DEV_CARD_COST), devCards: [...p.devCards, action.card], devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, action.card] }
           : p,
       )
     case 'IRRIGATION_PLAYED':

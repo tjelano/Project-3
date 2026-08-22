@@ -1217,6 +1217,23 @@ describe('reducePlayers — CITY_WALL_BUILT', () => {
   })
 })
 
+describe('reducePlayers — DEV_CARD_BOUGHT', () => {
+  it('deducts DEV_CARD_COST and adds the card to devCards and devCardsBoughtThisTurn', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, ore: 3, grain: 3, wool: 3 } }))
+    const result = reducePlayers(players, { type: 'DEV_CARD_BOUGHT', playerId: players[0].id, card: 'knight' }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources).toMatchObject({ ore: 2, grain: 2, wool: 2 }) // DEV_CARD_COST = { ore: 1, grain: 1, wool: 1 }
+    expect(after.devCards).toEqual(['knight'])
+    expect(after.devCardsBoughtThisTurn).toEqual(['knight'])
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'DEV_CARD_BOUGHT', playerId: players[0].id, card: 'knight' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

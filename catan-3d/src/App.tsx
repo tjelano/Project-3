@@ -78,7 +78,6 @@ import {
   buildSetupOrder,
   canAfford,
   createInitialPlayers,
-  deductCost,
   getPlayerScore,
   emptyCityImprovements,
   emptyCommodities,
@@ -1607,17 +1606,7 @@ function App() {
     // silently drifts, permanently, until it happens to cross the 7-card
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.playerId
-            ? {
-                ...p,
-                resources: deductCost(p.resources, DEV_CARD_COST),
-                devCards: [...p.devCards, payload.card],
-                devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, payload.card],
-              }
-            : p,
-        ) })
+      applyDevCardBought(payload.playerId, payload.card)
       setDevDeck((prev) => prev.slice(1))
     },
     // Same reasoning as onDevCardBought above — a city improvement purchase
@@ -4106,6 +4095,10 @@ function App() {
     isResolvingTradeRef.current = false
   }, [pendingTrade])
 
+  const applyDevCardBought = (playerId: number, card: DevCardType) => {
+    dispatch({ type: 'DEV_CARD_BOUGHT', playerId, card })
+  }
+
   const buyDevCard = () => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -4140,17 +4133,7 @@ function App() {
 
     const [card, ...remaining] = devDeck
     setDevDeck(remaining)
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
-          ? {
-              ...p,
-              resources: deductCost(p.resources, DEV_CARD_COST),
-              devCards: [...p.devCards, card],
-              devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, card],
-            }
-          : p,
-      ) })
+    applyDevCardBought(player.id, card)
     inform(`${player.name} bought a development card.`)
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }

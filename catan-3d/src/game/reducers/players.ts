@@ -528,7 +528,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) => {
         if (p.id !== action.playerId) return p
         const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, action.track)
-        if (!action.craneDiscount) return { ...p, commodities, cityImprovements }
+        // Rejected/no-op purchases (already at MAX_IMPROVEMENT_LEVEL) must not
+        // refund either — buyImprovementLevel's own ceiling guard already
+        // prevents deducting the cost for those, so refunding on top would
+        // mint a free commodity for a duplicated or forged action.
+        const purchased = cityImprovements[action.track] !== p.cityImprovements[action.track]
+        if (!action.craneDiscount || !purchased) return { ...p, commodities, cityImprovements }
         const commodity = COMMODITY_FOR_TRACK[action.track]
         return { ...p, commodities: { ...commodities, [commodity]: commodities[commodity] + 1 }, cityImprovements }
       })

@@ -1191,6 +1191,18 @@ describe('reducePlayers — CITY_IMPROVEMENT_PURCHASED', () => {
     const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'science', craneDiscount: false }, initialGameState)
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
   })
+
+  it('does not refund a commodity when the track is already at max level (rejected purchase)', () => {
+    const players = createInitialPlayers(1).map((p) => ({
+      ...p,
+      cityImprovements: { ...p.cityImprovements, trade: 5 },
+      commodities: { ...p.commodities, cloth: 5 },
+    }))
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(5)
+    expect(after.commodities.cloth).toBe(5) // rejected purchase: buyImprovementLevel no-ops, refund must not apply either
+  })
 })
 
 describe('reducePlayers — CITY_WALL_BUILT', () => {

@@ -1569,10 +1569,7 @@ function App() {
         console.error('[Catan] Ignoring malformed resource-monopoly payload:', payload)
         return
       }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p,
-        ) })
+      dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: 'resourceMonopoly' })
       // applyResourceMonopolyProgressEffect, NOT applyMonopolyEffect — see
       // that function's own comment for why Resource Monopoly's take-2-or-
       // fewer effect can't reuse base Monopoly's take-all one.
@@ -1583,10 +1580,7 @@ function App() {
         console.error('[Catan] Ignoring malformed trade-monopoly payload:', payload)
         return
       }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p,
-        ) })
+      dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: 'tradeMonopoly' })
       applyTradeMonopolyEffect(payload.playerId, payload.commodity)
     },
     onTradeOffered: (payload) => {
@@ -1760,10 +1754,7 @@ function App() {
         // that player's hand here; the actual swap arrives separately via
         // onInventionSwapped once the actor finishes picking (applyInventionSwap
         // is safely reused verbatim for that, no player-specific state).
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) =>
-            p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p,
-          ) })
+        dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: 'invention' })
       } else if (payload.card === 'merchantFleet') {
         // Same reasoning as Invention just above — the named type stays
         // local to the acting client (see playMerchantFleet's own comment),
@@ -1780,16 +1771,14 @@ function App() {
         // card here; the actual take arrives separately via
         // onGuildDuesTaken/onEspionageTaken once the actor confirms their
         // picks in OpponentHandPicker.
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, payload.card) } : p)) })
+        dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: payload.card })
       } else if (payload.card === 'intrigue') {
         // Cities & Knights Intrigue (Task 14) — same split as Guild Dues/
         // Espionage just above: pendingIntrigueDisplace is local-only UI
         // state on the acting client, so a receiver just removes the spent
         // card here; the actual displacement arrives separately via
         // onIntrigueResolved once the actor picks a knight on the board.
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) => (p.id === payload.playerId ? { ...p, progressCards: removeOne(p.progressCards, 'intrigue') } : p)) })
+        dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: payload.playerId, card: 'intrigue' })
       } else if (payload.card === 'taxation') {
         // Cities & Knights Taxation (Task 10) — same split as Guild Dues/
         // Espionage/Intrigue above: pendingTaxation (the hex picker) is
@@ -4471,8 +4460,7 @@ function App() {
       warn('No Resource Monopoly card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'resourceMonopoly') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'resourceMonopoly' })
     setDevCardPicker('resourceMonopolyProgress')
   }
 
@@ -4491,8 +4479,7 @@ function App() {
       warn('No Trade Monopoly card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'tradeMonopoly') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'tradeMonopoly' })
     setDevCardPicker('tradeMonopolyProgress')
   }
 
@@ -4528,8 +4515,7 @@ function App() {
       warn('No Alchemy card to play.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'alchemy') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'alchemy' })
     setAlchemyPreset([d1, d2])
     inform(`${player.name} played Alchemy — the next roll's production dice are fixed.`)
   }
@@ -4712,7 +4698,7 @@ function App() {
     }
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('progressRoadBuilding')) return
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'progressRoadBuilding') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'progressRoadBuilding' })
     setFreeRoadsRemaining((prev) => prev + 2)
     inform(`${player.name} played (progress card) Road Building — place 2 free roads.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'progressRoadBuilding' })
@@ -4789,8 +4775,7 @@ function App() {
       warn('Finish the current tile swap first.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'invention') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'invention' })
     setPendingInventionSwap({ playerId: player.id, firstTileId: null })
     inform(`${player.name} played Invention — choose 2 number tiles to swap.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'invention' })
@@ -5611,8 +5596,7 @@ function App() {
       warn('No player currently has more VP than you.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'guildDues') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'guildDues' })
     // picker lets the player switch targets among eligibleTargets before
     // confirming, via PlayerTargetPicker (see GameHud.tsx's own Guild Dues
     // dialog and guildDuesEligibleTargets, below).
@@ -5689,8 +5673,7 @@ function App() {
       warn('No other player to target.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => (p.id === player.id ? { ...p, progressCards: removeOne(p.progressCards, 'espionage') } : p)) })
+    dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'espionage' })
     setPendingEspionage({ targetId: otherPlayersList[0].id })
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'espionage' })
   }

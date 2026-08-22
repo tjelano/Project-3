@@ -852,6 +852,20 @@ describe('reducePlayers — TREASON_KNIGHT_REMOVED', () => {
   })
 })
 
+describe('reducePlayers — PROGRESS_CARD_SPENT', () => {
+  it('removes one instance of the named card from the player', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['alchemy' as const, 'alchemy' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_CARD_SPENT', playerId: players[0].id, card: 'alchemy' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['alchemy'])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: ['invention' as const] }))
+    const result = reducePlayers(players, { type: 'PROGRESS_CARD_SPENT', playerId: players[0].id, card: 'invention' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

@@ -1,4 +1,4 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType } from '../types'
 import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
@@ -37,6 +37,7 @@ export type PlayersAction =
   | { type: 'ENCOURAGEMENT_PLAYED'; playerId: number }
   | { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE'; playerId: number; knightId: string }
   | { type: 'TREASON_KNIGHT_REMOVED'; actingPlayerId: number; targetPlayerId: number; removedKnight: KnightPiece }
+  | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -330,6 +331,10 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         }
         return p
       })
+    case 'PROGRESS_CARD_SPENT':
+      return players.map((p) =>
+        p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, action.card) } : p,
+      )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

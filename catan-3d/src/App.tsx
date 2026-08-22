@@ -3622,29 +3622,6 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the two timeout effects above: progressCardDecks/playerById/onlineInfo/inform/applyBarbarianWinnerDraw/broadcastBarbarianWinnerDrawResolved are read fresh via closure; only winnerDrawQueue/isEffectiveHost identity should restart the timer.
   }, [winnerDrawQueue, isEffectiveHost])
 
-  // Cities & Knights Taxation (Task 10) — the multi-victim steal Taxation
-  // needs, as opposed to applyRobberMove's own single-victim one: EVERY
-  // player with a building on the chosen hex loses one random card, not
-  // just one randomly-picked victim. Declared here, immediately before
-  // moveRobber (rather than beside armTaxation, further down the file),
-  // for the same "don't reference a later-declared const" reason
-  // canPlayProgressCardNow's own comment gives — moveRobber's leading
-  // branch below calls this directly, so it has to already exist by then.
-  //
-  // The whole steal is computed BEFORE setPlayers, as a pure function of
-  // the outer-scope `players`, then applied by a single side-effect-free
-  // `.map`. Exactly the restructure applyWeddingEffect's and
-  // applyProgressCardDraws' own comments describe, for the same reason:
-  // StrictMode double-invokes updaters in dev, so a `Math.random()` +
-  // `steals.push()` INSIDE the updater ran twice — pushing duplicate
-  // entries into the closure-scoped `steals`, and letting the resource
-  // actually deducted (second invocation) disagree with the one broadcast
-  // to every other client (first invocation's entry). That's a real
-  // actor/peer desync, not a dev-only cosmetic, since broadcastTaxation-
-  // Resolved sends `steals` right after this call. Reading the outer-scope
-  // `players` is safe here for the same reason those two functions give:
-  // this only ever runs from a live click handler (moveRobber's leading
-  // branch), so it IS the current render's state, not a stale snapshot.
   // Trusted state mutation for a resolved Taxation steal — shared by the
   // local actor (resolveTaxation, below, which also broadcasts) and
   // receiving clients (onTaxationResolved). Validates each stolen item
@@ -3672,6 +3649,29 @@ function App() {
     if (isDeciding && onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals: safeSteals })
   }
 
+  // Cities & Knights Taxation (Task 10) — the multi-victim steal Taxation
+  // needs, as opposed to applyRobberMove's own single-victim one: EVERY
+  // player with a building on the chosen hex loses one random card, not
+  // just one randomly-picked victim. Declared here, immediately before
+  // moveRobber (rather than beside armTaxation, further down the file),
+  // for the same "don't reference a later-declared const" reason
+  // canPlayProgressCardNow's own comment gives — moveRobber's leading
+  // branch below calls this directly, so it has to already exist by then.
+  //
+  // The whole steal is computed BEFORE setPlayers, as a pure function of
+  // the outer-scope `players`, then applied by a single side-effect-free
+  // `.map`. Exactly the restructure applyWeddingEffect's and
+  // applyProgressCardDraws' own comments describe, for the same reason:
+  // StrictMode double-invokes updaters in dev, so a `Math.random()` +
+  // `steals.push()` INSIDE the updater ran twice — pushing duplicate
+  // entries into the closure-scoped `steals`, and letting the resource
+  // actually deducted (second invocation) disagree with the one broadcast
+  // to every other client (first invocation's entry). That's a real
+  // actor/peer desync, not a dev-only cosmetic, since broadcastTaxation-
+  // Resolved sends `steals` right after this call. Reading the outer-scope
+  // `players` is safe here for the same reason those two functions give:
+  // this only ever runs from a live click handler (moveRobber's leading
+  // branch), so it IS the current render's state, not a stale snapshot.
   const resolveTaxation = (tileId: string) => {
     const playerId = pendingTaxation
     if (playerId == null) return

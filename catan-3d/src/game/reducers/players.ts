@@ -27,6 +27,7 @@ export type PlayersAction =
   | { type: 'TAXATION_ARMED'; playerId: number }
   | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
   | { type: 'KNIGHT_RECRUITED'; knight: KnightPiece; isFree: boolean }
+  | { type: 'KNIGHT_MOVED'; playerId: number; knightId: string; vertexId: string }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -221,6 +222,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
               knightPieces: [...p.knightPieces, action.knight],
             }
           : p,
+      )
+    case 'KNIGHT_MOVED':
+      return players.map((p) =>
+        p.id !== action.playerId
+          ? p
+          : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === action.knightId ? { ...k, vertexId: action.vertexId, active: false } : k)) },
       )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

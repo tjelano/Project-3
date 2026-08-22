@@ -2005,12 +2005,7 @@ function App() {
     // sending client already validated the move locally (knightMoveTargets)
     // before ever broadcasting.
     onKnightMoved: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === payload.knightId ? { ...k, vertexId: payload.vertexId, active: false } : k)) },
-        ) })
+      dispatch({ type: 'KNIGHT_MOVED', playerId: payload.playerId, knightId: payload.knightId, vertexId: payload.vertexId })
     },
     // Cities & Knights knight displace (Task 10) — same trusted-apply
     // reasoning as onKnightMoved above, but mirrors the local resolution's
@@ -5183,12 +5178,7 @@ function App() {
         warn('Not a valid move.')
         return
       }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== player.id
-            ? p
-            : { ...p, knightPieces: p.knightPieces.map((k) => (k.id === knightId ? { ...k, vertexId, active: false } : k)) },
-        ) })
+      dispatch({ type: 'KNIGHT_MOVED', playerId: player.id, knightId, vertexId })
       setArmedKnightAction(null)
       if (onlineInfo) broadcastKnightMoved({ playerId: player.id, knightId, vertexId })
       return

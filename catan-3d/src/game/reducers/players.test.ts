@@ -553,6 +553,28 @@ describe('reducePlayers — KNIGHT_RECRUITED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_MOVED', () => {
+  it('moves the named knight and deactivates it', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_MOVED', playerId: players[0].id, knightId: 'k1', vertexId: 'V2' }, initialGameState)
+    const knight = result.find((p) => p.id === players[0].id)!.knightPieces[0]
+    expect(knight.vertexId).toBe('V2')
+    expect(knight.active).toBe(false)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      knightPieces: [{ id: 'k1', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V1' }],
+    }))
+    const result = reducePlayers(players, { type: 'KNIGHT_MOVED', playerId: players[0].id, knightId: 'k1', vertexId: 'V2' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

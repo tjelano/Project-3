@@ -67,7 +67,6 @@ import {
   IMPROVEMENT_TRACK_ORDER,
   KNIGHT_ACTIVATE_COST,
   KNIGHT_PROMOTE_COST,
-  KNIGHT_RECRUIT_COST,
   KNIGHT_STARTING_SUPPLY,
   KNIGHT_STRENGTH_ORDER,
   KNIGHT_STRENGTH_VALUE,
@@ -1964,20 +1963,7 @@ function App() {
     // for why reusing the paid path unconditionally here would desync
     // every other client's resources/supply for a Treason placement.
     onKnightRecruited: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.knight.ownerId
-            ? {
-                ...p,
-                resources: payload.isFree ? p.resources : deductCost(p.resources, KNIGHT_RECRUIT_COST),
-                knightSupply: {
-                  ...p.knightSupply,
-                  [payload.knight.strength]: p.knightSupply[payload.knight.strength] - 1,
-                },
-                knightPieces: [...p.knightPieces, payload.knight],
-              }
-            : p,
-        ) })
+      dispatch({ type: 'KNIGHT_RECRUITED', knight: payload.knight, isFree: payload.isFree })
     },
     // Cities & Knights knight activate/promote (Task 8) — same trusted-apply
     // reasoning as onKnightRecruited just above: the sending client already
@@ -5133,12 +5119,7 @@ function App() {
         return
       }
       const newKnight: KnightPiece = { id: nextKnightId(playerId), ownerId: playerId, strength: available, active, vertexId }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== playerId
-            ? p
-            : { ...p, knightSupply: { ...p.knightSupply, [available]: p.knightSupply[available] - 1 }, knightPieces: [...p.knightPieces, newKnight] },
-        ) })
+      dispatch({ type: 'KNIGHT_RECRUITED', knight: newKnight, isFree: true })
       setPendingTreasonPlacement(null)
       // Deliberately reuses Task 7's KnightRecruitedPayload/onKnightRecruited
       // — a "knight appears at this vertex with this strength/status" event
@@ -5171,17 +5152,7 @@ function App() {
         active: false,
         vertexId,
       }
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === playerId
-            ? {
-                ...p,
-                resources: deductCost(p.resources, KNIGHT_RECRUIT_COST),
-                knightSupply: { ...p.knightSupply, basic: p.knightSupply.basic - 1 },
-                knightPieces: [...p.knightPieces, newKnight],
-              }
-            : p,
-        ) })
+      dispatch({ type: 'KNIGHT_RECRUITED', knight: newKnight, isFree: false })
       setPendingKnightRecruit(null)
       if (onlineInfo) broadcastKnightRecruited({ knight: newKnight, isFree: false })
       return

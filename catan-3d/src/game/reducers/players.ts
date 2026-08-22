@@ -1,5 +1,5 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts } from '../discard'
 
@@ -26,6 +26,7 @@ export type PlayersAction =
   | { type: 'ALL_KNIGHTS_DEACTIVATED' }
   | { type: 'TAXATION_ARMED'; playerId: number }
   | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
+  | { type: 'KNIGHT_RECRUITED'; knight: KnightPiece; isFree: boolean }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -210,6 +211,17 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         }
         return p
       })
+    case 'KNIGHT_RECRUITED':
+      return players.map((p) =>
+        p.id === action.knight.ownerId
+          ? {
+              ...p,
+              resources: action.isFree ? p.resources : deductCost(p.resources, KNIGHT_RECRUIT_COST),
+              knightSupply: { ...p.knightSupply, [action.knight.strength]: p.knightSupply[action.knight.strength] - 1 },
+              knightPieces: [...p.knightPieces, action.knight],
+            }
+          : p,
+      )
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

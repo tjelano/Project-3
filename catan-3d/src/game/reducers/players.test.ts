@@ -524,6 +524,35 @@ describe('reducePlayers — TAXATION_RESOLVED', () => {
   })
 })
 
+describe('reducePlayers — KNIGHT_RECRUITED', () => {
+  it('adds the knight and decrements its strength tier in supply, deducting resources when not free', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 1, grain: 0, ore: 1 } }))
+    const knight = { id: 'k1', ownerId: players[0].id, strength: 'basic' as const, active: false, vertexId: 'V1' }
+    const result = reducePlayers(players, { type: 'KNIGHT_RECRUITED', knight, isFree: false }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources).toEqual({ lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 })
+    expect(player.knightSupply.basic).toBe(players[0].knightSupply.basic - 1)
+    expect(player.knightPieces).toEqual([knight])
+  })
+
+  it('adds the knight and decrements supply without deducting resources when free', () => {
+    const players = createInitialPlayers(2)
+    const knight = { id: 'k1', ownerId: players[0].id, strength: 'strong' as const, active: true, vertexId: 'V1' }
+    const result = reducePlayers(players, { type: 'KNIGHT_RECRUITED', knight, isFree: true }, initialGameState)
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources).toEqual(players[0].resources)
+    expect(player.knightSupply.strong).toBe(players[0].knightSupply.strong - 1)
+    expect(player.knightPieces).toEqual([knight])
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const knight = { id: 'k1', ownerId: players[0].id, strength: 'basic' as const, active: false, vertexId: 'V1' }
+    const result = reducePlayers(players, { type: 'KNIGHT_RECRUITED', knight, isFree: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

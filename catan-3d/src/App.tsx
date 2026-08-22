@@ -41,7 +41,6 @@ import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/dis
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
-  buyImprovementLevel,
   improvementLevelCost,
   MAX_IMPROVEMENT_LEVEL,
   evaluateMetropolisPurchase,
@@ -1637,7 +1636,7 @@ function App() {
         console.error('[Catan] Ignoring malformed city-improvement payload:', payload)
         return
       }
-      applyCityImprovementPurchase(payload.playerId, payload.track, payload.craneDiscount)
+      applyCityImprovementPurchase(payload.playerId, payload.track, payload.craneDiscount ?? false)
     },
     onProgressCardsDrawn: (payload) => {
       // Broadcast-sourced — same validation shape as onCityImprovementPurchased:

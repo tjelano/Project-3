@@ -5398,15 +5398,7 @@ function App() {
     const announcer = playerById.get(announcerId)
     if (!announcer) return
     const affected = playersMeetingVpThreshold(announcerId, 'gte')
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
-        if (!affected.some((a) => a.id === p.id)) return p
-        const handSize = discardHandSize(p.resources, p.commodities, gameRules.citiesAndKnightsCommodities)
-        const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
-        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
-        return { ...p, resources, commodities }
-      }) })
+    dispatch({ type: 'SABOTAGE_PLAYED', announcerId, affected: affected.map((p) => p.id), countsCommodities: gameRules.citiesAndKnightsCommodities })
     inform(`${announcer.name} played Sabotage — ${affected.length} player(s) discarded half their hand.`)
   }
 

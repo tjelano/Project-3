@@ -1,7 +1,7 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
 import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST } from '../types'
 import type { GameAction, GameState } from '../gameState'
-import { applyDiscardCounts } from '../discard'
+import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
 
 export type PlayersAction =
@@ -51,6 +51,7 @@ export type PlayersAction =
   | { type: 'PROGRESS_DISCARD_CONFIRMED'; playerId: number; indices: number[] }
   | { type: 'SCIENCE_FREE_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
   | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
+  | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
@@ -433,6 +434,15 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) => {
         const drawn = action.draws.filter((d) => d.playerId === p.id).map((d) => d.card)
         return drawn.length === 0 ? p : { ...p, progressCards: [...p.progressCards, ...drawn] }
+      })
+    case 'SABOTAGE_PLAYED':
+      return players.map((p) => {
+        if (p.id === action.announcerId) return { ...p, progressCards: removeOne(p.progressCards, 'sabotage') }
+        if (!action.affected.includes(p.id)) return p
+        const handSize = discardHandSize(p.resources, p.commodities, action.countsCommodities)
+        const counts = autoDiscardCounts(p.resources, p.commodities, Math.floor(handSize / 2))
+        const { resources, commodities } = applyDiscardCounts(p.resources, p.commodities, counts)
+        return { ...p, resources, commodities }
       })
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default

@@ -1062,6 +1062,29 @@ describe('reducePlayers — DIPLOMACY_PLAYED', () => {
   })
 })
 
+describe('reducePlayers — SABOTAGE_PLAYED', () => {
+  it('removes one sabotage card from the announcer and auto-discards half the hand of every named affected player', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['sabotage' as const] : [],
+      resources: i === 1 ? { lumber: 4, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'SABOTAGE_PLAYED', announcerId: players[0].id, affected: [players[1].id], countsCommodities: false },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBeLessThan(4)
+  })
+
+  it('leaves a player not in the affected list untouched', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['sabotage' as const] : [] }))
+    const result = reducePlayers(players, { type: 'SABOTAGE_PLAYED', announcerId: players[0].id, affected: [], countsCommodities: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

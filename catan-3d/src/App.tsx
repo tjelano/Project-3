@@ -2767,17 +2767,7 @@ function App() {
     dispatchGameAction({ type: 'REMOVE_ROAD', edgeId }, false)
     // Players-side effect stays direct — see applySettlementPlacement's own
     // comment (Task 8).
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id === playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
-        // Returned to the OWNER's own supply, never the announcer's — a
-        // removed road just goes back to whoever built it, same as any
-        // other "un-build" (the announcer only gets something extra when
-        // the removed road was their OWN, via the free-rebuild branch below,
-        // not via this counter).
-        if (p.id === ownerId && ownerId !== playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
-        return p
-      }) })
+    dispatch({ type: 'DIPLOMACY_PLAYED', playerId, ownerId })
     // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
     // counter Road Building/setup free roads already use (buildRoadRaw
     // checks it directly) — not a second, parallel "free road" concept.

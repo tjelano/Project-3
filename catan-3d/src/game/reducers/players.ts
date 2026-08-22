@@ -38,6 +38,7 @@ export type PlayersAction =
   | { type: 'KNIGHT_DEACTIVATED_AFTER_CHASE'; playerId: number; knightId: string }
   | { type: 'TREASON_KNIGHT_REMOVED'; actingPlayerId: number; targetPlayerId: number; removedKnight: KnightPiece }
   | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
+  | { type: 'DIPLOMACY_PLAYED'; playerId: number; ownerId: number }
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
   | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
   | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
@@ -347,6 +348,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       return players.map((p) =>
         p.id === action.playerId ? { ...p, progressCards: removeOne(p.progressCards, action.card) } : p,
       )
+    case 'DIPLOMACY_PLAYED':
+      return players.map((p) => {
+        if (p.id === action.playerId) return { ...p, progressCards: removeOne(p.progressCards, 'diplomacy') }
+        if (p.id === action.ownerId && action.ownerId !== action.playerId) return { ...p, roadsRemaining: p.roadsRemaining + 1 }
+        return p
+      })
     case 'DEV_CARD_SPENT':
       return players.map((p) =>
         p.id === action.playerId

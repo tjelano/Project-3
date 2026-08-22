@@ -1047,6 +1047,21 @@ describe('reducePlayers — PROGRESS_CARDS_DRAWN', () => {
   })
 })
 
+describe('reducePlayers — DIPLOMACY_PLAYED', () => {
+  it('removes one diplomacy card from the player and credits a road to the road owner', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['diplomacy' as const] : [], roadsRemaining: 10 }))
+    const result = reducePlayers(players, { type: 'DIPLOMACY_PLAYED', playerId: players[0].id, ownerId: players[1].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual([])
+    expect(result.find((p) => p.id === players[1].id)!.roadsRemaining).toBe(11)
+  })
+
+  it('does not double-credit when the player removes their own road', () => {
+    const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 0 ? ['diplomacy' as const] : [], roadsRemaining: 10 }))
+    const result = reducePlayers(players, { type: 'DIPLOMACY_PLAYED', playerId: players[0].id, ownerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.roadsRemaining).toBe(10)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

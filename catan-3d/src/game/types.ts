@@ -448,7 +448,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
 // win. Scales UP only (never below standard, even for a target set BELOW
 // WINNING_SCORE) so a short custom game never gets fewer pieces than normal
 // Catan provides.
-function victoryPointScale(victoryPointTarget: number): number {
+export function victoryPointScale(victoryPointTarget: number): number {
   return Math.max(1, victoryPointTarget / WINNING_SCORE)
 }
 

@@ -76,6 +76,7 @@ import {
   SETTLEMENT_COST,
   SHIP_COST,
   STARTING_SHIPS,
+  WINNING_SCORE,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
@@ -83,6 +84,7 @@ import {
   emptyCityImprovements,
   emptyCommodities,
   getPublicScore,
+  victoryPointScale,
   type CommodityType,
   type DevCardType,
   type GameRules,
@@ -6248,8 +6250,14 @@ function App() {
       // same pre-feature-snapshot gap as the fields above.
       defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
       // Seafarers shipsRemaining (Ships & Longest Route sub-plan) — same
-      // pre-feature-snapshot gap as commodities/cityImprovements above.
-      shipsRemaining: p.shipsRemaining ?? STARTING_SHIPS,
+      // pre-feature-snapshot gap as commodities/cityImprovements above, but
+      // scaled the same way createInitialPlayers scales every other piece
+      // count: a legacy snapshot saved with a custom (non-default)
+      // victoryPointTarget should restore the same shipsRemaining a fresh
+      // player in that same game would have gotten, not a flat 15.
+      shipsRemaining:
+        p.shipsRemaining ??
+        Math.ceil(STARTING_SHIPS * victoryPointScale(snapshot.gameRules?.victoryPointTarget ?? WINNING_SCORE)),
     }))
     dispatch({ type: 'RESTORE_PLAYERS', players: normalizedPlayers })
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1

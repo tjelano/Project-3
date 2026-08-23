@@ -88,6 +88,52 @@ describe('calculateLongestRoad', () => {
     const edges = chain('A', 'B', 'C', 'D', 'E', 'F')
     expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {})).toBe(5)
   })
+
+  it('counts ships the same as roads when there are no roads at all', () => {
+    const edges = chain('A', 'B', 'C', 'D', 'E', 'F') // 5 edges
+    expect(calculateLongestRoad(1, {}, graphOf(edges), {}, new Map(), ownedBy(1, edges))).toBe(5)
+  })
+
+  it('chains a road directly into a ship through an owned settlement', () => {
+    // A-B-C is roads, C-D-E is ships, with a settlement at C (the junction).
+    const roadEdges = chain('A', 'B', 'C')
+    const shipEdges = chain('C', 'D', 'E')
+    const roads = ownedBy(1, roadEdges)
+    const ships = ownedBy(1, shipEdges)
+    const settlements: Record<string, Building> = { C: { ownerId: 1, type: 'settlement' } }
+    expect(calculateLongestRoad(1, roads, graphOf([...roadEdges, ...shipEdges]), settlements, new Map(), ships)).toBe(4)
+  })
+
+  it('breaks a road-to-ship transition at a vertex with no owned building', () => {
+    // Same topology as above, but NO settlement at C — the junction vertex.
+    const roadEdges = chain('A', 'B', 'C')
+    const shipEdges = chain('C', 'D', 'E')
+    const roads = ownedBy(1, roadEdges)
+    const ships = ownedBy(1, shipEdges)
+    // Longest run without crossing the type boundary: either A-B-C (2 roads) or C-D-E (2 ships).
+    expect(calculateLongestRoad(1, roads, graphOf([...roadEdges, ...shipEdges]), {}, new Map(), ships)).toBe(2)
+  })
+
+  it('does not break a same-type continuation at a vertex with no owned building', () => {
+    // All-ship chain through an un-owned vertex — no type mismatch, so it's never blocked.
+    const shipEdges = chain('A', 'B', 'C', 'D', 'E')
+    expect(calculateLongestRoad(1, {}, graphOf(shipEdges), {}, new Map(), ownedBy(1, shipEdges))).toBe(4)
+  })
+
+  it("still breaks at an opponent's building regardless of edge type", () => {
+    const roadEdges = chain('A', 'B', 'C')
+    const shipEdges = chain('C', 'D', 'E')
+    const roads = ownedBy(1, roadEdges)
+    const ships = ownedBy(1, shipEdges)
+    const settlements: Record<string, Building> = { C: { ownerId: 2, type: 'settlement' } } // opponent's, not mine
+    expect(calculateLongestRoad(1, roads, graphOf([...roadEdges, ...shipEdges]), settlements, new Map(), ships)).toBe(2)
+  })
+
+  it('the very first edge from a starting vertex is never type-constrained', () => {
+    // A single ship edge with nothing before it — no incoming type exists yet.
+    const shipEdges = chain('A', 'B')
+    expect(calculateLongestRoad(1, {}, graphOf(shipEdges), {}, new Map(), ownedBy(1, shipEdges))).toBe(1)
+  })
 })
 
 describe('pickTrophyHolder', () => {

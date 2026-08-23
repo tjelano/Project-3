@@ -18,8 +18,25 @@ export function calculateLongestRoad(
   // call site (and the whole pre-existing test suite above) keeps behaving
   // identically when this house rule is off.
   knightOwnerByVertex: ReadonlyMap<string, number> = new Map(),
+  // Seafarers ships: same shape as roads, a second edge-ownership map.
+  // Defaults to empty so every pre-existing call site keeps behaving
+  // identically — see the backward-compatibility note below.
+  ships: Record<string, number> = {},
 ): number {
-  const ownedEdgeIds = new Set(graph.edges.filter((edge) => roads[edge.id] === playerId).map((edge) => edge.id))
+  // One combined edge set plus a per-edge type lookup — an edge is either a
+  // road or a ship, never both (BUILD_ROAD/BUILD_SHIP's own eligibility
+  // checks in App.tsx enforce that edges can't hold both piece types).
+  const edgeType = new Map<string, 'road' | 'ship'>()
+  const ownedEdgeIds = new Set<string>()
+  for (const edge of graph.edges) {
+    if (roads[edge.id] === playerId) {
+      ownedEdgeIds.add(edge.id)
+      edgeType.set(edge.id, 'road')
+    } else if (ships[edge.id] === playerId) {
+      ownedEdgeIds.add(edge.id)
+      edgeType.set(edge.id, 'ship')
+    }
+  }
   if (ownedEdgeIds.size === 0) return 0
 
   const adjacency = new Map<string, { edgeId: string; nextVertex: string }[]>()
@@ -42,7 +59,9 @@ export function calculateLongestRoad(
     return knightOwnerId != null && knightOwnerId !== playerId
   }
 
-  const dfs = (vertex: string, visitedEdges: Set<string>): number => {
+  const hasOwnBuilding = (vertexId: string): boolean => settlements[vertexId]?.ownerId === playerId
+
+  const dfs = (vertex: string, visitedEdges: Set<string>, incomingType: 'road' | 'ship' | null): number => {
     // An opponent's settlement/city breaks the road here — arriving is
     // fine (already counted by the caller), but the path can't extend
     // further from this vertex.
@@ -51,8 +70,17 @@ export function calculateLongestRoad(
     let best = 0
     for (const { edgeId, nextVertex } of adjacency.get(vertex) ?? []) {
       if (visitedEdges.has(edgeId)) continue
+      const outgoingType = edgeType.get(edgeId)!
+      // CN3083: "roads and ships are only considered part of the same
+      // route if they connect to each other at one of your buildings."
+      // incomingType is null only for the very first edge taken from any
+      // starting vertex — that edge is never constrained, matching the
+      // spec's own note. This is a SEPARATE check from isBlockedByOpponent
+      // above: an empty (no building) vertex now blocks a type transition
+      // even though it never blocked a same-type continuation.
+      if (incomingType != null && incomingType !== outgoingType && !hasOwnBuilding(vertex)) continue
       visitedEdges.add(edgeId)
-      best = Math.max(best, 1 + dfs(nextVertex, visitedEdges))
+      best = Math.max(best, 1 + dfs(nextVertex, visitedEdges, outgoingType))
       visitedEdges.delete(edgeId)
     }
     return best
@@ -60,7 +88,7 @@ export function calculateLongestRoad(
 
   let longest = 0
   for (const vertex of adjacency.keys()) {
-    longest = Math.max(longest, dfs(vertex, new Set()))
+    longest = Math.max(longest, dfs(vertex, new Set(), null))
   }
   return longest
 }

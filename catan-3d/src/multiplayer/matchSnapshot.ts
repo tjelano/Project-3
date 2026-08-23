@@ -49,6 +49,14 @@ export interface MatchSnapshot {
   players: Player[]
   settlements: Record<string, Building>
   roads: Record<string, number>
+  // Seafarers ships (Ships & Longest Route sub-plan) — same optional/
+  // backward-compatible treatment as merchantTileId etc. above: absent on
+  // any snapshot saved before this feature existed. restoreFromSnapshot
+  // (App.tsx) falls back to {}/[]/false, which is always correct for a
+  // pre-feature match (no ships existed to have been built or moved).
+  ships?: Record<string, number>
+  shipsBuiltThisTurn?: string[]
+  hasMovedShipThisTurn?: boolean
   currentPlayerIndex: number
   robberTileId: string
   gamePhase: GamePhase

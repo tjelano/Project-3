@@ -5,6 +5,7 @@ import {
   STARTING_CITIES,
   STARTING_ROADS,
   STARTING_SETTLEMENTS,
+  STARTING_SHIPS,
   WINNING_SCORE,
   IMPROVEMENT_TRACK_ORDER,
   PROGRESS_CARD_ORDER,
@@ -260,6 +261,12 @@ describe('createInitialPlayers', () => {
       expect(player.roadsRemaining).toBe(STARTING_ROADS)
       expect(player.citiesRemaining).toBe(STARTING_CITIES)
     }
+  })
+
+  it('gives every player STARTING_SHIPS ships, scaled the same way roads are', () => {
+    const players = createInitialPlayers(2)
+    expect(players[0].shipsRemaining).toBe(STARTING_SHIPS)
+    expect(players[1].shipsRemaining).toBe(STARTING_SHIPS)
   })
 })
 

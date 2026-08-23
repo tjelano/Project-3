@@ -49,6 +49,7 @@ describe('assignPorts', () => {
       vertexTileIds: new Map(),
       vertexEdgeIds: new Map(),
       tileCenters: new Map(),
+      edgeTileIds: new Map(),
     }
     const ports = assignPorts(emptyGraph)
     expect(ports).toEqual([])
@@ -130,6 +131,27 @@ describe('buildBoardGraph', () => {
 
     // Central vertex connects to 3 edges
     expect(graph.vertexEdgeIds.get(centralVertex.id)?.length).toBe(3)
+  })
+})
+
+describe('buildBoardGraph — edgeTileIds', () => {
+  it('gives a single-tile board every edge exactly one adjacent tile id', () => {
+    const tiles = [{ id: '0-0', col: 0, row: 0, x: 0, z: 0, biome: 'fields' as const, number: 5 }]
+    const graph = buildBoardGraph(tiles)
+    expect(graph.edges).toHaveLength(6)
+    for (const edge of graph.edges) {
+      expect(graph.edgeTileIds.get(edge.id)).toEqual(['0-0'])
+    }
+  })
+
+  it('gives an interior edge between two adjacent tiles both tile ids', () => {
+    const tiles = buildHexBoard() // standard 19-tile board has real interior edges
+    const graph = buildBoardGraph(tiles)
+    const interiorEdge = graph.edges.find((e) => (graph.edgeTileIds.get(e.id) ?? []).length === 2)
+    expect(interiorEdge).toBeDefined()
+    const tileIds = graph.edgeTileIds.get(interiorEdge!.id)!
+    expect(tileIds).toHaveLength(2)
+    expect(new Set(tileIds).size).toBe(2) // two distinct tiles, not the same tile twice
   })
 })
 

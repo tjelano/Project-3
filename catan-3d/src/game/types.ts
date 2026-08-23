@@ -164,6 +164,7 @@ export interface Player {
   settlementsRemaining: number
   roadsRemaining: number
   citiesRemaining: number
+  shipsRemaining: number
   devCards: DevCardType[]
   // Cards bought this turn — can't be played until the turn passes. Cleared
   // whenever this player's turn begins (see endTurn in App.tsx).
@@ -352,9 +353,11 @@ export const BIOME_LABELS: Record<Biome, string> = {
 export const STARTING_SETTLEMENTS = 5
 export const STARTING_ROADS = 15
 export const STARTING_CITIES = 4
+export const STARTING_SHIPS = 15
 
 export const SETTLEMENT_COST: Partial<Resources> = { lumber: 1, brick: 1, wool: 1, grain: 1 }
 export const ROAD_COST: Partial<Resources> = { lumber: 1, brick: 1 }
+export const SHIP_COST: Partial<Resources> = { lumber: 1, wool: 1 }
 export const CITY_COST: Partial<Resources> = { ore: 3, grain: 2 }
 export const DEV_CARD_COST: Partial<Resources> = { ore: 1, grain: 1, wool: 1 }
 
@@ -445,7 +448,7 @@ export const DEFAULT_GAME_RULES: GameRules = {
 // win. Scales UP only (never below standard, even for a target set BELOW
 // WINNING_SCORE) so a short custom game never gets fewer pieces than normal
 // Catan provides.
-function victoryPointScale(victoryPointTarget: number): number {
+export function victoryPointScale(victoryPointTarget: number): number {
   return Math.max(1, victoryPointTarget / WINNING_SCORE)
 }
 
@@ -505,6 +508,7 @@ export function createInitialPlayers(
   const settlementsRemaining = Math.ceil(STARTING_SETTLEMENTS * scale)
   const roadsRemaining = Math.ceil(STARTING_ROADS * scale)
   const citiesRemaining = Math.ceil(STARTING_CITIES * scale)
+  const shipsRemaining = Math.ceil(STARTING_SHIPS * scale)
   return resolvedColorTokens.map((colorToken, index) => ({
     id: index + 1,
     name: names?.[index]?.trim() || `Player ${index + 1}`,
@@ -516,6 +520,7 @@ export function createInitialPlayers(
     settlementsRemaining,
     roadsRemaining,
     citiesRemaining,
+    shipsRemaining,
     devCards: [],
     devCardsBoughtThisTurn: [],
     knightsPlayed: 0,

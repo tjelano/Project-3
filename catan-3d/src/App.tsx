@@ -74,6 +74,9 @@ import {
   RESOURCE_ORDER,
   ROAD_COST,
   SETTLEMENT_COST,
+  SHIP_COST,
+  STARTING_SHIPS,
+  WINNING_SCORE,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
@@ -81,6 +84,7 @@ import {
   emptyCityImprovements,
   emptyCommodities,
   getPublicScore,
+  victoryPointScale,
   type CommodityType,
   type DevCardType,
   type GameRules,
@@ -96,6 +100,7 @@ import {
   type StolenItem,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
+import { isShipPlacementConnected } from './game/shipEligibility'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -719,11 +724,12 @@ function App() {
   // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
-  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, and PILLAGE_CITY
-  // do; an action whose banner/broadcast needs context the GameAction
-  // doesn't carry, e.g. REMOVE_ROAD — its playerId/ownerId context rides on
-  // the separate DIPLOMACY_PLAYED action dispatched alongside it — broadcasts
-  // itself directly at its own call site instead, with dispatchGameAction
+  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, BUILD_SHIP,
+  // MOVE_SHIP, and PILLAGE_CITY do; an action whose banner/broadcast needs
+  // context the GameAction doesn't carry, e.g. REMOVE_ROAD — its
+  // playerId/ownerId context rides on the separate DIPLOMACY_PLAYED action
+  // dispatched alongside it — broadcasts itself directly at its own call
+  // site instead, with dispatchGameAction
   // called at isDeciding: false so it never double-broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
@@ -735,6 +741,12 @@ function App() {
         break
       case 'BUILD_ROAD':
         broadcastRoadBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeRoad: action.isFreeRoad })
+        break
+      case 'BUILD_SHIP':
+        broadcastShipBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeShip: action.isFreeShip })
+        break
+      case 'MOVE_SHIP':
+        broadcastShipMoved({ fromEdgeId: action.fromEdgeId, toEdgeId: action.toEdgeId, playerId: action.playerId })
         break
       case 'PILLAGE_CITY':
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
@@ -954,6 +966,15 @@ function App() {
         setSetupStage('settlement')
       }
     }
+  }
+
+  const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
+    if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+  }
+
+  const applyShipMove = (fromEdgeId: string, toEdgeId: string, playerId: number, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'MOVE_SHIP', fromEdgeId, toEdgeId, playerId }, isDeciding)
   }
 
   const applyRobberMove = (
@@ -1371,6 +1392,8 @@ function App() {
     broadcastSettlementBuilt,
     broadcastCityBuilt,
     broadcastRoadBuilt,
+    broadcastShipBuilt,
+    broadcastShipMoved,
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
@@ -1448,6 +1471,10 @@ function App() {
     },
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
+    onShipBuilt: (payload) =>
+      applyShipPlacement(payload.edgeId, payload.playerId, false, payload.isFreeShip, false),
+    onShipMoved: (payload) =>
+      applyShipMove(payload.fromEdgeId, payload.toEdgeId, payload.playerId, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
@@ -2264,6 +2291,14 @@ function App() {
 
   // Recomputed whenever roads/settlements change — cheap given how few
   // roads a player ever has (max 15), so a plain per-player DFS is fine.
+  //
+  // Deliberately does NOT pass gameState.board.ships (calculateLongestRoad's
+  // optional 6th argument) yet — no UI can place a ship yet, per this plan's
+  // own scope. When a future sub-plan wires ship placement into the UI, this
+  // needs BOTH gameState.board.ships added as the 6th positional argument
+  // below AND gameState.board.ships added to this useMemo's dependency
+  // array — otherwise the memo goes stale and stops recomputing when ships
+  // change.
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
@@ -2397,6 +2432,34 @@ function App() {
     const aUsable = hasPlayerRoadAt(edge.a, playerId) && !isBlockedForRoadPlacement(edge.a, playerId)
     const bUsable = hasPlayerRoadAt(edge.b, playerId) && !isBlockedForRoadPlacement(edge.b, playerId)
     return aUsable || bUsable
+  }
+
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
+  const edgeTouchesSea = (edgeId: string): boolean => {
+    const tileIds = graph.edgeTileIds.get(edgeId) ?? []
+    return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
+  }
+
+  // CN3083: "you may only move a ship if at least one of its two ends is
+  // open — an end is open when it is NOT adjacent to one of your own ships
+  // or buildings." shipEdgeId is excluded from the "own ship" check so the
+  // ship being evaluated doesn't anchor itself.
+  const isShipEndOpen = (vertexId: string, shipEdgeId: string, playerId: number): boolean => {
+    if (gameState.board.settlements[vertexId]?.ownerId === playerId) return false
+    const edgeIds = graph.vertexEdgeIds.get(vertexId) ?? []
+    return !edgeIds.some((edgeId) => edgeId !== shipEdgeId && gameState.board.ships[edgeId] === playerId)
+  }
+
+  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
+  // moving a ship to or from an edge of the hex the pirate currently
+  // occupies — not checkable yet, no pirateTileId exists.
+  const canMoveShip = (edgeId: string, playerId: number): boolean => {
+    if (gameState.board.ships[edgeId] !== playerId) return false
+    if (gameState.board.shipsBuiltThisTurn.includes(edgeId)) return false
+    const edge = edgeById.get(edgeId)
+    if (!edge) return false
+    return isShipEndOpen(edge.a, edgeId, playerId) || isShipEndOpen(edge.b, edgeId, playerId)
   }
 
   // Best available bank-trade rate for giving away this resource: 2:1 if the
@@ -2839,8 +2902,8 @@ function App() {
       warn('Place your settlement first.')
       return
     }
-    if (gameState.board.roads[edgeId] != null) {
-      warn('That road is already occupied.')
+    if (gameState.board.roads[edgeId] != null || gameState.board.ships[edgeId] != null) {
+      warn('That edge is already occupied.')
       return
     }
     if (isSetup) {
@@ -2872,6 +2935,108 @@ function App() {
 
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
+
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
+  const buildShipRaw = (edgeId: string) => {
+    if (!canInteract()) return
+
+    const player = players[currentPlayerIndex]
+    const isFreeShip = freeRoadsRemaining > 0
+
+    if (!isFreeShip && !hasRolledThisTurn) {
+      warn('Roll the dice before building.')
+      return
+    }
+    if (gameState.board.roads[edgeId] != null || gameState.board.ships[edgeId] != null) {
+      warn('That edge is already occupied.')
+      return
+    }
+    if (!edgeTouchesSea(edgeId)) {
+      warn('Ships can only be placed on edges bordering the sea.')
+      return
+    }
+    if (!isShipPlacementConnected(graph, edgeById, gameState.board.settlements, gameState.board.ships, edgeId, player.id)) {
+      warn('Ship must connect to one of your ships or buildings.')
+      return
+    }
+    if (player.shipsRemaining <= 0) {
+      warn('You have no ships left to place.')
+      return
+    }
+    if (!isFreeShip && !canAfford(player.resources, SHIP_COST)) {
+      warn('Not enough resources for a ship.')
+      return
+    }
+
+    applyShipPlacement(edgeId, player.id, false, isFreeShip, true)
+  }
+  // No 3D UI calls buildShipRaw yet (ship-building click UI is a later
+  // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as
+  // dead code. Verified via manual dispatch (this task's own report), not a
+  // click handler; a future task wires this into BoardInteractions the same
+  // way buildRoad is wired just below.
+  void buildShipRaw
+
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
+  const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
+    if (!canInteract()) return
+
+    const player = players[currentPlayerIndex]
+
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before moving a ship.')
+      return
+    }
+    if (gameState.board.hasMovedShipThisTurn) {
+      warn('You may only move one ship per turn.')
+      return
+    }
+    if (!canMoveShip(fromEdgeId, player.id)) {
+      warn('That ship cannot be moved.')
+      return
+    }
+    if (gameState.board.roads[toEdgeId] != null || gameState.board.ships[toEdgeId] != null) {
+      warn('That edge is already occupied.')
+      return
+    }
+    if (!edgeTouchesSea(toEdgeId)) {
+      warn('Ships can only be placed on edges bordering the sea.')
+      return
+    }
+    // Checked against board state BEFORE the move applies, with the ship's
+    // own current edge excluded from the connectivity scan. Excluding it is
+    // required, not optional: without it, the ship being moved could be the
+    // only thing "connecting" its own destination, letting a move orphan it
+    // (e.g. a lone ship sliding from an anchored settlement into open water
+    // would otherwise see its own old position as proof the new position is
+    // connected). A DIFFERENT own ship or building at a shared vertex still
+    // correctly keeps a legitimate pivot connected, since only fromEdgeId
+    // itself is excluded, not the whole vertex.
+    if (
+      !isShipPlacementConnected(
+        graph,
+        edgeById,
+        gameState.board.settlements,
+        gameState.board.ships,
+        toEdgeId,
+        player.id,
+        fromEdgeId,
+      )
+    ) {
+      warn('Ship must connect to one of your ships or buildings.')
+      return
+    }
+
+    applyShipMove(fromEdgeId, toEdgeId, player.id, true)
+  }
+  // No 3D UI calls moveShipRaw yet (ship-movement click UI is a later
+  // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as
+  // dead code. Verified via manual dispatch (this task's own report), not a
+  // click handler; a future task wires this into BoardInteractions the same
+  // way buildRoad is wired just below.
+  void moveShipRaw
 
   // Stable callbacks for board interactions — buildSettlement/buildRoad
   // never change identity across renders (empty deps), so BoardInteractions
@@ -6084,6 +6249,15 @@ function App() {
       // Cities & Knights Barbarians "Defender of Catan" count (Task 1) —
       // same pre-feature-snapshot gap as the fields above.
       defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
+      // Seafarers shipsRemaining (Ships & Longest Route sub-plan) — same
+      // pre-feature-snapshot gap as commodities/cityImprovements above, but
+      // scaled the same way createInitialPlayers scales every other piece
+      // count: a legacy snapshot saved with a custom (non-default)
+      // victoryPointTarget should restore the same shipsRemaining a fresh
+      // player in that same game would have gotten, not a flat 15.
+      shipsRemaining:
+        p.shipsRemaining ??
+        Math.ceil(STARTING_SHIPS * victoryPointScale(snapshot.gameRules?.victoryPointTarget ?? WINNING_SCORE)),
     }))
     dispatch({ type: 'RESTORE_PLAYERS', players: normalizedPlayers })
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
@@ -6094,7 +6268,14 @@ function App() {
       isHost: online.isHost,
       hostName: snapshot.hostName,
     })
-    dispatch({ type: 'RESTORE_BOARD', settlements: snapshot.settlements, roads: snapshot.roads })
+    dispatch({
+      type: 'RESTORE_BOARD',
+      settlements: snapshot.settlements,
+      roads: snapshot.roads,
+      ships: snapshot.ships ?? {},
+      shipsBuiltThisTurn: snapshot.shipsBuiltThisTurn ?? [],
+      hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
+    })
     setCurrentPlayerIndex(snapshot.currentPlayerIndex)
     setRobberTileId(snapshot.robberTileId)
     setGamePhase(snapshot.gamePhase)
@@ -6346,6 +6527,9 @@ function App() {
       players,
       settlements: gameState.board.settlements,
       roads: gameState.board.roads,
+      ships: gameState.board.ships,
+      shipsBuiltThisTurn: gameState.board.shipsBuiltThisTurn,
+      hasMovedShipThisTurn: gameState.board.hasMovedShipThisTurn,
       currentPlayerIndex,
       robberTileId,
       gamePhase,
@@ -6386,6 +6570,9 @@ function App() {
     players,
     gameState.board.settlements,
     gameState.board.roads,
+    gameState.board.ships,
+    gameState.board.shipsBuiltThisTurn,
+    gameState.board.hasMovedShipThisTurn,
     currentPlayerIndex,
     robberTileId,
     gamePhase,

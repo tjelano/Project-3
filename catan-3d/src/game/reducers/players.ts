@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack, PlayerColorToken } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, SHIP_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -95,6 +95,16 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
               ...p,
               resources: action.isSetup || action.isFreeRoad ? p.resources : deductCost(p.resources, ROAD_COST),
               roadsRemaining: p.roadsRemaining - 1,
+            }
+          : p,
+      )
+    case 'BUILD_SHIP':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? {
+              ...p,
+              resources: action.isSetup || action.isFreeShip ? p.resources : deductCost(p.resources, SHIP_COST),
+              shipsRemaining: p.shipsRemaining - 1,
             }
           : p,
       )

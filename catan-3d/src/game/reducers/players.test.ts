@@ -103,6 +103,50 @@ describe('reducePlayers — BUILD_ROAD', () => {
   })
 })
 
+describe('reducePlayers — BUILD_SHIP', () => {
+  it('deducts SHIP_COST and decrements shipsRemaining outside setup/free ships', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 1, brick: 0, wool: 1, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: players[0].id, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources).toEqual({ lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 })
+    expect(player.shipsRemaining).toBe(players[0].shipsRemaining - 1)
+  })
+
+  it('does not deduct resources when isSetup is true', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: players[0].id, isSetup: true, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources).toEqual(players[0].resources)
+  })
+
+  it('does not deduct resources when isFreeShip is true', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: players[0].id, isSetup: false, isFreeShip: true },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources).toEqual(players[0].resources)
+  })
+
+  it('leaves other players untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: players[0].id, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[1].id)).toEqual(players[1])
+  })
+})
+
 describe('reducePlayers — GRANT_SETUP_RESOURCES', () => {
   it('adds the given resource delta to the named player only', () => {
     const players = createInitialPlayers(2)

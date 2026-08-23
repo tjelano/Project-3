@@ -110,6 +110,21 @@ export interface RoadBuiltPayload {
   isFreeRoad: boolean
 }
 
+export interface ShipBuiltPayload {
+  edgeId: string
+  playerId: number
+  // Same reasoning as RoadBuiltPayload.isFreeRoad above — a free ship
+  // placement (from a Road Building card) needs the actor to say so
+  // explicitly, since dev-card plays aren't broadcast in this phase.
+  isFreeShip: boolean
+}
+
+export interface ShipMovedPayload {
+  fromEdgeId: string
+  toEdgeId: string
+  playerId: number
+}
+
 export interface RobberMovedPayload {
   tileId: string
   thiefId: number
@@ -703,6 +718,8 @@ export interface RoomChannelHandlers {
   onSettlementBuilt?: (payload: SettlementBuiltPayload) => void
   onCityBuilt?: (payload: CityBuiltPayload) => void
   onRoadBuilt?: (payload: RoadBuiltPayload) => void
+  onShipBuilt?: (payload: ShipBuiltPayload) => void
+  onShipMoved?: (payload: ShipMovedPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
   // Cities & Knights barbarian ship (Task 4) — see
   // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
@@ -978,6 +995,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<RoadBuiltPayload>('broadcast', { event: 'ROAD_BUILT' }, ({ payload }) => {
       handlersRef.current.onRoadBuilt?.(payload)
     })
+    channel.on<ShipBuiltPayload>('broadcast', { event: 'SHIP_BUILT' }, ({ payload }) => {
+      handlersRef.current.onShipBuilt?.(payload)
+    })
+    channel.on<ShipMovedPayload>('broadcast', { event: 'SHIP_MOVED' }, ({ payload }) => {
+      handlersRef.current.onShipMoved?.(payload)
+    })
     channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
       handlersRef.current.onRobberMoved?.(payload)
     })
@@ -1252,6 +1275,12 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastRoadBuilt = (payload: RoadBuiltPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ROAD_BUILT', payload })
   }
+  const broadcastShipBuilt = (payload: ShipBuiltPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'SHIP_BUILT', payload })
+  }
+  const broadcastShipMoved = (payload: ShipMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'SHIP_MOVED', payload })
+  }
   const broadcastRobberMoved = (payload: RobberMovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
   }
@@ -1411,6 +1440,8 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastSettlementBuilt,
     broadcastCityBuilt,
     broadcastRoadBuilt,
+    broadcastShipBuilt,
+    broadcastShipMoved,
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,

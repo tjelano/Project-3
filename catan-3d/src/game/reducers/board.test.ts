@@ -166,7 +166,7 @@ describe('reduceBoard — action not owned by this reducer', () => {
   it('returns the same state reference unchanged', () => {
     const result = reduceBoard(
       initialBoardState,
-      { type: 'LEGACY_SET_PLAYERS', updater: (p) => p },
+      { type: 'RESET_PLAYERS', count: 1, names: ['P1'], victoryPointTarget: 10 },
       initialGameState,
     )
     expect(result).toBe(initialBoardState)
@@ -217,7 +217,7 @@ describe('describeBoardAction', () => {
   })
 
   it('an action not owned by this reducer returns no banner or sound', () => {
-    const result = describeBoardAction({ type: 'LEGACY_SET_PLAYERS', updater: (p) => p }, playerById)
+    const result = describeBoardAction({ type: 'RESET_PLAYERS', count: 1, names: ['P1'], victoryPointTarget: 10 }, playerById)
     expect(result.message).toBeNull()
     expect(result.sfx).toBeNull()
   })

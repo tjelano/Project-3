@@ -6,12 +6,6 @@ import { nextKnightStrength } from '../knights'
 import { buyImprovementLevel } from '../cityImprovements'
 
 export type PlayersAction =
-  // Bridge for every setPlayers call site not yet individually migrated to
-  // its own real action — see the players-slice design spec's "Why not a
-  // smaller plan" section. Never broadcast (see this plan's Global
-  // Constraints); deleted once every sub-plan through the final cutover has
-  // replaced its own functions' calls with real actions.
-  | { type: 'LEGACY_SET_PLAYERS'; updater: (players: Player[]) => Player[] }
   | { type: 'RESET_PLAYERS'; count: number; names: string[]; colorTokens?: PlayerColorToken[]; victoryPointTarget: number }
   | { type: 'RESTORE_PLAYERS'; players: Player[] }
   // applySettlementPlacement's 2nd-setup-round resource grant — kept as its
@@ -67,8 +61,6 @@ export type PlayersAction =
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
-    case 'LEGACY_SET_PLAYERS':
-      return action.updater(players)
     case 'RESET_PLAYERS':
       return createInitialPlayers(action.count, action.names, action.colorTokens, action.victoryPointTarget)
     case 'RESTORE_PLAYERS':

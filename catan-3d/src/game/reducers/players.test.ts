@@ -3,25 +3,6 @@ import { reducePlayers } from './players'
 import { createInitialPlayers, emptyResources } from '../types'
 import { initialGameState } from '../gameState'
 
-describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
-  it('applies the given updater to the players array', () => {
-    const players = createInitialPlayers(2)
-    const result = reducePlayers(
-      players,
-      { type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightsPlayed: 9 })) },
-      initialGameState,
-    )
-    expect(result[0].knightsPlayed).toBe(9)
-    expect(result[1].knightsPlayed).toBe(9)
-  })
-
-  it('does not mutate the input array', () => {
-    const players = createInitialPlayers(2)
-    reducePlayers(players, { type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightsPlayed: 9 })) }, initialGameState)
-    expect(players[0].knightsPlayed).toBe(0)
-  })
-})
-
 describe('reducePlayers — TURN_ADVANCED', () => {
   it('clears devCardsBoughtThisTurn for the player at nextPlayerIndex only', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, devCardsBoughtThisTurn: ['knight' as const] }))

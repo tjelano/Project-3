@@ -332,6 +332,72 @@ describe('reduceBoard — robber/pirate data model', () => {
   })
 })
 
+describe('reduceBoard — ROBBER_MOVED', () => {
+  it('moves the robber to the given tile', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1' }
+    const result = reduceBoard(
+      state,
+      { type: 'ROBBER_MOVED', tileId: 'F3', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('F3')
+  })
+
+  it('leaves the pirate untouched', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1', pirateTileId: 'S1' }
+    const result = reduceBoard(
+      state,
+      { type: 'ROBBER_MOVED', tileId: 'F3', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBe('S1')
+  })
+})
+
+describe('reduceBoard — TAXATION_RESOLVED', () => {
+  it('moves the robber to the given tile', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1' }
+    const result = reduceBoard(
+      state,
+      { type: 'TAXATION_RESOLVED', playerId: 1, tileId: 'F3', steals: [] },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('F3')
+  })
+})
+
+describe('reduceBoard — PIRATE_MOVED', () => {
+  it('moves the pirate to the given tile', () => {
+    const state = { ...initialBoardState, pirateTileId: null }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBe('S5')
+  })
+
+  it('accepts a null tileId (parked on the frame)', () => {
+    const state = { ...initialBoardState, pirateTileId: 'S5' }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: null, thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBeNull()
+  })
+
+  it('leaves the robber untouched', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1', pirateTileId: null }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('D1')
+  })
+})
+
 describe('reduceBoard — action not owned by this reducer', () => {
   it('returns the same state reference unchanged', () => {
     const result = reduceBoard(

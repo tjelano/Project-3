@@ -1343,6 +1343,29 @@ describe('reducePlayers — RESTORE_PLAYERS', () => {
   })
 })
 
+describe('reducePlayers — PIRATE_MOVED', () => {
+  it('transfers the stolen resource from victim to thief, identically to ROBBER_MOVED', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: players[0].id, victimId: players[1].id, stolenItem: 'lumber' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(2)
+    expect(result.find((p) => p.id === players[1].id)!.resources.lumber).toBe(0)
+  })
+
+  it('is a no-op when there is nothing to steal', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: players[0].id, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result).toEqual(players)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

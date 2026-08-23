@@ -1,4 +1,4 @@
-import type { Building, Player, Resources } from '../types'
+import type { Building, Player, Resources, StolenItem } from '../types'
 import type { SfxKey } from '../../audio/sfx'
 import type { GameAction, GameState } from '../gameState'
 
@@ -36,6 +36,9 @@ export type BoardAction =
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'MOVE_SHIP'; fromEdgeId: string; toEdgeId: string; playerId: number }
+  | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
+  | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
+  | { type: 'PIRATE_MOVED'; tileId: string | null; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'RESET_BOARD'; robberTileId: string }
   | {
       type: 'RESTORE_BOARD'
@@ -89,6 +92,12 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       ships[action.toEdgeId] = action.playerId
       return { ...state, ships, hasMovedShipThisTurn: true }
     }
+    case 'ROBBER_MOVED':
+      return { ...state, robberTileId: action.tileId }
+    case 'TAXATION_RESOLVED':
+      return { ...state, robberTileId: action.tileId }
+    case 'PIRATE_MOVED':
+      return { ...state, pirateTileId: action.tileId }
     case 'TURN_ADVANCED':
       return { ...state, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
     case 'RESET_BOARD':
@@ -130,6 +139,16 @@ export function describeBoardAction(
     case 'BUILD_SHIP':
       return { message: null, sfx: 'roadPlacement' }
     case 'MOVE_SHIP':
+      return { message: null, sfx: null }
+    case 'ROBBER_MOVED':
+    case 'TAXATION_RESOLVED':
+      // No banner/sfx here — App.tsx's applyRobberMove/applyTaxationResolved
+      // already build their own richer `inform(...)` message (steal outcome,
+      // biome name) and play their own sfx directly, bypassing
+      // describeBoardAction entirely for these two actions, same as
+      // RESET_BOARD/RESTORE_BOARD already do (see that case's own comment).
+      return { message: null, sfx: null }
+    case 'PIRATE_MOVED':
       return { message: null, sfx: null }
     case 'PILLAGE_CITY': {
       const owner = playerById.get(action.playerId)

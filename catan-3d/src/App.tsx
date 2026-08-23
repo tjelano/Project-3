@@ -692,10 +692,11 @@ function App() {
   // Two-tier rule for every GameAction: (1) normally, route through this —
   // it dispatches, fires the banner/sfx via describeBoardAction, and (for
   // actions whose broadcast payload matches the GameAction shape exactly)
-  // broadcasts via broadcastGameAction. (2) When an action's broadcast
-  // payload needs a field the GameAction type doesn't carry (REMOVE_ROAD's
-  // playerId/ownerId context), the apply function still calls this for the
-  // dispatch+banner+
+  // broadcasts via broadcastGameAction. (2) When an action's banner/broadcast
+  // needs context the GameAction type doesn't carry (REMOVE_ROAD only
+  // carries edgeId — the playerId/ownerId context for its banner rides on
+  // the separate DIPLOMACY_PLAYED action dispatched alongside it), the apply
+  // function still calls this for the dispatch+banner+
   // sfx but passes isDeciding: false, then broadcasts explicitly at its own
   // tail instead — see broadcastGameAction's comment below for which cases
   // go through it generically. RESET_BOARD/RESTORE_BOARD are the one full
@@ -719,10 +720,11 @@ function App() {
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
   // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, and PILLAGE_CITY
-  // do; an action whose broadcast payload carries a field the GameAction
-  // doesn't, e.g. REMOVE_ROAD's playerId/ownerId context, broadcasts itself
-  // directly at its own call site instead, with dispatchGameAction called at
-  // isDeciding: false so it never double-broadcasts).
+  // do; an action whose banner/broadcast needs context the GameAction
+  // doesn't carry, e.g. REMOVE_ROAD — its playerId/ownerId context rides on
+  // the separate DIPLOMACY_PLAYED action dispatched alongside it — broadcasts
+  // itself directly at its own call site instead, with dispatchGameAction
+  // called at isDeciding: false so it never double-broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
       case 'BUILD_SETTLEMENT':
@@ -1208,7 +1210,7 @@ function App() {
   // Vertices already resolved by applyPillage, tracked outside React state
   // so a second call in the SAME tick (StrictMode's effect double-invoke,
   // the timeout sweep racing a manual click) is rejected before it reaches
-  // setPlayers or the banner — a `gameState.board.settlements` read alone
+  // dispatchGameAction or the banner — a `gameState.board.settlements` read alone
   // can't do this, since `dispatch` is async and the reducer's own state
   // doesn't update until the next render, so two same-tick calls would both
   // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
@@ -1299,9 +1301,9 @@ function App() {
     //
     // The excess is computed from the hand AS IT WILL BE after this batch —
     // `players` here is still the pre-update snapshot, so the drawn cards
-    // have to be appended explicitly. Computed outside the setPlayers
-    // updater above rather than inside it, the same StrictMode-safety
-    // reasoning applyWeddingEffect's own comment gives: an updater that a
+    // have to be appended explicitly. Computed outside the dispatch call
+    // above rather than inside the reducer, the same StrictMode-safety
+    // reasoning applyWeddingEffect's own comment gives: a reducer that a
     // dev-mode double-invocation runs twice must stay free of side effects.
     const overLimitIds = players
       .filter((p) => {
@@ -1974,7 +1976,7 @@ function App() {
     // preceding onProgressCardPlayed broadcast the way Intrigue above
     // does): removes the card from the acting player's hand AND the
     // target's knight in one step, mirroring playTreason's own single
-    // setPlayers call exactly. The placement half (if any) arrives
+    // dispatch(TREASON_KNIGHT_REMOVED) call exactly. The placement half (if any) arrives
     // separately via onKnightRecruited — Task 7's existing receiver, reused
     // verbatim (see playTreason's own comment).
     onTreasonRemoved: (payload) => {
@@ -2209,7 +2211,7 @@ function App() {
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
-      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPlayers/setPillageQueue
+      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPillageQueue
       // calls, same deliberate "self-heal" shape as the discard-queue effect
       // above (setGamePhase('moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the
@@ -3579,17 +3581,18 @@ function App() {
   // canPlayProgressCardNow's own comment gives — moveRobber's leading
   // branch below calls this directly, so it has to already exist by then.
   //
-  // The whole steal is computed BEFORE setPlayers, as a pure function of
-  // the outer-scope `players`, then applied by a single side-effect-free
-  // `.map`. Exactly the restructure applyWeddingEffect's and
-  // applyProgressCardDraws' own comments describe, for the same reason:
-  // StrictMode double-invokes updaters in dev, so a `Math.random()` +
-  // `steals.push()` INSIDE the updater ran twice — pushing duplicate
-  // entries into the closure-scoped `steals`, and letting the resource
-  // actually deducted (second invocation) disagree with the one broadcast
-  // to every other client (first invocation's entry). That's a real
-  // actor/peer desync, not a dev-only cosmetic, since broadcastTaxation-
-  // Resolved sends `steals` right after this call. Reading the outer-scope
+  // The whole steal is computed BEFORE dispatch, as a pure function of
+  // the outer-scope `players`, then handed to applyTaxationResolved, which
+  // validates it and dispatches a single TAXATION_RESOLVED action. Exactly
+  // the restructure applyWeddingEffect's and applyProgressCardDraws' own
+  // comments describe, for the same reason: StrictMode double-invokes
+  // reducers in dev, so a `Math.random()` + `steals.push()` INSIDE the
+  // reducer would run twice — pushing duplicate entries into the
+  // closure-scoped `steals`, and letting the resource actually deducted
+  // (second invocation) disagree with the one broadcast to every other
+  // client (first invocation's entry). That's a real actor/peer desync,
+  // not a dev-only cosmetic, since broadcastTaxationResolved sends `steals`
+  // right after this call. Reading the outer-scope
   // `players` is safe here for the same reason those two functions give:
   // this only ever runs from a live click handler (moveRobber's leading
   // branch), so it IS the current render's state, not a stale snapshot.
@@ -5340,9 +5343,9 @@ function App() {
   // ADDED to the announcer's hand instead of discarded to the supply — the
   // one real difference from Sabotage's shape. The per-affected-player
   // counts (and the combined per-type total credited to the announcer) are
-  // computed ONCE from the current players state, before setPlayers runs,
-  // rather than inside the setPlayers updater itself — deliberately, so a
-  // dev-mode StrictMode double-invocation of that updater can't double-count
+  // computed ONCE from the current players state, before dispatch runs,
+  // rather than inside the reducer itself — deliberately, so a
+  // dev-mode StrictMode double-invocation of that reducer can't double-count
   // what the announcer receives.
   const applyWeddingEffect = (announcerId: number) => {
     const announcer = playerById.get(announcerId)

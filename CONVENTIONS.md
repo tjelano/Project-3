@@ -25,44 +25,38 @@ Trusted-apply function (`App.tsx`, `applyPillage`):
 // Tracks vertices already resolved this session, outside React state, so a
 // second call in the SAME tick (StrictMode's effect double-invoke, the
 // timeout sweep racing a manual click) is rejected before it reaches
-// setPlayers or the banner. A `gameState.board.settlements` read alone
-// can't do this: `dispatch` is async and the reducer's own state doesn't
-// update until the next render, so two same-tick calls would both still
-// see the pre-dispatch board and both pass a state-only check.
+// dispatchGameAction or the banner. A `gameState.board.settlements` read
+// alone can't do this: `dispatch` is async and the reducer's own state
+// doesn't update until the next render, so two same-tick calls would both
+// still see the pre-dispatch board and both pass a state-only check.
 const resolvedPillageVertexIdsRef = useRef(new Set<string>())
 
 const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
   // City-ownership guard — rejects a vertex that was never a pillageable
-  // city for this player.
+  // city for this player in the first place.
   const building = gameState.board.settlements[vertexId]
   if (!building || building.type !== 'city' || building.ownerId !== playerId) return
-  // Same-tick dedupe guard — see the ref's own comment above. Also gates
-  // the banner: dispatchGameAction fires it unconditionally on every call,
-  // so this is what stops a duplicate/racing invocation from firing it twice.
+  // Same-tick dedupe guard — see the ref's own comment above. Prevents
+  // duplicate dispatchGameAction calls, which would double-fire both the
+  // "city was pillaged" banner (via describeBoardAction) and the reducer
+  // application (reduceBoard and reducePlayers both run against the same
+  // action). Players-side state mutations now live in reducePlayers's
+  // PILLAGE_CITY case, so the guard protects both reducer passes equally.
   if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
   resolvedPillageVertexIdsRef.current.add(vertexId)
   dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
-  setPlayers((prev) =>
-    prev.map((p) =>
-      p.id === playerId
-        ? {
-            ...p,
-            cityWalls: p.cityWalls.filter((v) => v !== vertexId),
-            citiesRemaining: p.citiesRemaining + 1,
-            settlementsRemaining: Math.max(0, p.settlementsRemaining - 1),
-          }
-        : p,
-    ),
-  )
-  // The banner now fires via dispatchGameAction -> describeBoardAction —
-  // do NOT call inform() here too, or the message doubles.
+  // The inform() banner now fires via dispatchGameAction -> describeBoardAction
+  // (Task 6) — do NOT call inform() here too, or the message doubles.
+  // Filtered by playerId, not sliced off the front — activePillageTarget
+  // (Task 5) means resolution doesn't necessarily happen in queue order
+  // online, where every affected player can act independently.
   setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
 }
 ```
 
 The ref's `Set` is cleared in `resetGame`/`restoreFromSnapshot` alongside their `setPillageQueue([])` reset, so a resolved vertex from a previous game doesn't stay "already resolved" forever.
 
-**Why a ref, not a state check:** a value read off `gameState`/`useState` reflects the *last committed render*, not what's already been dispatched-but-not-yet-applied. Two calls in the same tick both see the same pre-dispatch snapshot, so a state-only guard lets both through — the mutation function's own side effects (here, `setPlayers` and the banner) then run twice even though the reducer itself correctly no-ops the duplicate action. A `useRef`-backed set updates synchronously and is shared across same-tick re-invocations, so it catches what a state read cannot.
+**Why a ref, not a state check:** a value read off `gameState`/`useState` reflects the *last committed render*, not what's already been dispatched-but-not-yet-applied. Two calls in the same tick both see the same pre-dispatch snapshot, so a state-only guard lets both through — a duplicate `dispatchGameAction` call then runs both reducer passes and fires the banner a second time, even though each reducer itself correctly no-ops the duplicate action's redundant effect. A `useRef`-backed set updates synchronously and is shared across same-tick re-invocations, so it catches what a state read cannot.
 
 Local actor's call site (`handlePillageTargetSelect`):
 
@@ -221,7 +215,7 @@ function randomSpinSpeed(): THREE.Vector3 {
 Computing the random pick *before* the updater, not inside it (`App.tsx`, `resolveTaxation`):
 
 ```tsx
-// Computed OUTSIDE setPlayers — an updater a dev-mode double-invocation
+// Computed OUTSIDE the dispatch — an updater a dev-mode double-invocation
 // runs twice must stay free of side effects (Math.random, array mutation).
 const steals: { victimId: number; item: StolenItem | null }[] = []
 for (const victimId of victimIds) {
@@ -234,7 +228,7 @@ for (const victimId of victimIds) {
   }
   steals.push({ victimId, item: pickRandom(heldItems) })
 }
-setPlayers((prev) => /* pure map over the already-decided `steals` */ ...)
+dispatch({ type: 'TAXATION_RESOLVED', playerId, tileId, steals })
 ```
 
 ### Don't do this

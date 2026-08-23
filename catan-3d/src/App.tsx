@@ -741,6 +741,9 @@ function App() {
       case 'BUILD_SHIP':
         broadcastShipBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeShip: action.isFreeShip })
         break
+      case 'MOVE_SHIP':
+        broadcastShipMoved({ fromEdgeId: action.fromEdgeId, toEdgeId: action.toEdgeId, playerId: action.playerId })
+        break
       case 'PILLAGE_CITY':
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
         break
@@ -964,6 +967,10 @@ function App() {
   const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
     if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+  }
+
+  const applyShipMove = (fromEdgeId: string, toEdgeId: string, playerId: number, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'MOVE_SHIP', fromEdgeId, toEdgeId, playerId }, isDeciding)
   }
 
   const applyRobberMove = (
@@ -1382,6 +1389,7 @@ function App() {
     broadcastCityBuilt,
     broadcastRoadBuilt,
     broadcastShipBuilt,
+    broadcastShipMoved,
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
@@ -1461,6 +1469,8 @@ function App() {
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
     onShipBuilt: (payload) =>
       applyShipPlacement(payload.edgeId, payload.playerId, false, payload.isFreeShip, false),
+    onShipMoved: (payload) =>
+      applyShipMove(payload.fromEdgeId, payload.toEdgeId, payload.playerId, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
@@ -2444,6 +2454,27 @@ function App() {
     return hasPlayerShipAt(edge.a, playerId) || hasPlayerShipAt(edge.b, playerId)
   }
 
+  // CN3083: "you may only move a ship if at least one of its two ends is
+  // open — an end is open when it is NOT adjacent to one of your own ships
+  // or buildings." shipEdgeId is excluded from the "own ship" check so the
+  // ship being evaluated doesn't anchor itself.
+  const isShipEndOpen = (vertexId: string, shipEdgeId: string, playerId: number): boolean => {
+    if (gameState.board.settlements[vertexId]?.ownerId === playerId) return false
+    const edgeIds = graph.vertexEdgeIds.get(vertexId) ?? []
+    return !edgeIds.some((edgeId) => edgeId !== shipEdgeId && gameState.board.ships[edgeId] === playerId)
+  }
+
+  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
+  // moving a ship to or from an edge of the hex the pirate currently
+  // occupies — not checkable yet, no pirateTileId exists.
+  const canMoveShip = (edgeId: string, playerId: number): boolean => {
+    if (gameState.board.ships[edgeId] !== playerId) return false
+    if (gameState.board.shipsBuiltThisTurn.includes(edgeId)) return false
+    const edge = edgeById.get(edgeId)
+    if (!edge) return false
+    return isShipEndOpen(edge.a, edgeId, playerId) || isShipEndOpen(edge.b, edgeId, playerId)
+  }
+
   // Best available bank-trade rate for giving away this resource: 2:1 if the
   // player owns that resource's specific port, else 3:1 if they own any
   // generic port, else the standard 4:1.
@@ -2957,6 +2988,49 @@ function App() {
   // click handler; a future task wires this into BoardInteractions the same
   // way buildRoad is wired just below.
   void buildShipRaw
+
+  const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
+    if (!canInteract()) return
+
+    const player = players[currentPlayerIndex]
+
+    if (!hasRolledThisTurn) {
+      warn('Roll the dice before moving a ship.')
+      return
+    }
+    if (gameState.board.hasMovedShipThisTurn) {
+      warn('You may only move one ship per turn.')
+      return
+    }
+    if (!canMoveShip(fromEdgeId, player.id)) {
+      warn('That ship cannot be moved.')
+      return
+    }
+    if (gameState.board.roads[toEdgeId] != null || gameState.board.ships[toEdgeId] != null) {
+      warn('That edge is already occupied.')
+      return
+    }
+    if (!edgeTouchesSea(toEdgeId)) {
+      warn('Ships can only be placed on edges bordering the sea.')
+      return
+    }
+    // Checked against the board state BEFORE the move applies — the ship
+    // being moved is still "at" fromEdgeId for this check, which is exactly
+    // right: it correctly allows pivoting a ship around a vertex it already
+    // anchors, without needing to special-case that against toEdgeId.
+    if (!isShipPlacementConnected(toEdgeId, player.id)) {
+      warn('Ship must connect to one of your ships or buildings.')
+      return
+    }
+
+    applyShipMove(fromEdgeId, toEdgeId, player.id, true)
+  }
+  // No 3D UI calls moveShipRaw yet (ship-movement click UI is a later
+  // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as
+  // dead code. Verified via manual dispatch (this task's own report), not a
+  // click handler; a future task wires this into BoardInteractions the same
+  // way buildRoad is wired just below.
+  void moveShipRaw
 
   // Stable callbacks for board interactions — buildSettlement/buildRoad
   // never change identity across renders (empty deps), so BoardInteractions

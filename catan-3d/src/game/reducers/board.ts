@@ -36,8 +36,6 @@ export type BoardAction =
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'MOVE_SHIP'; fromEdgeId: string; toEdgeId: string; playerId: number }
-  | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
-  | { type: 'TAXATION_RESOLVED'; playerId: number; tileId: string; steals: { victimId: number; item: StolenItem | null }[] }
   | { type: 'PIRATE_MOVED'; tileId: string | null; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'RESET_BOARD'; robberTileId: string }
   | {

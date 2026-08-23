@@ -98,6 +98,7 @@ import {
   type StolenItem,
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
+import { isShipPlacementConnected } from './game/shipEligibility'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -721,11 +722,12 @@ function App() {
   // Per-action-type broadcast dispatch for dispatchGameAction's isDeciding
   // path. Does NOT grow one case per migrated action — only an action whose
   // broadcast payload matches its GameAction shape exactly goes through here
-  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, and PILLAGE_CITY
-  // do; an action whose banner/broadcast needs context the GameAction
-  // doesn't carry, e.g. REMOVE_ROAD — its playerId/ownerId context rides on
-  // the separate DIPLOMACY_PLAYED action dispatched alongside it — broadcasts
-  // itself directly at its own call site instead, with dispatchGameAction
+  // generically (BUILD_SETTLEMENT, BUILD_CITY, BUILD_ROAD, BUILD_SHIP,
+  // MOVE_SHIP, and PILLAGE_CITY do; an action whose banner/broadcast needs
+  // context the GameAction doesn't carry, e.g. REMOVE_ROAD — its
+  // playerId/ownerId context rides on the separate DIPLOMACY_PLAYED action
+  // dispatched alongside it — broadcasts itself directly at its own call
+  // site instead, with dispatchGameAction
   // called at isDeciding: false so it never double-broadcasts).
   const broadcastGameAction = (action: GameAction) => {
     switch (action.type) {
@@ -2287,6 +2289,14 @@ function App() {
 
   // Recomputed whenever roads/settlements change — cheap given how few
   // roads a player ever has (max 15), so a plain per-player DFS is fine.
+  //
+  // Deliberately does NOT pass gameState.board.ships (calculateLongestRoad's
+  // optional 6th argument) yet — no UI can place a ship yet, per this plan's
+  // own scope. When a future sub-plan wires ship placement into the UI, this
+  // needs BOTH gameState.board.ships added as the 6th positional argument
+  // below AND gameState.board.ships added to this useMemo's dependency
+  // array — otherwise the memo goes stale and stops recomputing when ships
+  // change.
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
@@ -2422,36 +2432,11 @@ function App() {
     return aUsable || bUsable
   }
 
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
   const edgeTouchesSea = (edgeId: string): boolean => {
     const tileIds = graph.edgeTileIds.get(edgeId) ?? []
     return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
-  }
-
-  const hasPlayerShipAt = (vertexId: string, playerId: number): boolean => {
-    const edgeIds = graph.vertexEdgeIds.get(vertexId) ?? []
-    return edgeIds.some((edgeId) => gameState.board.ships[edgeId] === playerId)
-  }
-
-  // CN3083: "a new ship must connect to one of your existing ships or
-  // buildings — NOT roads." Deliberately does not fall back to
-  // hasPlayerRoadAt the way isRoadPlacementConnected does — a road ending
-  // at a coastal vertex does not, by itself, let a ship branch off it; the
-  // road has to terminate at a settlement/city first (which the
-  // settlements check below already covers).
-  //
-  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
-  // placement on any edge of the hex the pirate currently occupies. The
-  // pirate doesn't exist yet (Robber & Pirate Migration sub-plan) — this
-  // function has no way to check that yet. Revisit once pirateTileId exists.
-  const isShipPlacementConnected = (edgeId: string, playerId: number): boolean => {
-    const edge = edgeById.get(edgeId)
-    if (!edge) return false
-    if (
-      gameState.board.settlements[edge.a]?.ownerId === playerId ||
-      gameState.board.settlements[edge.b]?.ownerId === playerId
-    )
-      return true
-    return hasPlayerShipAt(edge.a, playerId) || hasPlayerShipAt(edge.b, playerId)
   }
 
   // CN3083: "you may only move a ship if at least one of its two ends is
@@ -2949,6 +2934,8 @@ function App() {
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
 
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
   const buildShipRaw = (edgeId: string) => {
     if (!canInteract()) return
 
@@ -2967,7 +2954,7 @@ function App() {
       warn('Ships can only be placed on edges bordering the sea.')
       return
     }
-    if (!isShipPlacementConnected(edgeId, player.id)) {
+    if (!isShipPlacementConnected(graph, edgeById, gameState.board.settlements, gameState.board.ships, edgeId, player.id)) {
       warn('Ship must connect to one of your ships or buildings.')
       return
     }
@@ -2989,6 +2976,8 @@ function App() {
   // way buildRoad is wired just below.
   void buildShipRaw
 
+  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
+  // — see isShipPlacementConnected's own comment for the full context.
   const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
     if (!canInteract()) return
 
@@ -3014,11 +3003,26 @@ function App() {
       warn('Ships can only be placed on edges bordering the sea.')
       return
     }
-    // Checked against the board state BEFORE the move applies — the ship
-    // being moved is still "at" fromEdgeId for this check, which is exactly
-    // right: it correctly allows pivoting a ship around a vertex it already
-    // anchors, without needing to special-case that against toEdgeId.
-    if (!isShipPlacementConnected(toEdgeId, player.id)) {
+    // Checked against board state BEFORE the move applies, with the ship's
+    // own current edge excluded from the connectivity scan. Excluding it is
+    // required, not optional: without it, the ship being moved could be the
+    // only thing "connecting" its own destination, letting a move orphan it
+    // (e.g. a lone ship sliding from an anchored settlement into open water
+    // would otherwise see its own old position as proof the new position is
+    // connected). A DIFFERENT own ship or building at a shared vertex still
+    // correctly keeps a legitimate pivot connected, since only fromEdgeId
+    // itself is excluded, not the whole vertex.
+    if (
+      !isShipPlacementConnected(
+        graph,
+        edgeById,
+        gameState.board.settlements,
+        gameState.board.ships,
+        toEdgeId,
+        player.id,
+        fromEdgeId,
+      )
+    ) {
       warn('Ship must connect to one of your ships or buildings.')
       return
     }

@@ -100,7 +100,7 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       // Not a `never`-exhaustiveness default: `action` is the full
       // GameAction union (every slice's actions), not just BoardAction, so
       // most of that union — including every players-only action — is
-      // legitimately unhandled here. reduceBoard only owns the 7 cases
+      // legitimately unhandled here. reduceBoard only owns the 10 cases
       // above, same as any combineReducers-style slice reducer.
       return state
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHexBoard, buildHexBoardFromCells, type Biome } from './hexBoard'
+import { buildHexBoard, buildHexBoardFromCells, BOARD_SHAPE_LABELS, type Biome } from './hexBoard'
 
 describe('buildHexBoard', () => {
   it('generates exactly 19 tiles', () => {
@@ -200,6 +200,24 @@ describe('buildHexBoardFromCells biome overrides', () => {
       expect(board.some((tile) => tile.biome === 'desert')).toBe(true)
     }
   })
+
+  it('excludes sea tiles from number-disc assignment, same as desert', () => {
+    const cells = [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 1, row: 1 }]
+    const overrides = { '0-0': 'sea' as const }
+    const tiles = buildHexBoardFromCells(cells, 'test-seed', undefined, overrides)
+    const seaTile = tiles.find((t) => t.id === '0-0')!
+    expect(seaTile.biome).toBe('sea')
+    expect(seaTile.number).toBeNull()
+  })
+
+  it('assigns a number disc to gold-field tiles, same as any producing land biome', () => {
+    const cells = [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 1, row: 1 }]
+    const overrides = { '0-0': 'gold' as const }
+    const tiles = buildHexBoardFromCells(cells, 'test-seed', undefined, overrides)
+    const goldTile = tiles.find((t) => t.id === '0-0')!
+    expect(goldTile.biome).toBe('gold')
+    expect(goldTile.number).not.toBeNull()
+  })
 })
 
 describe('buildHexBoard with customBiomeOverrides', () => {
@@ -214,5 +232,48 @@ describe('buildHexBoard with customBiomeOverrides', () => {
     const withOverrides = buildHexBoard('seed-7', 'standard', undefined, { '0-0': 'hills' })
     const without = buildHexBoard('seed-7', 'standard')
     expect(withOverrides).toEqual(without)
+  })
+})
+
+describe('seafarersBasic board shape', () => {
+  it('surrounds the standard land layout with a ring of sea hexes', () => {
+    const tiles = buildHexBoard('test-seed', 'seafarersBasic')
+    const standardLandCells = tiles.filter((t) => t.biome !== 'sea')
+    expect(standardLandCells).toHaveLength(19) // standard's own land-hex count, unchanged
+    const seaTiles = tiles.filter((t) => t.biome === 'sea')
+    expect(seaTiles).toHaveLength(18)
+    expect(seaTiles.every((t) => t.number === null)).toBe(true)
+  })
+
+  it('pins exactly 2 gold-field cells, both producing (non-null number)', () => {
+    const tiles = buildHexBoard('test-seed', 'seafarersBasic')
+    const goldTiles = tiles.filter((t) => t.biome === 'gold')
+    expect(goldTiles).toHaveLength(2)
+    expect(goldTiles.every((t) => t.number !== null)).toBe(true)
+  })
+
+  it('is deterministic for a given seed', () => {
+    const a = buildHexBoard('same-seed', 'seafarersBasic')
+    const b = buildHexBoard('same-seed', 'seafarersBasic')
+    expect(a).toEqual(b)
+  })
+
+  it('always has exactly 1 desert and every resource present, across many seeds', () => {
+    const resourceBiomes = ['forest', 'pasture', 'fields', 'hills', 'mountains'] as const
+    for (let i = 0; i < 100; i++) {
+      const tiles = buildHexBoard(`seed-${i}`, 'seafarersBasic')
+      expect(tiles.filter((t) => t.biome === 'desert')).toHaveLength(1)
+      for (const biome of resourceBiomes) {
+        expect(tiles.some((t) => t.biome === biome)).toBe(true)
+      }
+    }
+  })
+
+  it('only seafarersBasic ever produces sea or gold tiles', () => {
+    for (const shapeId of Object.keys(BOARD_SHAPE_LABELS) as Array<keyof typeof BOARD_SHAPE_LABELS>) {
+      const tiles = buildHexBoard(`shape-check-${shapeId}`, shapeId)
+      const hasSeaOrGold = tiles.some(t => t.biome === 'sea' || t.biome === 'gold')
+      expect(hasSeaOrGold).toBe(shapeId === 'seafarersBasic')
+    }
   })
 })

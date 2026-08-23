@@ -14,6 +14,7 @@ import mountainsTileModelUrl from '../assets/models/mountains-tile.glb'
 import fieldsTileModelUrl from '../assets/models/fields-tile.glb'
 import pastureTileModelUrl from '../assets/models/pasture-tile.glb'
 import desertTileModelUrl from '../assets/models/desert-tile.glb'
+import waterTileModelUrl from '../assets/models/water-tile.glb'
 
 const BIOME_MODEL_URLS: Record<Biome, string> = {
   forest: forestTileModelUrl,
@@ -22,6 +23,12 @@ const BIOME_MODEL_URLS: Record<Biome, string> = {
   fields: fieldsTileModelUrl,
   pasture: pastureTileModelUrl,
   desert: desertTileModelUrl,
+  sea: waterTileModelUrl,
+  // PLACEHOLDER — no gold-field model exists yet, reusing fields' own model
+  // (see this plan's Global Constraints). Swap for real gold-field art once
+  // it exists; nothing else needs to change when that happens, this is the
+  // only line that names the model.
+  gold: fieldsTileModelUrl,
 }
 
 // hills-tile.glb was authored with X and Z swapped relative to the other

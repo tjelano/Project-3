@@ -320,8 +320,13 @@ export const IMPROVEMENT_TRACK_NAMES: Record<ImprovementTrack, string[]> = {
   politics: ['Town Hall', 'Embassy', 'Fortress', 'Courthouse', 'High Assembly'],
 }
 
-// What each hex biome produces when its number is rolled. Desert never
-// produces anything.
+// What each hex biome produces when its number is rolled. Desert and sea
+// never produce anything — that's permanent. Gold is different: it DOES
+// produce, but the resource is player-chosen at production time rather
+// than fixed, so it can't be represented as a single ResourceType here.
+// `null` is a placeholder until the Gold Fields sub-plan adds the
+// player-choice production path; until then gold fields carry a real
+// number disc (see hexBoard.ts) but resolve to nothing when rolled.
 export const BIOME_TO_RESOURCE: Record<Biome, ResourceType | null> = {
   forest: 'lumber',
   hills: 'brick',
@@ -329,6 +334,8 @@ export const BIOME_TO_RESOURCE: Record<Biome, ResourceType | null> = {
   fields: 'grain',
   mountains: 'ore',
   desert: null,
+  sea: null,
+  gold: null,
 }
 
 export const BIOME_LABELS: Record<Biome, string> = {
@@ -338,6 +345,8 @@ export const BIOME_LABELS: Record<Biome, string> = {
   fields: 'Fields',
   mountains: 'Mountains',
   desert: 'Desert',
+  sea: 'Sea',
+  gold: 'Gold Field',
 }
 
 export const STARTING_SETTLEMENTS = 5

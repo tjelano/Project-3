@@ -212,6 +212,13 @@ function ringAround(landCells: BoardCell[]): BoardCell[] {
   return ring
 }
 
+// Computed once at module scope so both BOARD_SHAPES (the cell list) and
+// BIOME_OVERRIDES_BY_SHAPE (the sea-ring/gold pins) below can reference the
+// same land/ring cells rather than recomputing them.
+const SEAFARERS_BASIC_LAND_CELLS = columnHeightsToCells(BUILT_IN_COLUMN_HEIGHTS.standard)
+const SEAFARERS_BASIC_SEA_RING = ringAround(SEAFARERS_BASIC_LAND_CELLS)
+const SEAFARERS_BASIC_CELLS = [...SEAFARERS_BASIC_LAND_CELLS, ...SEAFARERS_BASIC_SEA_RING]
+
 // Player-drawn shapes (BoardShapeEditor.tsx), promoted to permanent
 // built-ins so every player has them without needing localStorage — cells
 // copied verbatim from each shape's saved CustomBoardShape.cells. Each one
@@ -283,13 +290,6 @@ const PROMOTED_CUSTOM_SHAPES: Record<PromotedShapeId, BoardCell[]> = {
 // relying on that coincidence so intent survives even if a shape's cell
 // list ever changes. apocalypse/newIsland were never given an explicit
 // count, so they fall through to the automatic ratio like any other shape.
-// Computed once at module scope so both BOARD_SHAPES (the cell list) and
-// BIOME_OVERRIDES_BY_SHAPE (the sea-ring/gold pins) below can reference the
-// same land/ring cells rather than recomputing them.
-const SEAFARERS_BASIC_LAND_CELLS = columnHeightsToCells(BUILT_IN_COLUMN_HEIGHTS.standard)
-const SEAFARERS_BASIC_SEA_RING = ringAround(SEAFARERS_BASIC_LAND_CELLS)
-const SEAFARERS_BASIC_CELLS = [...SEAFARERS_BASIC_LAND_CELLS, ...SEAFARERS_BASIC_SEA_RING]
-
 const DESERT_COUNT_OVERRIDES: Partial<Record<BoardShapeId, number>> = {
   bigPeanut: 2,
   northAmerica: 3,
@@ -427,7 +427,24 @@ export function buildHexBoardFromCells(
 ): HexTileData[] {
   const random = seed ? createSeededRandom(seed) : Math.random
   const tileCount = cells.length
-  const desertCount = desertOverride ?? desertCountFor(tileCount)
+  // Cells pinned to 'sea' or 'gold' can never be drawn from the pool (both
+  // are structurally excluded from BIOME_WEIGHTS) — sizing the pool and
+  // desert count off the FULL tileCount left phantom slots for every such
+  // cell, which the excess-trimming fallback below then discarded randomly
+  // rather than proportionally. For a board with many sea/gold cells (e.g.
+  // seafarersBasic: 18 sea + 2 gold out of 37), this produced boards missing
+  // an entire resource on ~7% of seeds and the wrong desert count. Excluding
+  // them from the sizing math up front means the pool is built for exactly
+  // the cells that will actually draw from it — every other shape has zero
+  // sea/gold overrides, so this is a no-op for them.
+  const nonPoolPaintedCount = biomeOverrides
+    ? cells.filter((cell) => {
+        const override = biomeOverrides[`${cell.col}-${cell.row}`]
+        return override === 'sea' || override === 'gold'
+      }).length
+    : 0
+  const poolTileCount = tileCount - nonPoolPaintedCount
+  const desertCount = desertOverride ?? desertCountFor(poolTileCount)
 
   // Painting a tile's biome consumes one matching entry out of the SAME
   // pool every board already generates from — not a separate "shrink the
@@ -438,7 +455,7 @@ export function buildHexBoardFromCells(
   // isn't left in the pool anymore, that tile just doesn't consume
   // anything — painting beyond a biome's natural share simply means 0 more
   // of it get added at random elsewhere.
-  let pool = shuffle(buildBiomePool(tileCount, desertCount), random)
+  let pool = shuffle(buildBiomePool(poolTileCount, desertCount), random)
   let paintedCount = 0
   if (biomeOverrides) {
     for (const cell of cells) {

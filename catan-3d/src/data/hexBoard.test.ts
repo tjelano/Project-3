@@ -241,7 +241,7 @@ describe('seafarersBasic board shape', () => {
     const standardLandCells = tiles.filter((t) => t.biome !== 'sea')
     expect(standardLandCells).toHaveLength(19) // standard's own land-hex count, unchanged
     const seaTiles = tiles.filter((t) => t.biome === 'sea')
-    expect(seaTiles.length).toBeGreaterThan(0)
+    expect(seaTiles).toHaveLength(18)
     expect(seaTiles.every((t) => t.number === null)).toBe(true)
   })
 
@@ -256,5 +256,16 @@ describe('seafarersBasic board shape', () => {
     const a = buildHexBoard('same-seed', 'seafarersBasic')
     const b = buildHexBoard('same-seed', 'seafarersBasic')
     expect(a).toEqual(b)
+  })
+
+  it('always has exactly 1 desert and every resource present, across many seeds', () => {
+    const resourceBiomes = ['forest', 'pasture', 'fields', 'hills', 'mountains'] as const
+    for (let i = 0; i < 100; i++) {
+      const tiles = buildHexBoard(`seed-${i}`, 'seafarersBasic')
+      expect(tiles.filter((t) => t.biome === 'desert')).toHaveLength(1)
+      for (const biome of resourceBiomes) {
+        expect(tiles.some((t) => t.biome === biome)).toBe(true)
+      }
+    }
   })
 })

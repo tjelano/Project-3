@@ -545,8 +545,6 @@ function App() {
   // GPU resource from scratch instead of leaving a permanently black canvas.
   const [canvasInstance, setCanvasInstance] = useState(0)
 
-  const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
-
   // Cities & Knights robber activation — starts inert (robber behaves as
   // base-game: always movable on a rolled 7). Permanently flips true the
   // first time a barbarian attack resolves (Task 4), regardless of
@@ -570,9 +568,9 @@ function App() {
   const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
-  // category as robberTileId just above, not a per-player field: the piece
-  // sits on one tile and is controlled by at most one player at a time,
-  // independent of createInitialPlayers/Player. null until the card is
+  // category as gameState.board.robberTileId, not a per-player field: the
+  // piece sits on one tile and is controlled by at most one player at a
+  // time, independent of createInitialPlayers/Player. null until the card is
   // first played and placed.
   const [merchantTileId, setMerchantTileId] = useState<string | null>(null)
   const [merchantHolderId, setMerchantHolderId] = useState<number | null>(null)
@@ -997,12 +995,12 @@ function App() {
     if (stolenItem != null && safeStolenItem == null) {
       console.error('[Catan] Ignoring robber-move payload with an invalid stolen item:', stolenItem)
     }
-    setRobberTileId(tileId)
     playSfx('robber')
+
+    dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
 
     let stealNote = ''
     if (victimId != null && safeStolenItem != null) {
-      dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
       // Same "which bucket by membership in COMMODITY_ORDER" idiom the
       // reducers use (see players.ts's COMMODITY_TRADED and ROBBER_MOVED
       // cases) — just for picking the right label here, the two pools never
@@ -3369,7 +3367,7 @@ function App() {
       return doublesCount
     }
 
-    const robberTile = tileById.get(robberTileId)
+    const robberTile = tileById.get(gameState.board.robberTileId)
     const isBlocked = robberTile?.number === total
     const messages: string[] = []
     if (isBlocked && robberTile) {
@@ -3379,7 +3377,7 @@ function App() {
     const productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] = []
     for (const tile of tiles) {
       if (tile.number !== total) continue
-      if (tile.id === robberTileId) continue // blocked by the Robber
+      if (tile.id === gameState.board.robberTileId) continue // blocked by the Robber
 
       const resource = BIOME_TO_RESOURCE[tile.biome]
       if (!resource) continue
@@ -3422,7 +3420,7 @@ function App() {
     // players' cityImprovements aren't touched by that loop, so the
     // pre-update snapshot is still accurate for the science-level check.
     if (gameRules.citiesAndKnightsCommodities && total !== 7) {
-      const producedTileIds = tiles.filter((t) => t.number === total && t.id !== robberTileId).map((t) => t.id)
+      const producedTileIds = tiles.filter((t) => t.number === total && t.id !== gameState.board.robberTileId).map((t) => t.id)
       const producingVertexIds = new Set(producedTileIds.flatMap((id) => graph.tileVertexIds.get(id) ?? []))
       const playersWithProduction = new Set(
         [...producingVertexIds]
@@ -3726,7 +3724,6 @@ function App() {
       }
       safeSteals.push(s)
     }
-    setRobberTileId(tileId)
     playSfx('robber')
     dispatch({ type: 'TAXATION_RESOLVED', playerId, tileId, steals: safeSteals })
     const tile = tileById.get(tileId)
@@ -3764,7 +3761,7 @@ function App() {
   const resolveTaxation = (tileId: string) => {
     const playerId = pendingTaxation
     if (playerId == null) return
-    if (tileId === robberTileId) {
+    if (tileId === gameState.board.robberTileId) {
       warn('The Robber must move to a new hex!')
       return
     }
@@ -3815,7 +3812,7 @@ function App() {
       resolveTaxation(tileId)
       return
     }
-    if (tileId === robberTileId) {
+    if (tileId === gameState.board.robberTileId) {
       warn('The Robber must move to a new hex!')
       return
     }
@@ -5003,7 +5000,7 @@ function App() {
       return
     }
     const adjacentTileIds = new Set(graph.vertexTileIds.get(knight.vertexId) ?? [])
-    if (!adjacentTileIds.has(robberTileId)) {
+    if (!adjacentTileIds.has(gameState.board.robberTileId)) {
       warn('That knight is not next to the robber.')
       return
     }
@@ -6024,7 +6021,6 @@ function App() {
     if (!desertTile) {
       console.error('[Catan] Generated board has no desert tile — placing the robber on the first tile instead:', freshTiles[0]?.id)
     }
-    setRobberTileId((desertTile ?? freshTiles[0]).id)
     // Cities & Knights barbarian-track gate (Task 3) — same "always reset on
     // a fresh game" treatment as every other single-shot C&K flag below: a
     // leftover `true` from a PREVIOUS match's resolved barbarian attack would
@@ -6080,7 +6076,7 @@ function App() {
     )
     setCurrentPlayerIndex(freshStartingPlayerIndex)
     setLastRoll(null)
-    dispatch({ type: 'RESET_BOARD' })
+    dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
     setBanner(null)
     setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
@@ -6275,9 +6271,10 @@ function App() {
       ships: snapshot.ships ?? {},
       shipsBuiltThisTurn: snapshot.shipsBuiltThisTurn ?? [],
       hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
+      robberTileId: snapshot.robberTileId,
+      pirateTileId: snapshot.pirateTileId ?? null,
     })
     setCurrentPlayerIndex(snapshot.currentPlayerIndex)
-    setRobberTileId(snapshot.robberTileId)
     setGamePhase(snapshot.gamePhase)
     setSetupStepIndex(snapshot.setupStepIndex)
     setSetupStage(snapshot.setupStage)
@@ -6531,7 +6528,8 @@ function App() {
       shipsBuiltThisTurn: gameState.board.shipsBuiltThisTurn,
       hasMovedShipThisTurn: gameState.board.hasMovedShipThisTurn,
       currentPlayerIndex,
-      robberTileId,
+      robberTileId: gameState.board.robberTileId,
+      pirateTileId: gameState.board.pirateTileId,
       gamePhase,
       setupStepIndex,
       setupStage,
@@ -6574,7 +6572,8 @@ function App() {
     gameState.board.shipsBuiltThisTurn,
     gameState.board.hasMovedShipThisTurn,
     currentPlayerIndex,
-    robberTileId,
+    gameState.board.robberTileId,
+    gameState.board.pirateTileId,
     gamePhase,
     setupStepIndex,
     setupStage,
@@ -6748,7 +6747,7 @@ function App() {
           />
           <RobberLayer
             tiles={tiles}
-            robberTileId={robberTileId}
+            robberTileId={gameState.board.robberTileId}
             isMovingRobber={gamePhase === 'moveRobber' && !winner && isMyTurn}
             onMoveRobber={moveRobber}
             // Same two inputs CatanBoard gets: the figurine has to stand on
@@ -6972,7 +6971,7 @@ function App() {
         onArmKnightMove={armKnightMove}
         onArmKnightDisplace={armKnightDisplace}
         onArmChaseRobber={armChaseRobber}
-        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(robberTileId)}
+        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId)}
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         onBuildWall={buildCityWall}

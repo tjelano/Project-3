@@ -75,6 +75,82 @@ describe('reduceBoard — BUILD_ROAD', () => {
   })
 })
 
+describe('reduceBoard — BUILD_SHIP', () => {
+  it('places a ship at the given edge, owned by the given player', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.ships['E1']).toBe(1)
+  })
+
+  it('records the edge in shipsBuiltThisTurn', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.shipsBuiltThisTurn).toEqual(['E1'])
+  })
+
+  it('leaves roads untouched', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.roads).toEqual({})
+  })
+})
+
+describe('reduceBoard — MOVE_SHIP', () => {
+  it('moves an owned ship from one edge to another', () => {
+    const withShip = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    const result = reduceBoard(withShip, { type: 'MOVE_SHIP', fromEdgeId: 'E1', toEdgeId: 'E2', playerId: 1 }, initialGameState)
+    expect(result.ships['E1']).toBeUndefined()
+    expect(result.ships['E2']).toBe(1)
+  })
+
+  it('sets hasMovedShipThisTurn', () => {
+    const withShip = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: false, isFreeShip: false },
+      initialGameState,
+    )
+    const result = reduceBoard(withShip, { type: 'MOVE_SHIP', fromEdgeId: 'E1', toEdgeId: 'E2', playerId: 1 }, initialGameState)
+    expect(result.hasMovedShipThisTurn).toBe(true)
+  })
+
+  it('is a no-op when fromEdgeId has no ship', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'MOVE_SHIP', fromEdgeId: 'E1', toEdgeId: 'E2', playerId: 1 },
+      initialGameState,
+    )
+    expect(result).toEqual(initialBoardState)
+  })
+})
+
+describe('reduceBoard — TURN_ADVANCED', () => {
+  it('clears shipsBuiltThisTurn and hasMovedShipThisTurn', () => {
+    const dirty = { ...initialBoardState, shipsBuiltThisTurn: ['E1'], hasMovedShipThisTurn: true }
+    const result = reduceBoard(dirty, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 }, initialGameState)
+    expect(result.shipsBuiltThisTurn).toEqual([])
+    expect(result.hasMovedShipThisTurn).toBe(false)
+  })
+
+  it('leaves ships themselves untouched', () => {
+    const dirty = { ...initialBoardState, ships: { E1: 1 } }
+    const result = reduceBoard(dirty, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 }, initialGameState)
+    expect(result.ships).toEqual({ E1: 1 })
+  })
+})
+
 describe('reduceBoard — PILLAGE_CITY', () => {
   it('downgrades a city owned by the given player to a settlement', () => {
     const withCity = reduceBoard(initialBoardState, { type: 'BUILD_CITY', vertexId: 'V1', playerId: 1 }, initialGameState)

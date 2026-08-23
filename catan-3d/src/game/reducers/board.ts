@@ -25,8 +25,10 @@ export type BoardAction =
   | { type: 'BUILD_SETTLEMENT'; vertexId: string; playerId: number; isSetup: boolean }
   | { type: 'BUILD_CITY'; vertexId: string; playerId: number; costOverride?: Partial<Resources> }
   | { type: 'BUILD_ROAD'; edgeId: string; playerId: number; isSetup: boolean; isFreeRoad: boolean }
+  | { type: 'BUILD_SHIP'; edgeId: string; playerId: number; isSetup: boolean; isFreeShip: boolean }
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
+  | { type: 'MOVE_SHIP'; fromEdgeId: string; toEdgeId: string; playerId: number }
   | { type: 'RESET_BOARD' }
   | {
       type: 'RESTORE_BOARD'
@@ -51,6 +53,12 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       }
     case 'BUILD_ROAD':
       return { ...state, roads: { ...state.roads, [action.edgeId]: action.playerId } }
+    case 'BUILD_SHIP':
+      return {
+        ...state,
+        ships: { ...state.ships, [action.edgeId]: action.playerId },
+        shipsBuiltThisTurn: [...state.shipsBuiltThisTurn, action.edgeId],
+      }
     case 'PILLAGE_CITY': {
       const building = state.settlements[action.vertexId]
       if (!building || building.type !== 'city' || building.ownerId !== action.playerId) return state
@@ -65,6 +73,15 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       delete roads[action.edgeId]
       return { ...state, roads }
     }
+    case 'MOVE_SHIP': {
+      if (!(action.fromEdgeId in state.ships)) return state
+      const ships = { ...state.ships }
+      delete ships[action.fromEdgeId]
+      ships[action.toEdgeId] = action.playerId
+      return { ...state, ships, hasMovedShipThisTurn: true }
+    }
+    case 'TURN_ADVANCED':
+      return { ...state, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
     case 'RESET_BOARD':
       // A fresh object every reset, not the shared `initialBoardState`
       // singleton — nothing mutates settlements/roads in place today, but
@@ -99,6 +116,10 @@ export function describeBoardAction(
       return { message: null, sfx: 'placement' }
     case 'BUILD_ROAD':
       return { message: null, sfx: 'roadPlacement' }
+    case 'BUILD_SHIP':
+      return { message: null, sfx: 'roadPlacement' }
+    case 'MOVE_SHIP':
+      return { message: null, sfx: null }
     case 'PILLAGE_CITY': {
       const owner = playerById.get(action.playerId)
       return {

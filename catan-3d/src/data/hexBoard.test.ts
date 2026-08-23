@@ -200,6 +200,24 @@ describe('buildHexBoardFromCells biome overrides', () => {
       expect(board.some((tile) => tile.biome === 'desert')).toBe(true)
     }
   })
+
+  it('excludes sea tiles from number-disc assignment, same as desert', () => {
+    const cells = [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 1, row: 1 }]
+    const overrides = { '0-0': 'sea' as const }
+    const tiles = buildHexBoardFromCells(cells, 'test-seed', undefined, overrides)
+    const seaTile = tiles.find((t) => t.id === '0-0')!
+    expect(seaTile.biome).toBe('sea')
+    expect(seaTile.number).toBeNull()
+  })
+
+  it('assigns a number disc to gold-field tiles, same as any producing land biome', () => {
+    const cells = [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 1, row: 1 }]
+    const overrides = { '0-0': 'gold' as const }
+    const tiles = buildHexBoardFromCells(cells, 'test-seed', undefined, overrides)
+    const goldTile = tiles.find((t) => t.id === '0-0')!
+    expect(goldTile.biome).toBe('gold')
+    expect(goldTile.number).not.toBeNull()
+  })
 })
 
 describe('buildHexBoard with customBiomeOverrides', () => {

@@ -329,6 +329,8 @@ export const BIOME_TO_RESOURCE: Record<Biome, ResourceType | null> = {
   fields: 'grain',
   mountains: 'ore',
   desert: null,
+  sea: null,
+  gold: null,
 }
 
 export const BIOME_LABELS: Record<Biome, string> = {
@@ -338,6 +340,8 @@ export const BIOME_LABELS: Record<Biome, string> = {
   fields: 'Fields',
   mountains: 'Mountains',
   desert: 'Desert',
+  sea: 'Sea',
+  gold: 'Gold Field',
 }
 
 export const STARTING_SETTLEMENTS = 5

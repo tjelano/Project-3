@@ -1,6 +1,6 @@
 import { createSeededRandom, shuffle } from '../utils/seededRandom'
 
-export type Biome = 'forest' | 'pasture' | 'fields' | 'hills' | 'mountains' | 'desert'
+export type Biome = 'forest' | 'pasture' | 'fields' | 'hills' | 'mountains' | 'desert' | 'sea' | 'gold'
 
 export const BIOME_COLORS: Record<Biome, string> = {
   forest: '#2e7d32',
@@ -9,6 +9,8 @@ export const BIOME_COLORS: Record<Biome, string> = {
   hills: '#c1682b',
   mountains: '#78909c',
   desert: '#dbc38f',
+  sea: '#1e6091',
+  gold: '#d4af37',
 }
 
 // Edit these directly to move a biome's tile up (higher) or down (lower).
@@ -32,6 +34,16 @@ export const BIOME_ELEVATION: Record<Biome, number> = {
   desert: 0.245,
   fields: 0.13,
   pasture: 0.12,
+  // PLACEHOLDER — not measured from WaterHexTile.glb's real geometry the way
+  // the 6 values above were (see this plan's Global Constraints). Sits below
+  // every land elevation so water reads as "lower" than the island; verify
+  // visually via the dev server once Task 2 wires the model in, and adjust
+  // this one constant if it clips or floats.
+  sea: 0.05,
+  // Reuses fields' own already-measured elevation, since gold reuses fields'
+  // model as a placeholder (Task 2) — will need its own value once real
+  // gold-field art exists.
+  gold: 0.13,
 }
 
 // Edit this directly to move every settlement/road/hover-ghost up (higher)
@@ -271,7 +283,7 @@ const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = {
 // standard board's own 18 reproduces exactly [4,4,4,3,3] with no rounding
 // drift, which is what makes this a strict generalization rather than a
 // behavior change for the existing board.
-const BIOME_WEIGHTS: Record<Exclude<Biome, 'desert'>, number> = {
+const BIOME_WEIGHTS: Record<Exclude<Biome, 'desert' | 'sea' | 'gold'>, number> = {
   forest: 4,
   pasture: 4,
   fields: 4,
@@ -416,7 +428,7 @@ export function buildHexBoardFromCells(
     const key = `${cell.col}-${cell.row}`
     return biomeOverrides?.[key] ?? pool[poolIndex++]
   })
-  const actualNonDesertCount = biomes.filter((biome) => biome !== 'desert').length
+  const actualNonDesertCount = biomes.filter((biome) => biome !== 'desert' && biome !== 'sea').length
   const numberSequence = shuffle(buildNumberPool(actualNonDesertCount), random)
   let numberIndex = 0
 
@@ -424,7 +436,7 @@ export function buildHexBoardFromCells(
     const { x, z } = cellPosition(cell)
     const key = `${cell.col}-${cell.row}`
     const biome = biomes[index]
-    const number = biome === 'desert' ? null : numberSequence[numberIndex++]
+    const number = biome === 'desert' || biome === 'sea' ? null : numberSequence[numberIndex++]
     return { id: key, col: cell.col, row: cell.row, x, z, biome, number }
   })
 }

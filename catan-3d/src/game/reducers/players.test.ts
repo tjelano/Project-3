@@ -1293,6 +1293,31 @@ describe('reducePlayers — DOUBLES_REROLL_HAND_WIPED', () => {
   })
 })
 
+describe('reducePlayers — RESET_PLAYERS', () => {
+  it('builds a fresh players array of the given count, ignoring the current players entirely', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, knightsPlayed: 9 }))
+    const result = reducePlayers(players, { type: 'RESET_PLAYERS', count: 3, names: ['A', 'B', 'C'], victoryPointTarget: 12 }, initialGameState)
+    expect(result).toHaveLength(3)
+    expect(result.map((p) => p.name)).toEqual(['A', 'B', 'C'])
+    expect(result.every((p) => p.knightsPlayed === 0)).toBe(true)
+  })
+
+  it('matches a direct createInitialPlayers call with the same arguments', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(players, { type: 'RESET_PLAYERS', count: 4, names: ['P1', 'P2', 'P3', 'P4'], colorTokens: ['player-2', 'player-4', 'player-1', 'player-3'], victoryPointTarget: 10 }, initialGameState)
+    expect(result).toEqual(createInitialPlayers(4, ['P1', 'P2', 'P3', 'P4'], ['player-2', 'player-4', 'player-1', 'player-3'], 10))
+  })
+})
+
+describe('reducePlayers — RESTORE_PLAYERS', () => {
+  it('replaces the players array with the action payload verbatim', () => {
+    const current = createInitialPlayers(2)
+    const restored = createInitialPlayers(3).map((p) => ({ ...p, name: `Restored ${p.id}` }))
+    const result = reducePlayers(current, { type: 'RESTORE_PLAYERS', players: restored }, initialGameState)
+    expect(result).toBe(restored)
+  })
+})
+
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)

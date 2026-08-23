@@ -77,7 +77,6 @@ import {
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
-  createInitialPlayers,
   getPlayerScore,
   emptyCityImprovements,
   emptyCommodities,
@@ -5881,12 +5880,7 @@ function App() {
     // whatever was last entered, so those flows don't reset names to defaults.
     const resolvedNames = names ?? playerNames
     if (names) setPlayerNames(names)
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: () => createInitialPlayers(
-        count,
-        resolvedNames,
-        isFreshSubmission ? colorTokens : undefined,
-        effectiveRules.victoryPointTarget,
-      ) })
+    dispatch({ type: 'RESET_PLAYERS', count, names: resolvedNames, colorTokens: isFreshSubmission ? colorTokens : undefined, victoryPointTarget: effectiveRules.victoryPointTarget })
     // createInitialPlayers assigns ids in `resolvedNames` order (1-based),
     // so this is the one place a client learns "which seat am I" — every
     // client built its players array from the identical names array, so the
@@ -6088,7 +6082,7 @@ function App() {
       // same pre-feature-snapshot gap as the fields above.
       defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
     }))
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: () => normalizedPlayers })
+    dispatch({ type: 'RESTORE_PLAYERS', players: normalizedPlayers })
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
     setOnlineInfo({
       roomCode: online.roomCode,

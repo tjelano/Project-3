@@ -1,5 +1,5 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack, PlayerColorToken } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -12,6 +12,8 @@ export type PlayersAction =
   // Constraints); deleted once every sub-plan through the final cutover has
   // replaced its own functions' calls with real actions.
   | { type: 'LEGACY_SET_PLAYERS'; updater: (players: Player[]) => Player[] }
+  | { type: 'RESET_PLAYERS'; count: number; names: string[]; colorTokens?: PlayerColorToken[]; victoryPointTarget: number }
+  | { type: 'RESTORE_PLAYERS'; players: Player[] }
   // applySettlementPlacement's 2nd-setup-round resource grant — kept as its
   // own action rather than folded into BUILD_SETTLEMENT's payload, per the
   // spec's "one action per distinct effect shape" rule: it's a genuinely
@@ -67,6 +69,10 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
   switch (action.type) {
     case 'LEGACY_SET_PLAYERS':
       return action.updater(players)
+    case 'RESET_PLAYERS':
+      return createInitialPlayers(action.count, action.names, action.colorTokens, action.victoryPointTarget)
+    case 'RESTORE_PLAYERS':
+      return action.players
     case 'TURN_ADVANCED':
       return players.map((p, index) => (index === action.nextPlayerIndex ? { ...p, devCardsBoughtThisTurn: [] } : p))
     case 'BUILD_SETTLEMENT':

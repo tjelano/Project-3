@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { reducePlayers } from './players'
-import { createInitialPlayers } from '../types'
+import { createInitialPlayers, emptyResources } from '../types'
 import { initialGameState } from '../gameState'
 
 describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
@@ -19,6 +19,15 @@ describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
     const players = createInitialPlayers(2)
     reducePlayers(players, { type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightsPlayed: 9 })) }, initialGameState)
     expect(players[0].knightsPlayed).toBe(0)
+  })
+})
+
+describe('reducePlayers — TURN_ADVANCED', () => {
+  it('clears devCardsBoughtThisTurn for the player at nextPlayerIndex only', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, devCardsBoughtThisTurn: ['knight' as const] }))
+    const result = reducePlayers(players, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 }, initialGameState)
+    expect(result[0].devCardsBoughtThisTurn).toEqual(['knight'])
+    expect(result[1].devCardsBoughtThisTurn).toEqual([])
   })
 })
 
@@ -1155,6 +1164,132 @@ describe('reducePlayers — ESPIONAGE_TAKEN', () => {
     const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['printing' as const, 'alchemy' as const] : [] }))
     const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
     expect(result).toEqual(players)
+  })
+})
+
+describe('reducePlayers — CITY_IMPROVEMENT_PURCHASED', () => {
+  it('deducts the improvement cost and raises the track level, no refund when craneDiscount is false', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, commodities: { ...p.commodities, cloth: 5 } }))
+    const before = players[0].commodities.cloth
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: false }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(players[0].cityImprovements.trade + 1)
+    expect(after.commodities.cloth).toBe(before - 1)
+  })
+
+  it('refunds 1 matching commodity when craneDiscount is true', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, commodities: { ...p.commodities, cloth: 5 } }))
+    const before = players[0].commodities.cloth
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(players[0].cityImprovements.trade + 1)
+    expect(after.commodities.cloth).toBe(before) // full cost deducted, then 1 refunded — net zero at level 1
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'science', craneDiscount: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('does not refund a commodity when the track is already at max level (rejected purchase)', () => {
+    const players = createInitialPlayers(1).map((p) => ({
+      ...p,
+      cityImprovements: { ...p.cityImprovements, trade: 5 },
+      commodities: { ...p.commodities, cloth: 5 },
+    }))
+    const result = reducePlayers(players, { type: 'CITY_IMPROVEMENT_PURCHASED', playerId: players[0].id, track: 'trade', craneDiscount: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.cityImprovements.trade).toBe(5)
+    expect(after.commodities.cloth).toBe(5) // rejected purchase: buyImprovementLevel no-ops, refund must not apply either
+  })
+})
+
+describe('reducePlayers — CITY_WALL_BUILT', () => {
+  it('deducts CITY_WALL_COST and appends the vertex when isFree is false', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, brick: 5 } }))
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v1', isFree: false }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.brick).toBe(3) // CITY_WALL_COST = { brick: 2 }
+    expect(after.cityWalls).toEqual(['v1'])
+  })
+
+  it('appends the vertex with no resource deduction when isFree is true', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, brick: 5 } }))
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v2', isFree: true }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.brick).toBe(5)
+    expect(after.cityWalls).toEqual(['v2'])
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'CITY_WALL_BUILT', playerId: players[0].id, vertexId: 'v1', isFree: false }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — DEV_CARD_BOUGHT', () => {
+  it('deducts DEV_CARD_COST and adds the card to devCards and devCardsBoughtThisTurn', () => {
+    const players = createInitialPlayers(1).map((p) => ({ ...p, resources: { ...p.resources, ore: 3, grain: 3, wool: 3 } }))
+    const result = reducePlayers(players, { type: 'DEV_CARD_BOUGHT', playerId: players[0].id, card: 'knight' }, initialGameState)
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources).toMatchObject({ ore: 2, grain: 2, wool: 2 }) // DEV_CARD_COST = { ore: 1, grain: 1, wool: 1 }
+    expect(after.devCards).toEqual(['knight'])
+    expect(after.devCardsBoughtThisTurn).toEqual(['knight'])
+  })
+
+  it('leaves an untouched player unchanged', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'DEV_CARD_BOUGHT', playerId: players[0].id, card: 'knight' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — RESOURCES_PRODUCED', () => {
+  it('applies resource-only production to the named player', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [{ playerId: players[0].id, resource: 'lumber', amount: 2 }] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(players[0].resources.lumber + 2)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('applies a resource+commodity production entry together', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [{ playerId: players[0].id, resource: 'wool', amount: 1, commodity: 'cloth' }] },
+      initialGameState,
+    )
+    const after = result.find((p) => p.id === players[0].id)!
+    expect(after.resources.wool).toBe(players[0].resources.wool + 1)
+    expect(after.commodities.cloth).toBe(players[0].commodities.cloth + 1)
+  })
+
+  it('sums multiple production entries for the same player', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(
+      players,
+      { type: 'RESOURCES_PRODUCED', productions: [
+        { playerId: players[0].id, resource: 'grain', amount: 1 },
+        { playerId: players[0].id, resource: 'grain', amount: 2 },
+      ] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.resources.grain).toBe(players[0].resources.grain + 3)
+  })
+})
+
+describe('reducePlayers — DOUBLES_REROLL_HAND_WIPED', () => {
+  it('empties the named player\'s resources and leaves others untouched', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 3, brick: 2, wool: 1, grain: 4, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'DOUBLES_REROLL_HAND_WIPED', playerId: players[0].id }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources).toEqual(emptyResources())
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
   })
 })
 

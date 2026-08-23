@@ -41,7 +41,6 @@ import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/dis
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
   canAffordImprovement,
-  buyImprovementLevel,
   improvementLevelCost,
   MAX_IMPROVEMENT_LEVEL,
   evaluateMetropolisPurchase,
@@ -54,7 +53,6 @@ import {
   BIOME_LABELS,
   BIOME_TO_RESOURCE,
   CITY_COST,
-  CITY_WALL_COST,
   COMMODITY_FOR_BIOME,
   COMMODITY_FOR_TRACK,
   COMMODITY_LABELS,
@@ -80,11 +78,9 @@ import {
   buildSetupOrder,
   canAfford,
   createInitialPlayers,
-  deductCost,
   getPlayerScore,
   emptyCityImprovements,
   emptyCommodities,
-  emptyResources,
   getPublicScore,
   type CommodityType,
   type DevCardType,
@@ -869,7 +865,7 @@ function App() {
     // calls this — so both the local end-turn action and the remote
     // TURN_PASSED receiver apply the identical reset.
     setKnightsPromotedThisTurn(new Set())
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p, index) => (index === nextIndex ? { ...p, devCardsBoughtThisTurn: [] } : p)) })
+    dispatch({ type: 'TURN_ADVANCED', nextPlayerIndex: nextIndex })
     setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to
@@ -1255,7 +1251,7 @@ function App() {
   // own independently-shuffled local copy, so each caller does its own deck
   // update after calling this.
   const applyBarbarianWinnerDraw = (playerId: number, card: ProgressCardType) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === playerId ? { ...p, progressCards: [...p.progressCards, card] } : p)) })
+    dispatch({ type: 'PROGRESS_CARDS_DRAWN', draws: [{ playerId, card }] })
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
@@ -1269,13 +1265,8 @@ function App() {
   // buyImprovementLevel/improvementLevelCost, rather than trusting a cost
   // value sent over the wire — same trust model as every other trusted-apply
   // function in this file (applyDiscard, applyScienceFreeResourcePick, etc).
-  const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack) => {
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) => {
-        if (p.id !== playerId) return p
-        const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, track)
-        return { ...p, commodities, cityImprovements }
-      }) })
+  const applyCityImprovementPurchase = (playerId: number, track: ImprovementTrack, craneDiscount: boolean) => {
+    dispatch({ type: 'CITY_IMPROVEMENT_PURCHASED', playerId, track, craneDiscount })
   }
 
   // Trusted state mutation for a batch of progress-card draws from one
@@ -1614,17 +1605,7 @@ function App() {
     // silently drifts, permanently, until it happens to cross the 7-card
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === payload.playerId
-            ? {
-                ...p,
-                resources: deductCost(p.resources, DEV_CARD_COST),
-                devCards: [...p.devCards, payload.card],
-                devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, payload.card],
-              }
-            : p,
-        ) })
+      applyDevCardBought(payload.playerId, payload.card)
       setDevDeck((prev) => prev.slice(1))
     },
     // Same reasoning as onDevCardBought above — a city improvement purchase
@@ -1643,26 +1624,7 @@ function App() {
         console.error('[Catan] Ignoring malformed city-improvement payload:', payload)
         return
       }
-      applyCityImprovementPurchase(payload.playerId, payload.track)
-      // Cities & Knights Crane — mirrors the acting client's own
-      // pay-full-then-refund-1 discount (see buyCityImprovement's own
-      // comment) so this client's copy of the buyer's commodities ends up
-      // at the exact same final count, without ever needing to know
-      // anything about THIS client's own (irrelevant) craneDiscountPlayerId.
-      if (payload.craneDiscount) {
-        dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-          prev.map((p) =>
-            p.id === payload.playerId
-              ? {
-                  ...p,
-                  commodities: {
-                    ...p.commodities,
-                    [COMMODITY_FOR_TRACK[payload.track]]: p.commodities[COMMODITY_FOR_TRACK[payload.track]] + 1,
-                  },
-                }
-              : p,
-          ) })
-      }
+      applyCityImprovementPurchase(payload.playerId, payload.track, payload.craneDiscount ?? false)
     },
     onProgressCardsDrawn: (payload) => {
       // Broadcast-sourced — same validation shape as onCityImprovementPurchased:
@@ -1969,16 +1931,7 @@ function App() {
     // skips the deduction for Engineering's free wall — see
     // CityWallBuiltPayload.isFree's own comment in useRoomChannel.ts.
     onCityWallBuilt: (payload) => {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id !== payload.playerId
-            ? p
-            : {
-                ...p,
-                resources: payload.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST),
-                cityWalls: [...p.cityWalls, payload.vertexId],
-              },
-        ) })
+      applyCityWallBuilt(payload.playerId, payload.vertexId, payload.isFree)
     },
     // Cities & Knights Smithing (Task 13) — same trusted-apply reasoning as
     // onCityWallBuilt above, but re-derives each promoted knight's new
@@ -3257,49 +3210,44 @@ function App() {
       messages.push(`The Robber blocks ${BIOME_LABELS[robberTile.biome]} — no resources from that hex.`)
     }
 
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => {
-      const next = prev.map((p) => ({ ...p, resources: { ...p.resources }, commodities: { ...p.commodities } }))
-      const byId = new Map(next.map((p) => [p.id, p]))
+    const productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] = []
+    for (const tile of tiles) {
+      if (tile.number !== total) continue
+      if (tile.id === robberTileId) continue // blocked by the Robber
 
-      for (const tile of tiles) {
-        if (tile.number !== total) continue
-        if (tile.id === robberTileId) continue // blocked by the Robber
+      const resource = BIOME_TO_RESOURCE[tile.biome]
+      if (!resource) continue
 
-        const resource = BIOME_TO_RESOURCE[tile.biome]
-        if (!resource) continue
+      const commodity = COMMODITY_FOR_BIOME[tile.biome]
 
-        const commodity = COMMODITY_FOR_BIOME[tile.biome]
+      const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
+      for (const vertexId of vertexIds) {
+        const building = gameState.board.settlements[vertexId]
+        if (!building) continue
+        const owner = playerById.get(building.ownerId)
+        if (!owner) continue
 
-        const vertexIds = graph.tileVertexIds.get(tile.id) ?? []
-        for (const vertexId of vertexIds) {
-          const building = gameState.board.settlements[vertexId]
-          if (!building) continue
-          const owner = byId.get(building.ownerId)
-          if (!owner) continue
+        // A city on a commodity-producing hex (forest/pasture/mountains)
+        // gets 1 resource + 1 commodity instead of 2 resource, when the
+        // house rule is on. Settlements and fields/hills/desert
+        // production are untouched.
+        if (building.type === 'city' && gameRules.citiesAndKnightsCommodities && commodity) {
+          productions.push({ playerId: owner.id, resource, amount: 1, commodity })
+          messages.push(
+            `${owner.name} city yields 1 ${RESOURCE_LABELS[resource]} + 1 ${COMMODITY_LABELS[commodity]}!`,
+          )
+          continue
+        }
 
-          // A city on a commodity-producing hex (forest/pasture/mountains)
-          // gets 1 resource + 1 commodity instead of 2 resource, when the
-          // house rule is on. Settlements and fields/hills/desert
-          // production are untouched.
-          if (building.type === 'city' && gameRules.citiesAndKnightsCommodities && commodity) {
-            owner.resources[resource] += 1
-            owner.commodities[commodity] += 1
-            messages.push(
-              `${owner.name} city yields 1 ${RESOURCE_LABELS[resource]} + 1 ${COMMODITY_LABELS[commodity]}!`,
-            )
-            continue
-          }
-
-          const amount = building.type === 'city' ? 2 : 1
-          owner.resources[resource] += amount
-          if (building.type === 'city') {
-            messages.push(`${owner.name} city yields ${amount} ${RESOURCE_LABELS[resource]}!`)
-          }
+        const amount = building.type === 'city' ? 2 : 1
+        productions.push({ playerId: owner.id, resource, amount })
+        if (building.type === 'city') {
+          messages.push(`${owner.name} city yields ${amount} ${RESOURCE_LABELS[resource]}!`)
         }
       }
+    }
 
-      return next
-    } })
+    dispatch({ type: 'RESOURCES_PRODUCED', productions })
 
     // Science level 3: a player who received nothing this roll gets 1 free
     // resource of their choice — never on a 7 (a 7 doesn't produce at all,
@@ -3341,7 +3289,7 @@ function App() {
     // here already guarantees roller is still the active player.
     if (gameRules.doublesRerollRule && doublesCount >= 3 && roller) {
       debugLog('doubles-reroll hand wipe', { rollerId: roller.id, rollerName: roller.name, doublesCount, isStillRollersTurn })
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id === roller.id ? { ...p, resources: emptyResources() } : p)) })
+      dispatch({ type: 'DOUBLES_REROLL_HAND_WIPED', playerId: roller.id })
       inform(`${roller.name} rolled doubles three times in a row — hand emptied!`)
     }
 
@@ -4141,6 +4089,10 @@ function App() {
     isResolvingTradeRef.current = false
   }, [pendingTrade])
 
+  const applyDevCardBought = (playerId: number, card: DevCardType) => {
+    dispatch({ type: 'DEV_CARD_BOUGHT', playerId, card })
+  }
+
   const buyDevCard = () => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -4175,17 +4127,7 @@ function App() {
 
     const [card, ...remaining] = devDeck
     setDevDeck(remaining)
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p, index) =>
-        index === currentPlayerIndex
-          ? {
-              ...p,
-              resources: deductCost(p.resources, DEV_CARD_COST),
-              devCards: [...p.devCards, card],
-              devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, card],
-            }
-          : p,
-      ) })
+    applyDevCardBought(player.id, card)
     inform(`${player.name} bought a development card.`)
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
   }
@@ -4281,30 +4223,8 @@ function App() {
       return
     }
 
-    applyCityImprovementPurchase(player.id, track)
-    // Refund step of Crane's pay-full-then-refund-1 discount — applyCityImprovementPurchase
-    // just deducted the FULL cost via buyImprovementLevel, so 1 of the
-    // matching commodity comes back here, and the 1-time flag is cleared so
-    // it can't be reused by a later purchase. craneDiscount is carried on
-    // the broadcast below so every OTHER client applies the identical
-    // refund — without it, a receiver's own applyCityImprovementPurchase
-    // would deduct the full cost with no refund, permanently desyncing this
-    // player's commodity count between clients.
-    if (hasCraneDiscount) {
-      dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-        prev.map((p) =>
-          p.id === player.id
-            ? {
-                ...p,
-                commodities: {
-                  ...p.commodities,
-                  [COMMODITY_FOR_TRACK[track]]: p.commodities[COMMODITY_FOR_TRACK[track]] + 1,
-                },
-              }
-            : p,
-        ) })
-      setCraneDiscountPlayerId(null)
-    }
+    applyCityImprovementPurchase(player.id, track, hasCraneDiscount)
+    if (hasCraneDiscount) setCraneDiscountPlayerId(null)
     inform(`${player.name} built the ${IMPROVEMENT_TRACK_NAMES[track][newLevel - 1]} (${IMPROVEMENT_TRACK_LABELS[track]} level ${newLevel}).`)
     if (onlineInfo) broadcastCityImprovementPurchased({ playerId: player.id, track, newLevel, craneDiscount: hasCraneDiscount })
     if (claimsMetropolis) {
@@ -5160,6 +5080,10 @@ function App() {
   // (game/knights.ts) already checks ownership/no-existing-wall/board-wide
   // cap/affordability, so this handler just calls it directly rather than
   // re-deriving those checks inline.
+  const applyCityWallBuilt = (playerId: number, vertexId: string, isFree: boolean) => {
+    dispatch({ type: 'CITY_WALL_BUILT', playerId, vertexId, isFree })
+  }
+
   const buildCityWall = (vertexId: string) => {
     if (!isMyTurn) {
       warn("It's not your turn.")
@@ -5171,12 +5095,7 @@ function App() {
       warn('Cannot build a city wall there.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) =>
-      prev.map((p) =>
-        p.id !== player.id
-          ? p
-          : { ...p, resources: deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, vertexId] },
-      ) })
+    applyCityWallBuilt(player.id, vertexId, false)
     if (onlineInfo) broadcastCityWallBuilt({ playerId: player.id, vertexId, isFree: false })
   }
 
@@ -5257,7 +5176,7 @@ function App() {
       warn('Not a valid free wall target.')
       return
     }
-    dispatch({ type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => (p.id !== playerId ? p : { ...p, cityWalls: [...p.cityWalls, vertexId] })) })
+    applyCityWallBuilt(playerId, vertexId, true)
     setPendingFreeCityWall(null)
     // isFree: true — unlike buildCityWall's own broadcast just above, this
     // never deducted CITY_WALL_COST locally, so every other client's

@@ -1,8 +1,9 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
+import { buyImprovementLevel } from '../cityImprovements'
 
 export type PlayersAction =
   // Bridge for every setPlayers call site not yet individually migrated to
@@ -40,6 +41,7 @@ export type PlayersAction =
   | { type: 'PROGRESS_CARD_SPENT'; playerId: number; card: ProgressCardType }
   | { type: 'DIPLOMACY_PLAYED'; playerId: number; ownerId: number }
   | { type: 'DEV_CARD_SPENT'; playerId: number; devCardType: DevCardType }
+  | { type: 'DEV_CARD_BOUGHT'; playerId: number; card: DevCardType }
   | { type: 'IRRIGATION_PLAYED'; playerId: number; hexCount: number }
   | { type: 'MINING_PLAYED'; playerId: number; hexCount: number }
   | { type: 'CRANE_PLAYED'; playerId: number }
@@ -55,11 +57,18 @@ export type PlayersAction =
   | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'GUILD_DUES_TAKEN'; takerId: number; targetId: number; picks: (ResourceType | CommodityType)[] }
   | { type: 'ESPIONAGE_TAKEN'; takerId: number; targetId: number; cardIndex: number }
+  | { type: 'CITY_IMPROVEMENT_PURCHASED'; playerId: number; track: ImprovementTrack; craneDiscount: boolean }
+  | { type: 'CITY_WALL_BUILT'; playerId: number; vertexId: string; isFree: boolean }
+  | { type: 'TURN_ADVANCED'; nextPlayerIndex: number }
+  | { type: 'RESOURCES_PRODUCED'; productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] }
+  | { type: 'DOUBLES_REROLL_HAND_WIPED'; playerId: number }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
     case 'LEGACY_SET_PLAYERS':
       return action.updater(players)
+    case 'TURN_ADVANCED':
+      return players.map((p, index) => (index === action.nextPlayerIndex ? { ...p, devCardsBoughtThisTurn: [] } : p))
     case 'BUILD_SETTLEMENT':
       return players.map((p) =>
         p.id === action.playerId
@@ -369,6 +378,12 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           ? { ...p, devCards: removeOne(p.devCards, action.devCardType), knightsPlayed: action.devCardType === 'knight' ? p.knightsPlayed + 1 : p.knightsPlayed }
           : p,
       )
+    case 'DEV_CARD_BOUGHT':
+      return players.map((p) =>
+        p.id === action.playerId
+          ? { ...p, resources: deductCost(p.resources, DEV_CARD_COST), devCards: [...p.devCards, action.card], devCardsBoughtThisTurn: [...p.devCardsBoughtThisTurn, action.card] }
+          : p,
+      )
     case 'IRRIGATION_PLAYED':
       return players.map((p) =>
         p.id === action.playerId
@@ -509,6 +524,39 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         return p
       })
     }
+    case 'CITY_IMPROVEMENT_PURCHASED':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const { commodities, cityImprovements } = buyImprovementLevel(p.commodities, p.cityImprovements, action.track)
+        // Rejected/no-op purchases (already at MAX_IMPROVEMENT_LEVEL) must not
+        // refund either — buyImprovementLevel's own ceiling guard already
+        // prevents deducting the cost for those, so refunding on top would
+        // mint a free commodity for a duplicated or forged action.
+        const purchased = cityImprovements[action.track] !== p.cityImprovements[action.track]
+        if (!action.craneDiscount || !purchased) return { ...p, commodities, cityImprovements }
+        const commodity = COMMODITY_FOR_TRACK[action.track]
+        return { ...p, commodities: { ...commodities, [commodity]: commodities[commodity] + 1 }, cityImprovements }
+      })
+    case 'CITY_WALL_BUILT':
+      return players.map((p) =>
+        p.id !== action.playerId
+          ? p
+          : { ...p, resources: action.isFree ? p.resources : deductCost(p.resources, CITY_WALL_COST), cityWalls: [...p.cityWalls, action.vertexId] },
+      )
+    case 'RESOURCES_PRODUCED':
+      return players.map((p) => {
+        const events = action.productions.filter((e) => e.playerId === p.id)
+        if (events.length === 0) return p
+        const resources = { ...p.resources }
+        const commodities = { ...p.commodities }
+        for (const e of events) {
+          resources[e.resource] += e.amount
+          if (e.commodity) commodities[e.commodity] += 1
+        }
+        return { ...p, resources, commodities }
+      })
+    case 'DOUBLES_REROLL_HAND_WIPED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, resources: emptyResources() } : p))
     default:
       // reducePlayers never has (or needs) a `never`-exhaustiveness default
       // — unlike reduceBoard, it's deliberately, permanently partial over

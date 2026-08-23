@@ -74,6 +74,7 @@ import {
   RESOURCE_ORDER,
   ROAD_COST,
   SETTLEMENT_COST,
+  SHIP_COST,
   STARTING_SHIPS,
   buildDevCardDeck,
   buildSetupOrder,
@@ -737,6 +738,9 @@ function App() {
       case 'BUILD_ROAD':
         broadcastRoadBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeRoad: action.isFreeRoad })
         break
+      case 'BUILD_SHIP':
+        broadcastShipBuilt({ edgeId: action.edgeId, playerId: action.playerId, isFreeShip: action.isFreeShip })
+        break
       case 'PILLAGE_CITY':
         broadcastPillageResolved({ vertexId: action.vertexId, playerId: action.playerId })
         break
@@ -955,6 +959,11 @@ function App() {
         setSetupStage('settlement')
       }
     }
+  }
+
+  const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
+    dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
+    if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
   }
 
   const applyRobberMove = (
@@ -1372,6 +1381,7 @@ function App() {
     broadcastSettlementBuilt,
     broadcastCityBuilt,
     broadcastRoadBuilt,
+    broadcastShipBuilt,
     broadcastRobberMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
@@ -1449,6 +1459,8 @@ function App() {
     },
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
+    onShipBuilt: (payload) =>
+      applyShipPlacement(payload.edgeId, payload.playerId, false, payload.isFreeShip, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
@@ -2400,6 +2412,38 @@ function App() {
     return aUsable || bUsable
   }
 
+  const edgeTouchesSea = (edgeId: string): boolean => {
+    const tileIds = graph.edgeTileIds.get(edgeId) ?? []
+    return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
+  }
+
+  const hasPlayerShipAt = (vertexId: string, playerId: number): boolean => {
+    const edgeIds = graph.vertexEdgeIds.get(vertexId) ?? []
+    return edgeIds.some((edgeId) => gameState.board.ships[edgeId] === playerId)
+  }
+
+  // CN3083: "a new ship must connect to one of your existing ships or
+  // buildings — NOT roads." Deliberately does not fall back to
+  // hasPlayerRoadAt the way isRoadPlacementConnected does — a road ending
+  // at a coastal vertex does not, by itself, let a ship branch off it; the
+  // road has to terminate at a settlement/city first (which the
+  // settlements check below already covers).
+  //
+  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
+  // placement on any edge of the hex the pirate currently occupies. The
+  // pirate doesn't exist yet (Robber & Pirate Migration sub-plan) — this
+  // function has no way to check that yet. Revisit once pirateTileId exists.
+  const isShipPlacementConnected = (edgeId: string, playerId: number): boolean => {
+    const edge = edgeById.get(edgeId)
+    if (!edge) return false
+    if (
+      gameState.board.settlements[edge.a]?.ownerId === playerId ||
+      gameState.board.settlements[edge.b]?.ownerId === playerId
+    )
+      return true
+    return hasPlayerShipAt(edge.a, playerId) || hasPlayerShipAt(edge.b, playerId)
+  }
+
   // Best available bank-trade rate for giving away this resource: 2:1 if the
   // player owns that resource's specific port, else 3:1 if they own any
   // generic port, else the standard 4:1.
@@ -2840,8 +2884,8 @@ function App() {
       warn('Place your settlement first.')
       return
     }
-    if (gameState.board.roads[edgeId] != null) {
-      warn('That road is already occupied.')
+    if (gameState.board.roads[edgeId] != null || gameState.board.ships[edgeId] != null) {
+      warn('That edge is already occupied.')
       return
     }
     if (isSetup) {
@@ -2873,6 +2917,46 @@ function App() {
 
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
+
+  const buildShipRaw = (edgeId: string) => {
+    if (!canInteract()) return
+
+    const player = players[currentPlayerIndex]
+    const isFreeShip = freeRoadsRemaining > 0
+
+    if (!isFreeShip && !hasRolledThisTurn) {
+      warn('Roll the dice before building.')
+      return
+    }
+    if (gameState.board.roads[edgeId] != null || gameState.board.ships[edgeId] != null) {
+      warn('That edge is already occupied.')
+      return
+    }
+    if (!edgeTouchesSea(edgeId)) {
+      warn('Ships can only be placed on edges bordering the sea.')
+      return
+    }
+    if (!isShipPlacementConnected(edgeId, player.id)) {
+      warn('Ship must connect to one of your ships or buildings.')
+      return
+    }
+    if (player.shipsRemaining <= 0) {
+      warn('You have no ships left to place.')
+      return
+    }
+    if (!isFreeShip && !canAfford(player.resources, SHIP_COST)) {
+      warn('Not enough resources for a ship.')
+      return
+    }
+
+    applyShipPlacement(edgeId, player.id, false, isFreeShip, true)
+  }
+  // No 3D UI calls buildShipRaw yet (ship-building click UI is a later
+  // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as
+  // dead code. Verified via manual dispatch (this task's own report), not a
+  // click handler; a future task wires this into BoardInteractions the same
+  // way buildRoad is wired just below.
+  void buildShipRaw
 
   // Stable callbacks for board interactions — buildSettlement/buildRoad
   // never change identity across renders (empty deps), so BoardInteractions

@@ -135,6 +135,16 @@ export interface RobberMovedPayload {
   stolenItem: StolenItem | null
 }
 
+// Same shape as RobberMovedPayload, except tileId is nullable — the pirate
+// can be legally parked on the frame (tileId: null), unlike the robber which
+// always occupies some hex.
+export interface PirateMovedPayload {
+  tileId: string | null
+  thiefId: number
+  victimId: number | null
+  stolenItem: StolenItem | null
+}
+
 // Cities & Knights barbarian ship (Task 4) — a 'ship' event-die face that
 // doesn't yet reach the end of the 7-space track. Every OTHER client just
 // mirrors the roller's own barbarianTrackPosition directly (trusted-apply,
@@ -721,6 +731,7 @@ export interface RoomChannelHandlers {
   onShipBuilt?: (payload: ShipBuiltPayload) => void
   onShipMoved?: (payload: ShipMovedPayload) => void
   onRobberMoved?: (payload: RobberMovedPayload) => void
+  onPirateMoved?: (payload: PirateMovedPayload) => void
   // Cities & Knights barbarian ship (Task 4) — see
   // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
   // comments above for the trusted-apply reasoning.
@@ -1004,6 +1015,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
       handlersRef.current.onRobberMoved?.(payload)
     })
+    channel.on<PirateMovedPayload>('broadcast', { event: 'PIRATE_MOVED' }, ({ payload }) => {
+      handlersRef.current.onPirateMoved?.(payload)
+    })
     channel.on<BarbarianShipAdvancedPayload>('broadcast', { event: 'BARBARIAN_SHIP_ADVANCED' }, ({ payload }) => {
       handlersRef.current.onBarbarianShipAdvanced?.(payload)
     })
@@ -1284,6 +1298,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastRobberMoved = (payload: RobberMovedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
   }
+  const broadcastPirateMoved = (payload: PirateMovedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'PIRATE_MOVED', payload })
+  }
   const broadcastBarbarianShipAdvanced = (payload: BarbarianShipAdvancedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_SHIP_ADVANCED', payload })
   }
@@ -1443,6 +1460,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastShipBuilt,
     broadcastShipMoved,
     broadcastRobberMoved,
+    broadcastPirateMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
     broadcastPillageResolved,

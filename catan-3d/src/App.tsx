@@ -101,6 +101,7 @@ import {
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
+import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -120,7 +121,7 @@ import {
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
 
-export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
+export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber' | 'movePirate'
 export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -1025,6 +1026,88 @@ function App() {
     setGamePhase('playing')
   }
 
+  // Mirrors applyRobberMove above, for the pirate — the same trusted-apply
+  // shared helper both the local actor and every onPirateMoved receiver call.
+  // tileId is nullable (the pirate can be legally parked on the frame),
+  // unlike applyRobberMove's tileId which always names a hex.
+  const applyPiratePlace = (
+    tileId: string | null,
+    thiefId: number,
+    victimId: number | null,
+    stolenItem: StolenItem | null,
+  ) => {
+    const safeStolenItem =
+      stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
+        ? stolenItem
+        : null
+    if (stolenItem != null && safeStolenItem == null) {
+      console.error('[Catan] Ignoring pirate-move payload with an invalid stolen item:', stolenItem)
+    }
+    dispatch({ type: 'PIRATE_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
+    playSfx('robber')
+
+    let stealNote = ''
+    if (victimId != null && safeStolenItem != null) {
+      const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
+      const thief = playerById.get(thiefId)
+      const victim = playerById.get(victimId)
+      if (thief && victim) {
+        const label = isCommodity ? COMMODITY_LABELS[safeStolenItem as CommodityType] : RESOURCE_LABELS[safeStolenItem as ResourceType]
+        stealNote = ` ${thief.name} stole 1 ${label} from ${victim.name}!`
+      }
+    } else if (victimId != null) {
+      const victim = playerById.get(victimId)
+      if (victim) stealNote = ` ${victim.name} had nothing to steal.`
+    }
+
+    if (tileId != null) {
+      const tile = tileById.get(tileId)
+      if (tile) inform(`The Pirate moves to ${BIOME_LABELS[tile.biome]}.${stealNote}`)
+    } else {
+      inform('The Pirate returns to the frame.')
+    }
+    setGamePhase('playing')
+  }
+
+  // The click-handler equivalent of moveRobber, minus the taxation/chase-away
+  // branches — taxation never applies to the pirate (CN3087 is robber-only),
+  // and pirate chase-away is a later task in this sub-plan. No 3D UI calls
+  // this yet (see the `void movePirate` note below).
+  const movePirate = (tileId: string | null) => {
+    if (winner) return
+    if (gamePhase !== 'movePirate') return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (tileId != null && !isPirateEligibleTile(tileById, tileId)) {
+      warn('The Pirate can only be placed on a sea hex.')
+      return
+    }
+
+    const thief = players[currentPlayerIndex]
+    let victimId: number | null = null
+    let stolenItem: StolenItem | null = null
+    if (tileId != null) {
+      const victimIds = pirateVictimShipOwners(graph, gameState.board.ships, tileId, thief.id)
+      if (victimIds.length > 0) {
+        victimId = pickRandom(victimIds)
+        const victim = playerById.get(victimId)
+        if (victim) {
+          const heldItems = heldItemsFor(victim)
+          if (heldItems.length > 0) stolenItem = pickRandom(heldItems)
+        }
+      }
+    }
+
+    applyPiratePlace(tileId, thief.id, victimId, stolenItem)
+    if (onlineInfo) broadcastPirateMoved({ tileId, thiefId: thief.id, victimId, stolenItem })
+  }
+  // No 3D UI calls movePirate yet (the robber-or-pirate choice picker is a
+  // later task in this same sub-plan) — kept reachable so noUnusedLocals
+  // doesn't flag it, same idiom the Ships sub-plan established.
+  void movePirate
+
   // Knight and Road Building are single-step plays — spend-plus-effect
   // happens atomically, so the same function safely serves both the local
   // actor (via playKnight/playRoadBuilding, after their own guards pass)
@@ -1393,6 +1476,7 @@ function App() {
     broadcastShipBuilt,
     broadcastShipMoved,
     broadcastRobberMoved,
+    broadcastPirateMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
     broadcastPillageResolved,
@@ -1475,6 +1559,8 @@ function App() {
       applyShipMove(payload.fromEdgeId, payload.toEdgeId, payload.playerId, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
+    onPirateMoved: (payload) =>
+      applyPiratePlace(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
     // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
     // comments in useRoomChannel.ts.

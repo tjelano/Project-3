@@ -2,7 +2,9 @@
 
 ## Summary
 
-Adds the core Seafarers mechanics — ships, gold fields, and the pirate — to `catan-3d`, plus one new playable sea-hex board shape to actually place them on. Rules sourced and verbatim-cited in `docs/superpowers/specs/references/seafarers-rules-reference.md` (CN3083/CN3084), which itself frames this as phase 4 of the combined Cities & Knights/Seafarers plan (phase 5, Scenario Maps, follows separately).
+Adds the core Seafarers mechanics — ships, gold fields, and the pirate — to `catan-3d`, plus one new sea-hex board shape to actually place them on. Rules sourced and verbatim-cited in `docs/superpowers/specs/references/seafarers-rules-reference.md` (CN3083/CN3084), which itself frames this as phase 4 of the combined Cities & Knights/Seafarers plan (phase 5, Scenario Maps, follows separately).
+
+**Status:** this one spec covers the full phase; implementation ships across 4 sequential sub-plans, each its own PR — Board Foundation (biomes, board shape, sea model — no gameplay) → Ships & Longest Route → Robber & Pirate Migration → Gold Fields. A given sub-plan's own plan doc states which slice of this spec it delivers; until all 4 land, sections below describe the target design, not what's necessarily playable yet.
 
 **In scope:** ship building/movement, Longest Route (roads+ships merged), gold-field production, the pirate (trigger/movement/steal, including its interaction with C&K's existing knight chase-away), the 2 Seafarers-modified dev cards (Road Building, Knight), the setup-phase ship substitution, and one new board shape with a sea ring + 2 gold fields.
 
@@ -101,9 +103,9 @@ Reuses three existing mechanisms — no new ones:
 
 1. Add `'sea'` and `'gold'` to `Biome` (Data Model, above).
 2. Add one new `BoardShapeId` (e.g. `'seafarersBasic'`) — a land-hex ring plus a surrounding sea-hex ring, in the same `BoardCell[]` format (`{ col, row }`) every other shape already uses.
-3. Pre-pin the sea ring and the 2 gold-field cells via `customBiomeOverrides` — the exact `Record<string, Biome>` mechanism the custom map editor already uses to fix specific cells to specific biomes.
+3. Pre-pin the sea ring and the 2 gold-field cells via `BIOME_OVERRIDES_BY_SHAPE`, a new `Partial<Record<BoardShapeId, Record<string, Biome>>>` table that `buildHexBoard` applies for built-in shapes — `customBiomeOverrides` remains the separate override path the custom map editor uses for user-painted boards, and `buildHexBoard`'s wrapper picks between the two based on which kind of shape is being built.
 
-`buildHexBoardFromCells`'s pool-painting logic already handles overrides for biomes that don't exist in its normal land-biome pool: `pool.indexOf(override)` gracefully no-ops when the override isn't found (confirmed by reading the function directly — its own comment already documents this "painting beyond a biome's natural share" case), and `paintedCount` still correctly excludes the overridden cell from the pool-sizing math. Land cells keep drawing randomly from the pool as today; sea/gold cells are fixed.
+`buildHexBoardFromCells` treats overrides in two ways. A cell overridden to a biome that's still part of the normal land-biome pool has that biome removed from `pool` via `pool.indexOf(override)`, which no-ops harmlessly when the override isn't a pool member — this pre-existing mechanism is unchanged. A cell overridden to `'sea'` or `'gold'` is different: both are structurally excluded from `BIOME_WEIGHTS`, so they can never be drawn from `pool` at all, which means they must also be excluded from the *sizing* math up front, not just the drawing. `poolTileCount = tileCount - nonPoolPaintedCount` (where `nonPoolPaintedCount` counts only cells overridden to `'sea'`/`'gold'`) feeds both `desertCountFor` and `buildBiomePool`, so the pool is sized for exactly the cells that will actually draw from it. Land cells keep drawing randomly from the correctly-sized pool as today; sea/gold cells are fixed.
 
 **One real code change is needed, though — not zero.** The number-disc assignment (`number = biome === 'desert' ? null : numberSequence[...]`) and its pool-sizing count (`actualNonDesertCount = biomes.filter((biome) => biome !== 'desert').length`) both only exclude `'desert'`. Sea hexes never produce either — CN3083's own number-disc set is sized for land/gold hexes only — so both spots need to treat `'sea'` the same as `'desert'`. Gold fields **do** get a number disc (they produce, just with a player-chosen resource instead of a fixed one), so they're unaffected and need no exclusion.
 

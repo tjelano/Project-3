@@ -116,15 +116,11 @@ function MerchantTileTarget({ tile, onSelect }: { tile: HexTileData; onSelect: (
   )
 }
 
-// Forward-compatible land/sea filter. Every Biome value that exists in this
-// codebase today (forest/pasture/fields/hills/mountains/desert) is a land
-// hex — desert itself is still land, it just produces no resource, so it
-// stays eligible for placement even though trading its (nonexistent)
-// resource would be moot. There is no 'sea'/'ocean' Biome value yet, so
-// this check is a genuine no-op for Phase B; it exists so a future
-// Seafarers-style ocean tile has an obvious place to plug in, per this
-// task's own brief.
-const LAND_BIOMES: Biome[] = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert']
+// Land/sea filter. 'sea' is the only Biome value that isn't land — every
+// other value, including 'gold' (a land hex that produces a resource) and
+// 'desert' (land, produces no resource but stays eligible for placement),
+// counts as land for merchant-placement purposes.
+const LAND_BIOMES: Biome[] = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert', 'gold']
 
 function isLandTile(tile: HexTileData): boolean {
   return LAND_BIOMES.includes(tile.biome)

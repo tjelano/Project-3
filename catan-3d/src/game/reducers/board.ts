@@ -5,11 +5,20 @@ import type { GameAction, GameState } from '../gameState'
 export interface BoardState {
   settlements: Record<string, Building>
   roads: Record<string, number>
+  ships: Record<string, number> // edge id -> owning player id, same shape as roads
+  // Edge ids a ship was built on THIS turn — a ship can't be moved the same
+  // turn it was built (CN3083 p.2). Cleared on TURN_ADVANCED.
+  shipsBuiltThisTurn: string[]
+  // At most 1 ship move per turn (CN3083 p.2). Cleared on TURN_ADVANCED.
+  hasMovedShipThisTurn: boolean
 }
 
 export const initialBoardState: BoardState = {
   settlements: {},
   roads: {},
+  ships: {},
+  shipsBuiltThisTurn: [],
+  hasMovedShipThisTurn: false,
 }
 
 export type BoardAction =
@@ -19,7 +28,14 @@ export type BoardAction =
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'RESET_BOARD' }
-  | { type: 'RESTORE_BOARD'; settlements: Record<string, Building>; roads: Record<string, number> }
+  | {
+      type: 'RESTORE_BOARD'
+      settlements: Record<string, Building>
+      roads: Record<string, number>
+      ships: Record<string, number>
+      shipsBuiltThisTurn: string[]
+      hasMovedShipThisTurn: boolean
+    }
 
 export function reduceBoard(state: BoardState, action: GameAction, _fullState: GameState): BoardState {
   switch (action.type) {
@@ -54,9 +70,15 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       // singleton — nothing mutates settlements/roads in place today, but
       // aliasing the module-level object into live state costs nothing to
       // avoid.
-      return { settlements: {}, roads: {} }
+      return { settlements: {}, roads: {}, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
     case 'RESTORE_BOARD':
-      return { settlements: action.settlements, roads: action.roads }
+      return {
+        settlements: action.settlements,
+        roads: action.roads,
+        ships: action.ships,
+        shipsBuiltThisTurn: action.shipsBuiltThisTurn,
+        hasMovedShipThisTurn: action.hasMovedShipThisTurn,
+      }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full
       // GameAction union (every slice's actions), not just BoardAction, so

@@ -156,9 +156,53 @@ describe('reduceBoard — RESTORE_BOARD', () => {
   it('replaces settlements and roads with the given snapshot values', () => {
     const settlements = { V1: { ownerId: 2, type: 'city' as const } }
     const roads = { E1: 2 }
-    const result = reduceBoard(initialBoardState, { type: 'RESTORE_BOARD', settlements, roads }, initialGameState)
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'RESTORE_BOARD', settlements, roads, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false },
+      initialGameState,
+    )
     expect(result.settlements).toEqual(settlements)
     expect(result.roads).toEqual(roads)
+  })
+})
+
+describe('reduceBoard — ships data model', () => {
+  it('initialBoardState has empty ships and clean per-turn ship tracking', () => {
+    expect(initialBoardState.ships).toEqual({})
+    expect(initialBoardState.shipsBuiltThisTurn).toEqual([])
+    expect(initialBoardState.hasMovedShipThisTurn).toBe(false)
+  })
+
+  it('RESET_BOARD clears ships and per-turn ship tracking', () => {
+    const dirty = {
+      settlements: {},
+      roads: {},
+      ships: { E1: 1 },
+      shipsBuiltThisTurn: ['E1'],
+      hasMovedShipThisTurn: true,
+    }
+    const result = reduceBoard(dirty, { type: 'RESET_BOARD' }, initialGameState)
+    expect(result.ships).toEqual({})
+    expect(result.shipsBuiltThisTurn).toEqual([])
+    expect(result.hasMovedShipThisTurn).toBe(false)
+  })
+
+  it('RESTORE_BOARD restores ships and per-turn ship tracking verbatim', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      {
+        type: 'RESTORE_BOARD',
+        settlements: {},
+        roads: {},
+        ships: { E1: 2 },
+        shipsBuiltThisTurn: ['E1'],
+        hasMovedShipThisTurn: true,
+      },
+      initialGameState,
+    )
+    expect(result.ships).toEqual({ E1: 2 })
+    expect(result.shipsBuiltThisTurn).toEqual(['E1'])
+    expect(result.hasMovedShipThisTurn).toBe(true)
   })
 })
 

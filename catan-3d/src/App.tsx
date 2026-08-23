@@ -74,6 +74,7 @@ import {
   RESOURCE_ORDER,
   ROAD_COST,
   SETTLEMENT_COST,
+  STARTING_SHIPS,
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
@@ -6084,6 +6085,9 @@ function App() {
       // Cities & Knights Barbarians "Defender of Catan" count (Task 1) —
       // same pre-feature-snapshot gap as the fields above.
       defenderOfCatanCount: p.defenderOfCatanCount ?? 0,
+      // Seafarers shipsRemaining (Ships & Longest Route sub-plan) — same
+      // pre-feature-snapshot gap as commodities/cityImprovements above.
+      shipsRemaining: p.shipsRemaining ?? STARTING_SHIPS,
     }))
     dispatch({ type: 'RESTORE_PLAYERS', players: normalizedPlayers })
     const restoredLocalPlayerId = findPlayerIndexByName(snapshot.playerNames, online.localPlayerName) + 1
@@ -6094,7 +6098,14 @@ function App() {
       isHost: online.isHost,
       hostName: snapshot.hostName,
     })
-    dispatch({ type: 'RESTORE_BOARD', settlements: snapshot.settlements, roads: snapshot.roads })
+    dispatch({
+      type: 'RESTORE_BOARD',
+      settlements: snapshot.settlements,
+      roads: snapshot.roads,
+      ships: snapshot.ships ?? {},
+      shipsBuiltThisTurn: snapshot.shipsBuiltThisTurn ?? [],
+      hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
+    })
     setCurrentPlayerIndex(snapshot.currentPlayerIndex)
     setRobberTileId(snapshot.robberTileId)
     setGamePhase(snapshot.gamePhase)
@@ -6346,6 +6357,9 @@ function App() {
       players,
       settlements: gameState.board.settlements,
       roads: gameState.board.roads,
+      ships: gameState.board.ships,
+      shipsBuiltThisTurn: gameState.board.shipsBuiltThisTurn,
+      hasMovedShipThisTurn: gameState.board.hasMovedShipThisTurn,
       currentPlayerIndex,
       robberTileId,
       gamePhase,
@@ -6386,6 +6400,9 @@ function App() {
     players,
     gameState.board.settlements,
     gameState.board.roads,
+    gameState.board.ships,
+    gameState.board.shipsBuiltThisTurn,
+    gameState.board.hasMovedShipThisTurn,
     currentPlayerIndex,
     robberTileId,
     gamePhase,

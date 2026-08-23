@@ -30,6 +30,12 @@ export interface BoardGraph {
   // tile id -> its center, for determining which way a boundary edge's
   // port should face (see outwardEdgeAngle).
   tileCenters: Map<string, { x: number; z: number }>
+  // Edge id -> the 1 or 2 tile ids that share this edge (1 = boundary edge,
+  // touching exactly one hex; 2 = interior edge, between two hexes). Lets a
+  // ship-placement check ask "does this edge border a sea tile" the same
+  // way tileVertexIds/vertexTileIds already answer the equivalent question
+  // for vertices.
+  edgeTileIds: Map<string, string[]>
 }
 
 // Flat-top hex corners sit at 30/90/150/210/270/330 degrees from center —
@@ -56,6 +62,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
   const vertexTileIds = new Map<string, string[]>()
   const vertexEdgeIds = new Map<string, string[]>()
   const tileCenters = new Map<string, { x: number; z: number }>()
+  const edgeTileIds = new Map<string, string[]>()
 
   const getVertex = (x: number, z: number): BoardVertex => {
     const rx = roundCoord(x)
@@ -110,6 +117,19 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
           }
         }
       }
+
+      // Every tile visits each of its own 6 edges exactly once in this
+      // loop (regardless of whether the edge itself was just created or
+      // already existed from a neighboring tile), so this runs
+      // unconditionally: a boundary edge (visited by only one tile) ends
+      // up with exactly 1 entry, an interior edge (visited by both
+      // tiles that share it) ends up with exactly 2.
+      const tileIds = edgeTileIds.get(id)
+      if (tileIds) {
+        tileIds.push(tile.id)
+      } else {
+        edgeTileIds.set(id, [tile.id])
+      }
     }
   }
 
@@ -121,6 +141,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
     vertexTileIds,
     vertexEdgeIds,
     tileCenters,
+    edgeTileIds,
   }
 }
 

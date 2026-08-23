@@ -234,3 +234,27 @@ describe('buildHexBoard with customBiomeOverrides', () => {
     expect(withOverrides).toEqual(without)
   })
 })
+
+describe('seafarersBasic board shape', () => {
+  it('surrounds the standard land layout with a ring of sea hexes', () => {
+    const tiles = buildHexBoard('test-seed', 'seafarersBasic')
+    const standardLandCells = tiles.filter((t) => t.biome !== 'sea')
+    expect(standardLandCells).toHaveLength(19) // standard's own land-hex count, unchanged
+    const seaTiles = tiles.filter((t) => t.biome === 'sea')
+    expect(seaTiles.length).toBeGreaterThan(0)
+    expect(seaTiles.every((t) => t.number === null)).toBe(true)
+  })
+
+  it('pins exactly 2 gold-field cells, both producing (non-null number)', () => {
+    const tiles = buildHexBoard('test-seed', 'seafarersBasic')
+    const goldTiles = tiles.filter((t) => t.biome === 'gold')
+    expect(goldTiles).toHaveLength(2)
+    expect(goldTiles.every((t) => t.number !== null)).toBe(true)
+  })
+
+  it('is deterministic for a given seed', () => {
+    const a = buildHexBoard('same-seed', 'seafarersBasic')
+    const b = buildHexBoard('same-seed', 'seafarersBasic')
+    expect(a).toEqual(b)
+  })
+})

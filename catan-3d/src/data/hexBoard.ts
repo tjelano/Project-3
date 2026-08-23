@@ -74,6 +74,7 @@ export type BoardShapeId =
   | 'northAmerica'
   | 'southAmerica'
   | 'bigBasic'
+  | 'seafarersBasic'
 
 export const BOARD_SHAPE_LABELS: Record<BoardShapeId, string> = {
   standard: 'Standard',
@@ -85,6 +86,7 @@ export const BOARD_SHAPE_LABELS: Record<BoardShapeId, string> = {
   northAmerica: 'North America',
   southAmerica: 'South America',
   bigBasic: 'Big Basic',
+  seafarersBasic: 'Seafarers Basic',
 }
 
 // One land hex, addressed in "odd-q" vertical offset coordinates — the
@@ -191,6 +193,25 @@ function columnHeightsToCells(heights: number[]): BoardCell[] {
   return cells
 }
 
+// Every cell topologically adjacent to `landCells` that isn't already part of
+// it — a 1-hex-wide ring fully surrounding the given land shape. Used to
+// generate the Seafarers board's sea ring algorithmically instead of hand-
+// authoring coordinates (see the Seafarers board-foundation plan).
+function ringAround(landCells: BoardCell[]): BoardCell[] {
+  const landKeys = new Set(landCells.map((c) => `${c.col}-${c.row}`))
+  const ring: BoardCell[] = []
+  const seenRingKeys = new Set<string>()
+  for (const cell of landCells) {
+    for (const neighbor of cellNeighbors(cell)) {
+      const key = `${neighbor.col}-${neighbor.row}`
+      if (landKeys.has(key) || seenRingKeys.has(key)) continue
+      seenRingKeys.add(key)
+      ring.push(neighbor)
+    }
+  }
+  return ring
+}
+
 // Player-drawn shapes (BoardShapeEditor.tsx), promoted to permanent
 // built-ins so every player has them without needing localStorage — cells
 // copied verbatim from each shape's saved CustomBoardShape.cells. Each one
@@ -262,6 +283,13 @@ const PROMOTED_CUSTOM_SHAPES: Record<PromotedShapeId, BoardCell[]> = {
 // relying on that coincidence so intent survives even if a shape's cell
 // list ever changes. apocalypse/newIsland were never given an explicit
 // count, so they fall through to the automatic ratio like any other shape.
+// Computed once at module scope so both BOARD_SHAPES (the cell list) and
+// BIOME_OVERRIDES_BY_SHAPE (the sea-ring/gold pins) below can reference the
+// same land/ring cells rather than recomputing them.
+const SEAFARERS_BASIC_LAND_CELLS = columnHeightsToCells(BUILT_IN_COLUMN_HEIGHTS.standard)
+const SEAFARERS_BASIC_SEA_RING = ringAround(SEAFARERS_BASIC_LAND_CELLS)
+const SEAFARERS_BASIC_CELLS = [...SEAFARERS_BASIC_LAND_CELLS, ...SEAFARERS_BASIC_SEA_RING]
+
 const DESERT_COUNT_OVERRIDES: Partial<Record<BoardShapeId, number>> = {
   bigPeanut: 2,
   northAmerica: 3,
@@ -269,11 +297,32 @@ const DESERT_COUNT_OVERRIDES: Partial<Record<BoardShapeId, number>> = {
   bigBasic: 4,
 }
 
+// Mirrors DESERT_COUNT_OVERRIDES's own pattern — per-shape pinned biomes for
+// built-in shapes, applied by buildHexBoard below alongside the existing
+// custom-editor override path, not replacing it.
+const BIOME_OVERRIDES_BY_SHAPE: Partial<Record<BoardShapeId, Record<string, Biome>>> = {
+  seafarersBasic: {
+    ...Object.fromEntries(SEAFARERS_BASIC_SEA_RING.map((c) => [`${c.col}-${c.row}`, 'sea' as const])),
+    // 2 land cells pinned to gold, chosen from opposite ends of standard's
+    // own 5-column layout so they sit spread apart rather than adjacent.
+    // Verified by hand-tracing columnHeightsToCells([3,4,5,4,3]): column -2
+    // (colIndex 0, height 3, even column so shift=0) gets rowStart =
+    // round(-(3-1)/2) = -1, producing rows [-1,0,1] — so '-2--1' (col -2,
+    // row -1) is a real cell. Column 2 (colIndex 4, height 3) is symmetric,
+    // same rows [-1,0,1] — so '2-1' (col 2, row 1) is a real cell too. Both
+    // keys use the exact `${cell.col}-${cell.row}` format buildHexBoardFromCells
+    // itself looks up overrides by.
+    '-2--1': 'gold',
+    '2-1': 'gold',
+  },
+}
+
 const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = {
   ...(Object.fromEntries(
     Object.entries(BUILT_IN_COLUMN_HEIGHTS).map(([id, heights]) => [id, columnHeightsToCells(heights)]),
   ) as Record<ColumnShapeId, BoardCell[]>),
   ...PROMOTED_CUSTOM_SHAPES,
+  seafarersBasic: SEAFARERS_BASIC_CELLS,
 }
 
 // Standard Catan resource RATIO: 4 forest, 4 pasture, 4 fields, 3 hills,
@@ -468,6 +517,6 @@ export function buildHexBoard(
   // custom shape in the editor always gets the automatic ratio, regardless
   // of what a promoted built-in with the same tile count happens to use.
   const desertOverride = isCustom ? undefined : DESERT_COUNT_OVERRIDES[shapeId]
-  const biomeOverrides = isCustom ? customBiomeOverrides : undefined
+  const biomeOverrides = isCustom ? customBiomeOverrides : BIOME_OVERRIDES_BY_SHAPE[shapeId]
   return buildHexBoardFromCells(cells, seed, desertOverride, biomeOverrides)
 }

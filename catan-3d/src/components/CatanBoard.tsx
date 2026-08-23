@@ -14,9 +14,6 @@ import mountainsTileModelUrl from '../assets/models/mountains-tile.glb'
 import fieldsTileModelUrl from '../assets/models/fields-tile.glb'
 import pastureTileModelUrl from '../assets/models/pasture-tile.glb'
 import desertTileModelUrl from '../assets/models/desert-tile.glb'
-// Task 2: wire in these models
-import waterTileModelUrl from '../assets/models/water-tile.glb'
-import goldTileModelUrl from '../assets/models/gold-tile.glb'
 
 const BIOME_MODEL_URLS: Record<Biome, string> = {
   forest: forestTileModelUrl,
@@ -25,8 +22,11 @@ const BIOME_MODEL_URLS: Record<Biome, string> = {
   fields: fieldsTileModelUrl,
   pasture: pastureTileModelUrl,
   desert: desertTileModelUrl,
-  sea: waterTileModelUrl,
-  gold: goldTileModelUrl,
+  // PLACEHOLDER — Task 2 replaces both of these with the real sea model and
+  // a fields-tile.glb reuse for gold. Using an existing file here only so
+  // the build doesn't break in the interim.
+  sea: desertTileModelUrl,
+  gold: desertTileModelUrl,
 }
 
 // hills-tile.glb was authored with X and Z swapped relative to the other

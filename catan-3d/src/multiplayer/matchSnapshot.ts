@@ -59,6 +59,13 @@ export interface MatchSnapshot {
   hasMovedShipThisTurn?: boolean
   currentPlayerIndex: number
   robberTileId: string
+  // Seafarers pirate (Robber & Pirate Migration sub-plan) — optional,
+  // backward-compatible treatment matching every other post-launch field
+  // in this file: absent on any snapshot saved before this feature
+  // existed. restoreFromSnapshot (App.tsx) falls back to `?? null`, which
+  // is always correct for a pre-feature match (the pirate never existed
+  // to have been placed).
+  pirateTileId?: string | null
   gamePhase: GamePhase
   setupStepIndex: number
   setupStage: SetupStage

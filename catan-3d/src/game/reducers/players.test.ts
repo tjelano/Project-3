@@ -1346,7 +1346,7 @@ describe('reducePlayers — RESTORE_PLAYERS', () => {
 describe('reducePlayers — action not owned by this reducer', () => {
   it('returns the same array reference unchanged', () => {
     const players = createInitialPlayers(2)
-    const result = reducePlayers(players, { type: 'RESET_BOARD' }, initialGameState)
+    const result = reducePlayers(players, { type: 'RESET_BOARD', robberTileId: 'D1' }, initialGameState)
     expect(result).toBe(players)
   })
 })

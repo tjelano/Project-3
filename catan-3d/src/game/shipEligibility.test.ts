@@ -25,6 +25,7 @@ function graphOf(edges: BoardEdge[]): BoardGraph {
     vertexEdgeIds,
     tileCenters: new Map(),
     edgeTileIds: new Map(),
+    tileEdgeIds: new Map(),
   }
 }
 

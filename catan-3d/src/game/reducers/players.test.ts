@@ -3,25 +3,6 @@ import { reducePlayers } from './players'
 import { createInitialPlayers, emptyResources } from '../types'
 import { initialGameState } from '../gameState'
 
-describe('reducePlayers — LEGACY_SET_PLAYERS', () => {
-  it('applies the given updater to the players array', () => {
-    const players = createInitialPlayers(2)
-    const result = reducePlayers(
-      players,
-      { type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightsPlayed: 9 })) },
-      initialGameState,
-    )
-    expect(result[0].knightsPlayed).toBe(9)
-    expect(result[1].knightsPlayed).toBe(9)
-  })
-
-  it('does not mutate the input array', () => {
-    const players = createInitialPlayers(2)
-    reducePlayers(players, { type: 'LEGACY_SET_PLAYERS', updater: (prev) => prev.map((p) => ({ ...p, knightsPlayed: 9 })) }, initialGameState)
-    expect(players[0].knightsPlayed).toBe(0)
-  })
-})
-
 describe('reducePlayers — TURN_ADVANCED', () => {
   it('clears devCardsBoughtThisTurn for the player at nextPlayerIndex only', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, devCardsBoughtThisTurn: ['knight' as const] }))
@@ -1290,6 +1271,31 @@ describe('reducePlayers — DOUBLES_REROLL_HAND_WIPED', () => {
     const result = reducePlayers(players, { type: 'DOUBLES_REROLL_HAND_WIPED', playerId: players[0].id }, initialGameState)
     expect(result.find((p) => p.id === players[0].id)!.resources).toEqual(emptyResources())
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+})
+
+describe('reducePlayers — RESET_PLAYERS', () => {
+  it('builds a fresh players array of the given count, ignoring the current players entirely', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, knightsPlayed: 9 }))
+    const result = reducePlayers(players, { type: 'RESET_PLAYERS', count: 3, names: ['A', 'B', 'C'], victoryPointTarget: 12 }, initialGameState)
+    expect(result).toHaveLength(3)
+    expect(result.map((p) => p.name)).toEqual(['A', 'B', 'C'])
+    expect(result.every((p) => p.knightsPlayed === 0)).toBe(true)
+  })
+
+  it('matches a direct createInitialPlayers call with the same arguments', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(players, { type: 'RESET_PLAYERS', count: 4, names: ['P1', 'P2', 'P3', 'P4'], colorTokens: ['player-2', 'player-4', 'player-1', 'player-3'], victoryPointTarget: 10 }, initialGameState)
+    expect(result).toEqual(createInitialPlayers(4, ['P1', 'P2', 'P3', 'P4'], ['player-2', 'player-4', 'player-1', 'player-3'], 10))
+  })
+})
+
+describe('reducePlayers — RESTORE_PLAYERS', () => {
+  it('replaces the players array with the action payload verbatim', () => {
+    const current = createInitialPlayers(2)
+    const restored = createInitialPlayers(3).map((p) => ({ ...p, name: `Restored ${p.id}` }))
+    const result = reducePlayers(current, { type: 'RESTORE_PLAYERS', players: restored }, initialGameState)
+    expect(result).toBe(restored)
   })
 })
 

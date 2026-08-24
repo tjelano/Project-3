@@ -138,6 +138,19 @@ interface RobberLayerProps {
   onMoveRobber: (tileId: string) => void
   hiddenTilesMode: GameRules['hiddenTiles']
   revealedTileIds: ReadonlySet<string>
+  // Cities & Knights pirate (Task 6) — the pirate's own position, mirroring
+  // robberTileId/isMovingRobber/onMoveRobber above. pirateTileId is
+  // nullable (the pirate can be legally parked off-board between
+  // placements, unlike the robber which always sits on some hex) and all
+  // three are optional so every OTHER caller of this component (there are
+  // none yet, but the type shouldn't force one to appear) can keep omitting
+  // them. No pirate-specific 3D model exists yet — RobberToken/
+  // RobberTileGlow below are reused verbatim as a placeholder, matching
+  // this project's established "flag and reuse an existing model" pattern
+  // from the Board Foundation sub-plan.
+  pirateTileId?: string | null
+  isMovingPirate?: boolean
+  onMovePirate?: (tileId: string) => void
 }
 
 export function RobberLayer({
@@ -147,14 +160,21 @@ export function RobberLayer({
   onMoveRobber,
   hiddenTilesMode,
   revealedTileIds,
+  pirateTileId = null,
+  isMovingPirate = false,
+  onMovePirate,
 }: RobberLayerProps) {
   const robberTile = tiles.find((tile) => tile.id === robberTileId)
+  const pirateTile = pirateTileId != null ? tiles.find((tile) => tile.id === pirateTileId) : undefined
 
   // Only the two modes that actually put a mist dome on the board can bury
   // the figurine — 'numbers' just blanks the chit and leaves terrain (and
   // therefore the robber) in plain sight.
   const tileIsHidden =
     robberTile != null && hidesResourceMesh(hiddenTilesMode) && !revealedTileIds.has(robberTile.id)
+  // Sea tiles never carry a number chit or a mist dome (CatanBoard only
+  // fogs land resource tiles), so the pirate never needs the same
+  // hidden-tile Y offset the robber's own tileIsHidden branch computes.
 
   return (
     <group>
@@ -166,6 +186,17 @@ export function RobberLayer({
       )}
       {isMovingRobber &&
         tiles.map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMoveRobber(tile.id)} />)}
+      {pirateTile && <RobberTileGlow tile={pirateTile} />}
+      {pirateTile && (
+        <ModelErrorBoundary label="pirate figurine">
+          <RobberToken tile={pirateTile} />
+        </ModelErrorBoundary>
+      )}
+      {isMovingPirate &&
+        onMovePirate != null &&
+        tiles
+          .filter((tile) => tile.biome === 'sea')
+          .map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMovePirate(tile.id)} />)}
     </group>
   )
 }

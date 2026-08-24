@@ -121,7 +121,7 @@ import {
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
 
-export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber' | 'movePirate'
+export type GamePhase = 'setup' | 'playing' | 'discard' | 'chooseRobberOrPirate' | 'moveRobber' | 'movePirate'
 export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -1075,10 +1075,11 @@ function App() {
     setGamePhase('playing')
   }
 
-  // The click-handler equivalent of moveRobber, minus the taxation/chase-away
-  // branches — taxation never applies to the pirate (CN3087 is robber-only),
-  // and pirate chase-away is a later task in this sub-plan. No 3D UI calls
-  // this yet (see the `void movePirate` note below).
+  // The click-handler equivalent of moveRobber, minus the taxation branch —
+  // taxation never applies to the pirate (CN3087 is robber-only). Called
+  // from RobberLayer's onMovePirate (Task 6, wired at this component's own
+  // call site below) once gamePhase reaches 'movePirate', same as
+  // moveRobber's own onMoveRobber wiring.
   const movePirate = (tileId: string | null) => {
     if (winner) return
     if (gamePhase !== 'movePirate') return
@@ -1120,10 +1121,6 @@ function App() {
       if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
     }
   }
-  // No 3D UI calls movePirate yet (the robber-or-pirate choice picker is a
-  // later task in this same sub-plan) — kept reachable so noUnusedLocals
-  // doesn't flag it, same idiom the Ships sub-plan established.
-  void movePirate
 
   // Knight and Road Building are single-step plays — spend-plus-effect
   // happens atomically, so the same function safely serves both the local
@@ -1135,8 +1132,8 @@ function App() {
   const applyKnightPlay = (playerId: number) => {
     spendDevCard(playerId, 'knight')
     const player = playerById.get(playerId)
-    if (player) inform(`${player.name} played a Knight! Move the Robber.`)
-    setGamePhase('moveRobber')
+    if (player) inform(`${player.name} played a Knight! Choose the Robber or the Pirate.`)
+    setGamePhase('chooseRobberOrPirate')
   }
 
   const applyRoadBuildingPlay = (playerId: number) => {
@@ -3455,8 +3452,8 @@ function App() {
           setGamePhase('discard')
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-          inform('Rolled 7 — move the Robber.')
-          setGamePhase('moveRobber')
+          inform('Rolled 7 — choose the Robber or the Pirate.')
+          setGamePhase('chooseRobberOrPirate')
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the
           // first barbarian attack resolves, the robber stays inert: CN3087
@@ -3990,6 +3987,26 @@ function App() {
       setChasingRobberKnightId(null)
       if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
     }
+  }
+
+  // Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a
+  // played Knight now land on instead of arming 'moveRobber' directly (see
+  // those two call sites above). Local-only resolution: nothing to
+  // broadcast here, since gamePhase itself is derived identically on every
+  // client from the same trigger, the same way 'moveRobber'/'movePirate'
+  // already are. Taxation and both Chase Away entry points bypass this
+  // choice entirely — they already know which piece they're moving, so
+  // they arm 'moveRobber'/'movePirate' directly, same as before this task.
+  const chooseRobber = () => {
+    if (gamePhase !== 'chooseRobberOrPirate') return
+    if (!isMyTurn) return
+    setGamePhase('moveRobber')
+  }
+
+  const choosePirate = () => {
+    if (gamePhase !== 'chooseRobberOrPirate') return
+    if (!isMyTurn) return
+    setGamePhase('movePirate')
   }
 
   // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
@@ -6896,6 +6913,13 @@ function App() {
             // sealed inside the dome and simply invisible.
             hiddenTilesMode={gameRules.hiddenTiles}
             revealedTileIds={revealedTileIds}
+            // Cities & Knights pirate (Task 6) — same isMovingRobber/
+            // onMoveRobber shape, mirrored for the pirate now that
+            // 'movePirate' has a real entry point (the robber-or-pirate
+            // choice picker above).
+            pirateTileId={gameState.board.pirateTileId}
+            isMovingPirate={gamePhase === 'movePirate' && !winner && isMyTurn}
+            onMovePirate={movePirate}
           />
           {/* Cities & Knights Invention — sibling to RobberLayer/
               BoardInteractions, same Canvas. active is scoped to the LOCAL
@@ -7167,6 +7191,39 @@ function App() {
         chatMessages={chatMessages}
         onSendChatMessage={sendChatMessage}
       />
+
+      {/* Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a
+          played Knight now land on (see chooseRobber/choosePirate's own
+          comment above). Same "glass card" panel DiscardPanel uses (rounded-
+          2xl border-glass-border bg-glass, top-28 centered, backdrop-blur),
+          paired with TradeOfferPrompt's own flex-1 two-button row — reusing
+          both rather than inventing a new overlay style. isMyTurn/!winner
+          match every other phase-gated affordance's own guard (RobberLayer's
+          isMovingRobber just above uses the identical pair). */}
+      {gamePhase === 'chooseRobberOrPirate' && isMyTurn && !winner && (
+        <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
+          <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Choose a Move</p>
+            <p className="mt-2 font-display text-lg text-white">Move the Robber or the Pirate?</p>
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={chooseRobber}
+                className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                Robber
+              </button>
+              <button
+                type="button"
+                onClick={choosePirate}
+                className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                Pirate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cities & Knights barbarian attack (Task 5-7) — modal shell +
           sequencing state, the pillage board-picker (PillageLayer, gated on

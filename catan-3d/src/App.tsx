@@ -1652,7 +1652,7 @@ function App() {
     onRoadBuilt: (payload) =>
       applyRoadPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeRoad, false),
     onShipBuilt: (payload) =>
-      applyShipPlacement(payload.edgeId, payload.playerId, false, payload.isFreeShip, false),
+      applyShipPlacement(payload.edgeId, payload.playerId, gamePhase === 'setup', payload.isFreeShip, false),
     onShipMoved: (payload) =>
       applyShipMove(payload.fromEdgeId, payload.toEdgeId, payload.playerId, false),
     onRobberMoved: (payload) =>

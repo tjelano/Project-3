@@ -1007,9 +1007,10 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     // bespoke). Every other subscription's body was the identical
     // one-liner this replaces: forward the received payload straight to
     // the matching handler, if the caller supplied one.
-    function forwardTo<T>(handlerKey: keyof RoomChannelHandlers) {
-      return ({ payload }: { payload: T }) => {
-        ;(handlersRef.current[handlerKey] as ((p: T) => void) | undefined)?.(payload)
+    function forwardTo<K extends keyof RoomChannelHandlers>(handlerKey: K) {
+      type P = Parameters<NonNullable<RoomChannelHandlers[K]>>[0]
+      return ({ payload }: { payload: P }) => {
+        ;(handlersRef.current[handlerKey] as ((p: P) => void) | undefined)?.(payload)
       }
     }
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, forwardTo('onDiceRolled'))

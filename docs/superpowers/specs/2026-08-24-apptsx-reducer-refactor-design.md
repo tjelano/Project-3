@@ -13,6 +13,7 @@ An architecture audit (2026-08-18) found `App.tsx` acting as game engine + UI co
 - **The classification rule (below) is the binding test for "does this state move."** Don't blanket-migrate a whole category just because it looks similar to something that qualifies.
 - **The broadcast-layer collapse (Sub-plan 1) must not regress compile-time type safety.** Every event's payload type must still be checked against its handler's parameter type by `tsc` — a fully generic, stringly-typed dispatch table is explicitly rejected for this reason (see Actions section).
 - **`npm run build` (not just `tsc`/`eslint`/`vitest`) is required before any task is reported done** — this project's own history has a real case (Board Foundation, Seafarers sub-plan 1) of a broken Vite asset import that only `npm run build` caught.
+- **Bare `npx tsc --noEmit` checks zero files on this project — do not use it as a task's typecheck command.** `catan-3d/tsconfig.json` is solution-style (`"files": []` + project references), so `tsc --noEmit` exits 0 unconditionally without checking anything. Found during Sub-plan 1's final review: every per-task "tsc clean" claim in that sub-plan's ledger was vacuous, saved only by the `npm run build` requirement above (which runs the real `tsc -b`) already catching what mattered. Every future sub-plan's tasks must use `npx tsc -p tsconfig.app.json` (or rely solely on `npm run build`) as the real per-task typecheck gate.
 
 ## Classification Rule
 

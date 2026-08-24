@@ -103,6 +103,7 @@ import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
 import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
 import { collectGoldFieldPicks } from './game/goldFieldProduction'
+import { activeQueueEntry, dequeueOne } from './game/pendingQueue'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -1346,7 +1347,7 @@ function App() {
   // of clobbering a concurrent change from something else.
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
     dispatch({ type: 'DISCARD_CONFIRMED', playerId, counts })
-    const remaining = discardPlayerIds.filter((id) => id !== playerId)
+    const remaining = dequeueOne(discardPlayerIds, (id) => id, playerId)
     setDiscardPlayerIds(remaining)
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
     // Cities & Knights barbarian-track gate (Task 3) — before the first
@@ -1374,7 +1375,7 @@ function App() {
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
     dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
-    setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
+    setProgressCardOverLimitPlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's Science level 3 free-resource
@@ -1383,7 +1384,7 @@ function App() {
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
-    setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
+    setScienceFreeResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's Gold Field resource pick —
@@ -1396,11 +1397,7 @@ function App() {
   // the first.
   const applyGoldFieldResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'GOLD_FIELD_RESOURCE_PICKED', playerId, resource })
-    setGoldFieldResourcePlayerIds((prev) => {
-      const index = prev.indexOf(playerId)
-      if (index === -1) return prev
-      return [...prev.slice(0, index), ...prev.slice(index + 1)]
-    })
+    setGoldFieldResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's barbarian-pillage resolution —
@@ -1438,7 +1435,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
-    setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
+    setPillageQueue((prev) => dequeueOne(prev, (t) => t.playerId, playerId))
   }
 
   // Trusted state mutation for one tied Defender-of-Catan winner's
@@ -1459,7 +1456,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
-    setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+    setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for a city improvement purchase — shared by the
@@ -2318,11 +2315,7 @@ function App() {
   // still in the queue is ever "up." Online is parallel — every affected
   // player discards on their own screen at the same time, so this is just
   // "am I one of the people who still owes a discard."
-  const activeDiscarderId = onlineInfo
-    ? validDiscardPlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (validDiscardPlayerIds[0] ?? null)
+  const activeDiscarderId = activeQueueEntry(validDiscardPlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
   const isMyDiscardTurn = activeDiscarderId != null
   const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
   const discardRequiredCount = discardingPlayer
@@ -2340,11 +2333,7 @@ function App() {
   // activeDiscarderId above, and deliberately its own queue rather than
   // reusing devCardPicker (see scienceFreeResourcePlayerIds' declaration):
   // this can be true for a DIFFERENT player than currentPlayerIndex.
-  const activeScienceFreeResourcePlayerId = onlineInfo
-    ? scienceFreeResourcePlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (scienceFreeResourcePlayerIds[0] ?? null)
+  const activeScienceFreeResourcePlayerId = activeQueueEntry(scienceFreeResourcePlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Who's actively resolving a Gold Field resource pick on THIS screen right
   // now — same "sequential locally, parallel online" split as
@@ -2353,11 +2342,7 @@ function App() {
   // applyGoldFieldResourcePick's single-entry removal), so this reads
   // exactly the same way scienceFreeResourcePlayerIds does despite allowing
   // duplicate entries.
-  const activeGoldFieldResourcePlayerId = onlineInfo
-    ? goldFieldResourcePlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (goldFieldResourcePlayerIds[0] ?? null)
+  const activeGoldFieldResourcePlayerId = activeQueueEntry(goldFieldResourcePlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Cities & Knights barbarian attack (Task 5) — who's actively resolving
   // their own pillage/draw choice on THIS screen right now. Mirrors
@@ -2370,12 +2355,8 @@ function App() {
   // screen, so only the front of the queue is ever "up," and these
   // naturally resolve to the front entry since there's only ever one
   // shared "me."
-  const activePillageTarget = onlineInfo
-    ? (pillageQueue.find((t) => t.playerId === onlineInfo.localPlayerId) ?? null)
-    : (pillageQueue[0] ?? null)
-  const activeWinnerDrawPlayerId = onlineInfo
-    ? (winnerDrawQueue.includes(onlineInfo.localPlayerId) ? onlineInfo.localPlayerId : null)
-    : (winnerDrawQueue[0] ?? null)
+  const activePillageTarget = activeQueueEntry(pillageQueue, (t) => t.playerId, onlineInfo?.localPlayerId ?? null)
+  const activeWinnerDrawPlayerId = activeQueueEntry(winnerDrawQueue, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Resolves the active barbarian-pillage choice with the vertex the player
   // clicked on the board. Only ever reachable by the local actor whose id
@@ -3811,7 +3792,16 @@ function App() {
   // per-screen online (each screen's viewer is already that browser's own
   // player), and simply waits for the queue to reach a given player's own
   // turn in local Pass & Play.
-  const activeProgressDiscarderId = progressCardOverLimitPlayerIds[0] ?? null
+  // Unlike its 5 sibling queues, this one has never had an online/local
+  // split — it always reads the front of the queue regardless of
+  // onlineInfo. That looks like a real, pre-existing gap (parallel online
+  // resolution for the C&K 4-card hand-limit discard exists everywhere
+  // else, missing here), but fixing it is a behavior change outside this
+  // sub-plan's pure-refactor scope — see project_apptsx_reducer_refactor
+  // memory / the spec's Out of Scope section. localPlayerId is hardcoded
+  // null here specifically to preserve that exact pre-existing behavior,
+  // not because this queue is somehow local-only.
+  const activeProgressDiscarderId = activeQueueEntry(progressCardOverLimitPlayerIds, (id) => id, null)
   const progressDiscardingPlayer = activeProgressDiscarderId != null ? playerById.get(activeProgressDiscarderId) : null
   // applyProgressCardDraws now only enqueues players actually over the limit
   // (it used to enqueue everyone who drew anything and leave the filtering
@@ -3956,7 +3946,7 @@ function App() {
       for (const playerId of winnerDrawQueue) {
         const track = IMPROVEMENT_TRACK_ORDER.find((t) => decks[t].length > 0)
         if (!track) {
-          setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+          setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
           continue
         }
         const [card, ...rest] = decks[track]

@@ -361,7 +361,7 @@ Replace the WHOLE block above with:
 
 - [ ] **Step 2: Verify**
 
-Run: `cd catan-3d && npx tsc --noEmit && npx eslint src/multiplayer/useRoomChannel.ts`
+Run: `cd catan-3d && npx tsc -p tsconfig.app.json && npx eslint src/multiplayer/useRoomChannel.ts`
 Expected: no errors. This confirms every converted `broadcastX` call still resolves to a correctly-typed `channelRef.current?.send(...)` call — a payload/event mismatch here would be a real `tsc` error, not a silent bug, because `send<T>`'s generic parameter is inferred from each call site's own typed `payload` argument.
 
 Run: `cd catan-3d && npx vitest run`
@@ -599,6 +599,23 @@ Replace the WHOLE block above with:
         ;(handlersRef.current[handlerKey] as ((p: T) => void) | undefined)?.(payload)
       }
     }
+    // POST-MERGE CORRECTION (found by this sub-plan's own final whole-branch
+    // review, fixed in commit 738a070 — kept here as an accurate historical
+    // record rather than silently rewritten): the signature above lets T be
+    // inferred solely from the calling channel.on<T>'s own generic argument,
+    // with no actual link to handlerKey, so a real mismatch (e.g.
+    // forwardTo('onChatMessage') under a DiceRolledPayload subscription)
+    // silently compiled. The shipped, correct version is:
+    //   function forwardTo<K extends keyof RoomChannelHandlers>(handlerKey: K) {
+    //     type P = Parameters<NonNullable<RoomChannelHandlers[K]>>[0]
+    //     return ({ payload }: { payload: P }) => {
+    //       ;(handlersRef.current[handlerKey] as ((p: P) => void) | undefined)?.(payload)
+    //     }
+    //   }
+    // This ties the inferred type to the actual handler K refers to, independent
+    // of the outer call's own generic — proven via a live repro during the final
+    // review (commit 738a070's message has the full reasoning; the fix itself
+    // is what's live in useRoomChannel.ts).
     channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, forwardTo('onDiceRolled'))
     channel.on<TurnPassedPayload>('broadcast', { event: 'TURN_PASSED' }, forwardTo('onTurnPassed'))
     channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, forwardTo('onSettlementBuilt'))
@@ -695,7 +712,7 @@ Replace the WHOLE block above with:
 
 - [ ] **Step 2: Verify**
 
-Run: `cd catan-3d && npx tsc --noEmit && npx eslint src/multiplayer/useRoomChannel.ts`
+Run: `cd catan-3d && npx tsc -p tsconfig.app.json && npx eslint src/multiplayer/useRoomChannel.ts`
 Expected: no errors. `forwardTo<T>`'s return type must satisfy the exact callback shape `channel.on<T>('broadcast', {event}, callback)` expects — a real type mismatch here (e.g. `forwardTo`'s inferred `T` not matching the `channel.on<T>` call's own explicit generic argument) is a compile error, not a silent bug.
 
 Run: `cd catan-3d && npx vitest run`
@@ -752,9 +769,11 @@ capture && /^\s*}\)$/ {
 ```
 Expected: exactly 1 block printed — `onGameStarted`'s subscription (the 9-argument handler call). If anything else appears, or this one is missing, STOP for the same reason as Step 1.
 
+**POST-MERGE CORRECTION (found while actually executing this task, kept here as an accurate historical record):** the Step 1 script above has a real false-positive bug. Its capture loop assumes every matched block ends with a standalone `}` line — true for multi-line functions, but a single-line arrow function (the correct, intended shape for every collapsed `broadcastX`) has no closing-brace line of its own. If such a function happens to be the LAST one before unrelated code (here, `broadcastChatMessage` immediately before `return {`), the script has no next `const broadcast` line to trigger a reset, so it keeps consuming lines until it hits the return statement's own closing brace — reporting a 4th, phantom "exception" that isn't real. This was caught live by the implementer, who correctly stopped and escalated instead of guessing. Content-based checks are the reliable alternative and were used instead: confirm `debugLog(` appears exactly twice within the broadcast-function region (the two real debug-wrapped exceptions), and confirm `broadcastGameStarted`'s multi-argument body is intact — e.g. `sed -n '<broadcast-region-start>,<broadcast-region-end>p' src/multiplayer/useRoomChannel.ts | grep -n "debugLog("`. The equivalent Step 2 script (subscription side) was not exercised against this same failure mode in practice, but shares the identical structural assumption and should be treated with the same caution — prefer a content-based check (e.g. grep for `payload.customBoardBiomeOverrides,`, the unique string only `onGameStarted`'s handler call contains) over trusting the line-boundary script's raw block count.
+
 - [ ] **Step 3: Full verification**
 
-Run: `cd catan-3d && npx tsc --noEmit && npx eslint src && npx vitest run && npm run build`
+Run: `cd catan-3d && npx tsc -p tsconfig.app.json && npx eslint src && npx vitest run && npm run build`
 Expected: no errors, full suite passing (417/417 or whatever the current count is — confirm it matches the count from immediately before Task 1 started, since this task changes zero game logic), build succeeds.
 
 - [ ] **Step 4: Report**

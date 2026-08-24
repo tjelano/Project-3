@@ -48,6 +48,7 @@ export type PlayersAction =
   | { type: 'TRADE_MONOPOLY_PLAYED'; playerId: number; commodity: CommodityType }
   | { type: 'PROGRESS_DISCARD_CONFIRMED'; playerId: number; indices: number[] }
   | { type: 'SCIENCE_FREE_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
+  | { type: 'GOLD_FIELD_RESOURCE_PICKED'; playerId: number; resource: ResourceType }
   | { type: 'PROGRESS_CARDS_DRAWN'; draws: { playerId: number; card: ProgressCardType }[] }
   | { type: 'SABOTAGE_PLAYED'; announcerId: number; affected: number[]; countsCommodities: boolean }
   | { type: 'WEDDING_PLAYED'; announcerId: number; perPlayerCounts: { playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }[]; takenTotals: Partial<Record<ResourceType | CommodityType, number>> }
@@ -475,6 +476,8 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         return { ...p, progressCards: next }
       })
     case 'SCIENCE_FREE_RESOURCE_PICKED':
+      return players.map((p) => (p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 } } : p))
+    case 'GOLD_FIELD_RESOURCE_PICKED':
       return players.map((p) => (p.id === action.playerId ? { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 } } : p))
     case 'PROGRESS_CARDS_DRAWN':
       return players.map((p) => {

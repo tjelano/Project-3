@@ -1062,6 +1062,33 @@ describe('reducePlayers — SCIENCE_FREE_RESOURCE_PICKED', () => {
   })
 })
 
+describe('reducePlayers — GOLD_FIELD_RESOURCE_PICKED', () => {
+  it('adds 1 of the picked resource', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'GOLD_FIELD_RESOURCE_PICKED', playerId: players[0].id, resource: 'ore' }, initialGameState)
+    expect(result.find((p) => p.id === players[0].id)!.resources.ore).toBe(1)
+  })
+
+  it('leaves every other player untouched', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(players, { type: 'GOLD_FIELD_RESOURCE_PICKED', playerId: players[0].id, resource: 'ore' }, initialGameState)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('applying it twice in a row adds 2 (models a city\'s 2 independent picks)', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const afterFirst = reducePlayers(players, { type: 'GOLD_FIELD_RESOURCE_PICKED', playerId: players[0].id, resource: 'ore' }, initialGameState)
+    const afterSecond = reducePlayers(
+      afterFirst,
+      { type: 'GOLD_FIELD_RESOURCE_PICKED', playerId: players[0].id, resource: 'wool' },
+      initialGameState,
+    )
+    const player = afterSecond.find((p) => p.id === players[0].id)!
+    expect(player.resources.ore).toBe(1)
+    expect(player.resources.wool).toBe(1)
+  })
+})
+
 describe('reducePlayers — PROGRESS_CARDS_DRAWN', () => {
   it('appends each drawn card to the matching player', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, progressCards: [] }))

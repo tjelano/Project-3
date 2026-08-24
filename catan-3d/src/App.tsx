@@ -823,6 +823,10 @@ function App() {
       warn('Resolve the free resource pick first.')
       return false
     }
+    if (activeGoldFieldResourcePlayerId != null) {
+      warn('Resolve the Gold Field pick first.')
+      return false
+    }
     return true
   }
 
@@ -2482,6 +2486,7 @@ function App() {
     !pendingTrade &&
     !devCardPicker &&
     activeScienceFreeResourcePlayerId == null &&
+    activeGoldFieldResourcePlayerId == null &&
     !devCardPlayedThisTurn &&
     isMyTurn
 

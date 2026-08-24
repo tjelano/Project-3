@@ -2621,8 +2621,8 @@ function App() {
       warn('Wait for the dice to finish rolling.')
       return false
     }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
+    if (gamePhase === 'moveRobber' || gamePhase === 'chooseRobberOrPirate' || gamePhase === 'movePirate') {
+      warn('Resolve the Robber or Pirate before building.')
       return false
     }
     if (!isMyTurn) {

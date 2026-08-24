@@ -17,7 +17,12 @@ const ROW_RANGE = [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]
 const HEX_PIXEL_RADIUS = 22
 const CORNER_ANGLES_DEG = [30, 90, 150, 210, 270, 330]
 
-const BIOME_PALETTE: Biome[] = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert']
+// sea/gold are paint-only — buildHexBoardFromCells excludes both from
+// BIOME_WEIGHTS (the random-draw pool for unpainted tiles), so an unpainted
+// tile can never accidentally become one; a player has to choose them
+// deliberately, same as the built-in seafarersBasic shape's own pinned
+// sea ring/gold fields.
+const BIOME_PALETTE: Biome[] = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'desert', 'sea', 'gold']
 
 function cellKey(cell: BoardCell): string {
   return `${cell.col}:${cell.row}`
@@ -83,12 +88,16 @@ export function BoardShapeEditor({
     })
   }
 
-  // Water tile: adds it to the shape, no biome painted. Land tile with a
-  // biome brush active: paints that biome (stays in the shape either way).
-  // Land tile with the eraser active: clears any painted biome, stays in
-  // the shape. Land tile with no brush selected: the original toggle-off —
-  // removes it from the shape, and clears any paint on it too, so a tile
-  // that's re-added later doesn't resurrect stale paint from a previous edit.
+  // Cell not yet in the shape: adds it, no biome painted (unpainted draws
+  // randomly from the land pool at build time — see BIOME_PALETTE's own
+  // comment for why sea/gold can't come from that pool by accident). Cell
+  // already in the shape ("isLand" — a legacy name from before sea/gold
+  // were paintable; it really means "in the shape," not literally land)
+  // with a biome brush active: paints that biome, stays in the shape either
+  // way. With the eraser active: clears any painted biome, stays in the
+  // shape. With no brush selected: the original toggle-off — removes it
+  // from the shape, and clears any paint on it too, so a tile that's
+  // re-added later doesn't resurrect stale paint from a previous edit.
   const handleTileClick = (cell: BoardCell) => {
     if (mode !== 'editing') return
     const key = cellKey(cell)
@@ -208,7 +217,7 @@ export function BoardShapeEditor({
         <p className="mt-1 font-body text-xs text-white/60">
           {mode === 'preview'
             ? 'This is a saved shape. Use it as-is, or Edit to change it.'
-            : 'Click hexes to mark land. Paint a biome onto a tile to fix it — leave tiles unpainted to keep them random. Numbers always shuffle fresh every game.'}
+            : 'Click hexes to add them to the shape. Paint a biome onto a tile to fix it — leave tiles unpainted to draw randomly from the standard six. Sea and Gold Field never appear by chance; paint them deliberately. Numbers always shuffle fresh every game.'}
         </p>
 
         <div className="mt-4 flex min-h-0 flex-1 gap-4">
@@ -296,7 +305,7 @@ export function BoardShapeEditor({
             <div className="mt-3 flex items-center justify-between font-body text-[11px] text-white/50">
               <span>{selected.size} tiles selected</span>
               {selected.size > 0 && !connected && (
-                <span className="text-player-1">Not all connected — every tile needs a land neighbor.</span>
+                <span className="text-player-1">Not all connected — every tile needs a neighbor in the shape.</span>
               )}
             </div>
 

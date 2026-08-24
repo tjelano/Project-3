@@ -1799,8 +1799,12 @@ function App() {
       // above: payload.resource goes straight into resources[resource]
       // arithmetic, so a bogus key would write NaN into a real player's state
       // permanently. Also requiring playerId to still be in the pending queue
-      // — a duplicated message must not grant a second free pick or apply one
-      // to a player who was never actually eligible on this client.
+      // — this guards against a stale/spoofed playerId never actually eligible
+      // on this client. Note: unlike Science's single-entry queue, Gold's queue
+      // can legitimately hold 2 entries per player (a city's 2 independent picks),
+      // so this does not protect against a genuinely duplicated message consuming
+      // one of a player's legitimate pending picks; this codebase does not defend
+      // against transport-level message duplication anywhere.
       if (!RESOURCE_ORDER.includes(payload.resource) || !goldFieldResourcePlayerIds.includes(payload.playerId)) {
         console.error('[Catan] Ignoring malformed gold field resource payload:', payload)
         return
@@ -6303,12 +6307,6 @@ function App() {
     if (player) inform(`${player.name} took 1 ${RESOURCE_LABELS[resource]} from the Gold Field.`)
     if (onlineInfo) broadcastGoldFieldResourcePicked({ playerId, resource })
   }
-  // Neither activeGoldFieldResourcePlayerId nor resolveGoldFieldResourcePick
-  // has a caller yet within this task — Task 5 wires both into <GameHud .../>.
-  // Same `void` idiom this codebase already uses for a function implemented
-  // ahead of its UI wiring (e.g. buildShipRaw in sub-plan 2), applied here to
-  // satisfy noUnusedLocals in the meantime. Task 5 removes both of these
-  // lines as part of adding the real usage.
 
   const currentPlayerPortRates = Object.fromEntries(
     RESOURCE_ORDER.map((resource) => [resource, getPortRate(players[currentPlayerIndex].id, resource)]),

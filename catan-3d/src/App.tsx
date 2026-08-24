@@ -1160,7 +1160,13 @@ function App() {
   const applyKnightPlay = (playerId: number) => {
     spendDevCard(playerId, 'knight')
     const player = playerById.get(playerId)
-    if (player) inform(`${player.name} played a Knight! Choose the Robber or the Pirate.`)
+    if (player) {
+      inform(
+        boardHasSeaTile
+          ? `${player.name} played a Knight! Choose the Robber or the Pirate.`
+          : `${player.name} played a Knight! Move the Robber.`,
+      )
+    }
     setGamePhase('chooseRobberOrPirate')
   }
 
@@ -1315,7 +1321,7 @@ function App() {
     // branch below.
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-        inform('Discards resolved — choose the Robber or the Pirate.')
+        inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
         setGamePhase('chooseRobberOrPirate')
       } else {
         setGamePhase('playing')
@@ -2521,7 +2527,7 @@ function App() {
     // attack resolves, skip arming moveRobber and return straight to play.
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      inform('Discards resolved — choose the Robber or the Pirate.')
+      inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
       setGamePhase('chooseRobberOrPirate')
     } else {
       setGamePhase('playing')
@@ -3497,7 +3503,7 @@ function App() {
           setGamePhase('discard')
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-          inform('Rolled 7 — choose the Robber or the Pirate.')
+          inform(boardHasSeaTile ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
           setGamePhase('chooseRobberOrPirate')
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the

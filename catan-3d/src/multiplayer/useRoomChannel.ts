@@ -1282,6 +1282,15 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       },
     })
   }
+  // Shared by every broadcastX below except broadcastGameStarted (multiple
+  // named arguments, not one payload — kept bespoke above),
+  // broadcastDiceRolled, and broadcastDiscardConfirmed (both below, both
+  // keep a real .then((result) => debugLog(...)) wrapper for a specific
+  // stuck-screen bug hunt — see debugLog.ts). Every other broadcastX's
+  // body was the identical one-liner this replaces.
+  function send<T>(event: string, payload: T) {
+    void channelRef.current?.send({ type: 'broadcast', event, payload })
+  }
   const broadcastDiceRolled = (payload: DiceRolledPayload) => {
     // Delivery result logged (not just discarded via `void` like every
     // other broadcast here) — chasing a rare stuck-discard-screen bug that
@@ -1291,174 +1300,71 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
       ?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload })
       .then((result) => debugLog('broadcastDiceRolled result', { result, payload }))
   }
-  const broadcastTurnPassed = (payload: TurnPassedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TURN_PASSED', payload })
-  }
-  const broadcastSettlementBuilt = (payload: SettlementBuiltPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'SETTLEMENT_BUILT', payload })
-  }
-  const broadcastCityBuilt = (payload: CityBuiltPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_BUILT', payload })
-  }
-  const broadcastRoadBuilt = (payload: RoadBuiltPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'ROAD_BUILT', payload })
-  }
-  const broadcastShipBuilt = (payload: ShipBuiltPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'SHIP_BUILT', payload })
-  }
-  const broadcastShipMoved = (payload: ShipMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'SHIP_MOVED', payload })
-  }
-  const broadcastRobberMoved = (payload: RobberMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'ROBBER_MOVED', payload })
-  }
-  const broadcastPirateMoved = (payload: PirateMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PIRATE_MOVED', payload })
-  }
-  const broadcastBarbarianShipAdvanced = (payload: BarbarianShipAdvancedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_SHIP_ADVANCED', payload })
-  }
-  const broadcastBarbarianAttackResolved = (payload: BarbarianAttackResolvedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_ATTACK_RESOLVED', payload })
-  }
-  const broadcastPillageResolved = (payload: PillageResolvedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PILLAGE_RESOLVED', payload })
-  }
-  const broadcastBarbarianWinnerDrawResolved = (payload: BarbarianWinnerDrawResolvedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'BARBARIAN_WINNER_DRAW_RESOLVED', payload })
-  }
-  const broadcastKnightPlayed = (payload: KnightPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PLAYED', payload })
-  }
-  const broadcastRoadBuildingPlayed = (payload: RoadBuildingPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'ROAD_BUILDING_PLAYED', payload })
-  }
-  const broadcastPlentyPlayed = (payload: PlentyPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PLENTY_PLAYED', payload })
-  }
-  const broadcastMonopolyPlayed = (payload: MonopolyPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'MONOPOLY_PLAYED', payload })
-  }
-  const broadcastResourceMonopolyPlayed = (payload: ResourceMonopolyPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'RESOURCE_MONOPOLY_PLAYED', payload })
-  }
-  const broadcastTradeMonopolyPlayed = (payload: TradeMonopolyPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_MONOPOLY_PLAYED', payload })
-  }
-  const broadcastTradeOffered = (payload: TradePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_OFFERED', payload })
-  }
-  const broadcastTradeAcceptRequest = (payload: TradePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_ACCEPT_REQUEST', payload })
-  }
-  const broadcastTradeResolved = (payload: TradePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_RESOLVED', payload })
-  }
-  const broadcastTradeCancelled = (payload: TradeCancelledPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TRADE_CANCELLED', payload })
-  }
+  const broadcastTurnPassed = (payload: TurnPassedPayload) => send('TURN_PASSED', payload)
+  const broadcastSettlementBuilt = (payload: SettlementBuiltPayload) => send('SETTLEMENT_BUILT', payload)
+  const broadcastCityBuilt = (payload: CityBuiltPayload) => send('CITY_BUILT', payload)
+  const broadcastRoadBuilt = (payload: RoadBuiltPayload) => send('ROAD_BUILT', payload)
+  const broadcastShipBuilt = (payload: ShipBuiltPayload) => send('SHIP_BUILT', payload)
+  const broadcastShipMoved = (payload: ShipMovedPayload) => send('SHIP_MOVED', payload)
+  const broadcastRobberMoved = (payload: RobberMovedPayload) => send('ROBBER_MOVED', payload)
+  const broadcastPirateMoved = (payload: PirateMovedPayload) => send('PIRATE_MOVED', payload)
+  const broadcastBarbarianShipAdvanced = (payload: BarbarianShipAdvancedPayload) => send('BARBARIAN_SHIP_ADVANCED', payload)
+  const broadcastBarbarianAttackResolved = (payload: BarbarianAttackResolvedPayload) => send('BARBARIAN_ATTACK_RESOLVED', payload)
+  const broadcastPillageResolved = (payload: PillageResolvedPayload) => send('PILLAGE_RESOLVED', payload)
+  const broadcastBarbarianWinnerDrawResolved = (payload: BarbarianWinnerDrawResolvedPayload) =>
+    send('BARBARIAN_WINNER_DRAW_RESOLVED', payload)
+  const broadcastKnightPlayed = (payload: KnightPlayedPayload) => send('KNIGHT_PLAYED', payload)
+  const broadcastRoadBuildingPlayed = (payload: RoadBuildingPlayedPayload) => send('ROAD_BUILDING_PLAYED', payload)
+  const broadcastPlentyPlayed = (payload: PlentyPlayedPayload) => send('PLENTY_PLAYED', payload)
+  const broadcastMonopolyPlayed = (payload: MonopolyPlayedPayload) => send('MONOPOLY_PLAYED', payload)
+  const broadcastResourceMonopolyPlayed = (payload: ResourceMonopolyPlayedPayload) => send('RESOURCE_MONOPOLY_PLAYED', payload)
+  const broadcastTradeMonopolyPlayed = (payload: TradeMonopolyPlayedPayload) => send('TRADE_MONOPOLY_PLAYED', payload)
+  const broadcastTradeOffered = (payload: TradePayload) => send('TRADE_OFFERED', payload)
+  const broadcastTradeAcceptRequest = (payload: TradePayload) => send('TRADE_ACCEPT_REQUEST', payload)
+  const broadcastTradeResolved = (payload: TradePayload) => send('TRADE_RESOLVED', payload)
+  const broadcastTradeCancelled = (payload: TradeCancelledPayload) => send('TRADE_CANCELLED', payload)
   const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
     // See broadcastDiceRolled above — same reasoning, same bug hunt.
     void channelRef.current
       ?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload })
       .then((result) => debugLog('broadcastDiscardConfirmed result', { result, payload }))
   }
-  const broadcastProgressDiscardConfirmed = (payload: ProgressDiscardConfirmedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_DISCARD_CONFIRMED', payload })
-  }
-  const broadcastScienceFreeResourcePicked = (payload: ScienceFreeResourcePickedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'SCIENCE_FREE_RESOURCE_PICKED', payload })
-  }
-  const broadcastGoldFieldResourcePicked = (payload: GoldFieldResourcePickedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'GOLD_FIELD_RESOURCE_PICKED', payload })
-  }
-  const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TROPHY_UPDATED', payload })
-  }
-  const broadcastNewGame = (payload: NewGamePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'NEW_GAME', payload })
-  }
-  const broadcastDevCardBought = (payload: DevCardBoughtPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'DEV_CARD_BOUGHT', payload })
-  }
-  const broadcastCityImprovementPurchased = (payload: CityImprovementPurchasedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_IMPROVEMENT_PURCHASED', payload })
-  }
-  const broadcastProgressCardsDrawn = (payload: ProgressCardsDrawnPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_CARDS_DRAWN', payload })
-  }
-  const broadcastProgressCardPlayed = (payload: ProgressCardPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'PROGRESS_CARD_PLAYED', payload })
-  }
-  const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'METROPOLIS_CLAIMED', payload })
-  }
-  const broadcastInventionSwapped = (payload: InventionSwappedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'INVENTION_SWAPPED', payload })
-  }
-  const broadcastBankTrade = (payload: BankTradePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'BANK_TRADE', payload })
-  }
-  const broadcastCommodityTraded = (payload: CommodityTradedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'COMMODITY_TRADED', payload })
-  }
-  const broadcastGuildDuesTaken = (payload: GuildDuesTakenPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'GUILD_DUES_TAKEN', payload })
-  }
-  const broadcastEspionageTaken = (payload: EspionageTakenPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'ESPIONAGE_TAKEN', payload })
-  }
-  const broadcastCommercialHarborPlayed = (payload: CommercialHarborPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'COMMERCIAL_HARBOR_PLAYED', payload })
-  }
-  const broadcastDiplomacyPlayed = (payload: DiplomacyPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'DIPLOMACY_PLAYED', payload })
-  }
-  const broadcastMerchantMoved = (payload: MerchantMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'MERCHANT_MOVED', payload })
-  }
-  const broadcastKnightRecruited = (payload: KnightRecruitedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_RECRUITED', payload })
-  }
-  const broadcastKnightActivated = (payload: KnightActivatedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_ACTIVATED', payload })
-  }
-  const broadcastKnightPromoted = (payload: KnightPromotedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_PROMOTED', payload })
-  }
-  const broadcastKnightMoved = (payload: KnightMovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_MOVED', payload })
-  }
-  const broadcastKnightDisplaced = (payload: KnightDisplacedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_DISPLACED', payload })
-  }
-  const broadcastKnightDeactivatedAfterChase = (payload: KnightDeactivatedAfterChasePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'KNIGHT_DEACTIVATED_AFTER_CHASE', payload })
-  }
-  const broadcastCityWallBuilt = (payload: CityWallBuiltPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'CITY_WALL_BUILT', payload })
-  }
-  const broadcastSmithingPlayed = (payload: SmithingPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'SMITHING_PLAYED', payload })
-  }
-  const broadcastEncouragementPlayed = (payload: EncouragementPlayedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'ENCOURAGEMENT_PLAYED', payload })
-  }
-  const broadcastIntrigueResolved = (payload: IntrigueResolvedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'INTRIGUE_RESOLVED', payload })
-  }
-  const broadcastTreasonRemoved = (payload: TreasonRemovedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TREASON_REMOVED', payload })
-  }
-  const broadcastTaxationResolved = (payload: TaxationResolvedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'TAXATION_RESOLVED', payload })
-  }
-  const broadcastHoverChanged = (payload: HoverChangedPayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'HOVER_CHANGED', payload })
-  }
-  const broadcastChatMessage = (payload: ChatMessagePayload) => {
-    void channelRef.current?.send({ type: 'broadcast', event: 'CHAT_MESSAGE', payload })
-  }
+  const broadcastProgressDiscardConfirmed = (payload: ProgressDiscardConfirmedPayload) =>
+    send('PROGRESS_DISCARD_CONFIRMED', payload)
+  const broadcastScienceFreeResourcePicked = (payload: ScienceFreeResourcePickedPayload) =>
+    send('SCIENCE_FREE_RESOURCE_PICKED', payload)
+  const broadcastGoldFieldResourcePicked = (payload: GoldFieldResourcePickedPayload) => send('GOLD_FIELD_RESOURCE_PICKED', payload)
+  const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => send('TROPHY_UPDATED', payload)
+  const broadcastNewGame = (payload: NewGamePayload) => send('NEW_GAME', payload)
+  const broadcastDevCardBought = (payload: DevCardBoughtPayload) => send('DEV_CARD_BOUGHT', payload)
+  const broadcastCityImprovementPurchased = (payload: CityImprovementPurchasedPayload) =>
+    send('CITY_IMPROVEMENT_PURCHASED', payload)
+  const broadcastProgressCardsDrawn = (payload: ProgressCardsDrawnPayload) => send('PROGRESS_CARDS_DRAWN', payload)
+  const broadcastProgressCardPlayed = (payload: ProgressCardPlayedPayload) => send('PROGRESS_CARD_PLAYED', payload)
+  const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => send('METROPOLIS_CLAIMED', payload)
+  const broadcastInventionSwapped = (payload: InventionSwappedPayload) => send('INVENTION_SWAPPED', payload)
+  const broadcastBankTrade = (payload: BankTradePayload) => send('BANK_TRADE', payload)
+  const broadcastCommodityTraded = (payload: CommodityTradedPayload) => send('COMMODITY_TRADED', payload)
+  const broadcastGuildDuesTaken = (payload: GuildDuesTakenPayload) => send('GUILD_DUES_TAKEN', payload)
+  const broadcastEspionageTaken = (payload: EspionageTakenPayload) => send('ESPIONAGE_TAKEN', payload)
+  const broadcastCommercialHarborPlayed = (payload: CommercialHarborPlayedPayload) => send('COMMERCIAL_HARBOR_PLAYED', payload)
+  const broadcastDiplomacyPlayed = (payload: DiplomacyPlayedPayload) => send('DIPLOMACY_PLAYED', payload)
+  const broadcastMerchantMoved = (payload: MerchantMovedPayload) => send('MERCHANT_MOVED', payload)
+  const broadcastKnightRecruited = (payload: KnightRecruitedPayload) => send('KNIGHT_RECRUITED', payload)
+  const broadcastKnightActivated = (payload: KnightActivatedPayload) => send('KNIGHT_ACTIVATED', payload)
+  const broadcastKnightPromoted = (payload: KnightPromotedPayload) => send('KNIGHT_PROMOTED', payload)
+  const broadcastKnightMoved = (payload: KnightMovedPayload) => send('KNIGHT_MOVED', payload)
+  const broadcastKnightDisplaced = (payload: KnightDisplacedPayload) => send('KNIGHT_DISPLACED', payload)
+  const broadcastKnightDeactivatedAfterChase = (payload: KnightDeactivatedAfterChasePayload) =>
+    send('KNIGHT_DEACTIVATED_AFTER_CHASE', payload)
+  const broadcastCityWallBuilt = (payload: CityWallBuiltPayload) => send('CITY_WALL_BUILT', payload)
+  const broadcastSmithingPlayed = (payload: SmithingPlayedPayload) => send('SMITHING_PLAYED', payload)
+  const broadcastEncouragementPlayed = (payload: EncouragementPlayedPayload) => send('ENCOURAGEMENT_PLAYED', payload)
+  const broadcastIntrigueResolved = (payload: IntrigueResolvedPayload) => send('INTRIGUE_RESOLVED', payload)
+  const broadcastTreasonRemoved = (payload: TreasonRemovedPayload) => send('TREASON_REMOVED', payload)
+  const broadcastTaxationResolved = (payload: TaxationResolvedPayload) => send('TAXATION_RESOLVED', payload)
+  const broadcastHoverChanged = (payload: HoverChangedPayload) => send('HOVER_CHANGED', payload)
+  const broadcastChatMessage = (payload: ChatMessagePayload) => send('CHAT_MESSAGE', payload)
 
   return {
     players,

@@ -103,7 +103,7 @@ import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
 import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
 import { collectGoldFieldPicks } from './game/goldFieldProduction'
-import { activeQueueEntry } from './game/pendingQueue'
+import { activeQueueEntry, dequeueOne } from './game/pendingQueue'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -1347,7 +1347,7 @@ function App() {
   // of clobbering a concurrent change from something else.
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
     dispatch({ type: 'DISCARD_CONFIRMED', playerId, counts })
-    const remaining = discardPlayerIds.filter((id) => id !== playerId)
+    const remaining = dequeueOne(discardPlayerIds, (id) => id, playerId)
     setDiscardPlayerIds(remaining)
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
     // Cities & Knights barbarian-track gate (Task 3) — before the first
@@ -1375,7 +1375,7 @@ function App() {
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
     dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
-    setProgressCardOverLimitPlayerIds((prev) => prev.filter((id) => id !== playerId))
+    setProgressCardOverLimitPlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's Science level 3 free-resource
@@ -1384,7 +1384,7 @@ function App() {
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
-    setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
+    setScienceFreeResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's Gold Field resource pick —
@@ -1397,11 +1397,7 @@ function App() {
   // the first.
   const applyGoldFieldResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'GOLD_FIELD_RESOURCE_PICKED', playerId, resource })
-    setGoldFieldResourcePlayerIds((prev) => {
-      const index = prev.indexOf(playerId)
-      if (index === -1) return prev
-      return [...prev.slice(0, index), ...prev.slice(index + 1)]
-    })
+    setGoldFieldResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for one player's barbarian-pillage resolution —
@@ -1439,7 +1435,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
-    setPillageQueue((prev) => prev.filter((t) => t.playerId !== playerId))
+    setPillageQueue((prev) => dequeueOne(prev, (t) => t.playerId, playerId))
   }
 
   // Trusted state mutation for one tied Defender-of-Catan winner's
@@ -1460,7 +1456,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
-    setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+    setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
   }
 
   // Trusted state mutation for a city improvement purchase — shared by the
@@ -3950,7 +3946,7 @@ function App() {
       for (const playerId of winnerDrawQueue) {
         const track = IMPROVEMENT_TRACK_ORDER.find((t) => decks[t].length > 0)
         if (!track) {
-          setWinnerDrawQueue((prev) => prev.filter((id) => id !== playerId))
+          setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
           continue
         }
         const [card, ...rest] = decks[track]

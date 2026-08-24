@@ -122,9 +122,8 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
+import type { GamePhase, SetupStage } from './game/reducers/turn'
 
-export type GamePhase = 'setup' | 'playing' | 'discard' | 'chooseRobberOrPirate' | 'moveRobber' | 'movePirate'
-export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
   text: string

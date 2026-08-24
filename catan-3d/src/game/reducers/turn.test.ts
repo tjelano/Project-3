@@ -109,6 +109,7 @@ describe('reduceTurn — TURN_ADVANCED', () => {
       devCardPlayedThisTurn: true,
       consecutiveDoublesThisTurn: 2,
       setupStepIndex: 3,
+      totalRollsThisGame: 5,
     }
     const result = reduceTurn(dirty, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 }, initialGameState)
     expect(result).toEqual({
@@ -118,5 +119,12 @@ describe('reduceTurn — TURN_ADVANCED', () => {
       devCardPlayedThisTurn: false,
       consecutiveDoublesThisTurn: 0,
     })
+  })
+})
+
+describe('reduceTurn — action not owned by this reducer', () => {
+  it('returns the same state reference unchanged', () => {
+    const result = reduceTurn(initialTurnState, { type: 'RESET_BOARD', robberTileId: 'D1' }, initialGameState)
+    expect(result).toBe(initialTurnState)
   })
 })

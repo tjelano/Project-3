@@ -2532,8 +2532,10 @@ function App() {
     return aUsable || bUsable
   }
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
+  // Coastal-only check: does this edge border a sea hex at all. Deliberately
+  // doesn't exclude the pirate's own hex — every call site here also calls
+  // isShipPlacementConnected (or, for the move source, canMoveShip) on the
+  // same edge right after, and that's where the pirate-adjacency rule lives.
   const edgeTouchesSea = (edgeId: string): boolean => {
     const tileIds = graph.edgeTileIds.get(edgeId) ?? []
     return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
@@ -2549,12 +2551,16 @@ function App() {
     return !edgeIds.some((edgeId) => edgeId !== shipEdgeId && gameState.board.ships[edgeId] === playerId)
   }
 
-  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
-  // moving a ship to or from an edge of the hex the pirate currently
-  // occupies — not checkable yet, no pirateTileId exists.
+  // CN3083: "You may not move a ship to or from an edge of the hex the
+  // pirate currently occupies." The destination ("to") side is enforced by
+  // isShipPlacementConnected's own pirate check inside moveShipRaw; this is
+  // the source ("from") side — the ship's own current edge is rejected here
+  // before it's ever considered movable at all.
   const canMoveShip = (edgeId: string, playerId: number): boolean => {
     if (gameState.board.ships[edgeId] !== playerId) return false
     if (gameState.board.shipsBuiltThisTurn.includes(edgeId)) return false
+    const pirateTileId = gameState.board.pirateTileId
+    if (pirateTileId != null && (graph.edgeTileIds.get(edgeId) ?? []).includes(pirateTileId)) return false
     const edge = edgeById.get(edgeId)
     if (!edge) return false
     return isShipEndOpen(edge.a, edgeId, playerId) || isShipEndOpen(edge.b, edgeId, playerId)
@@ -3034,8 +3040,6 @@ function App() {
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
   const buildShipRaw = (edgeId: string) => {
     if (!canInteract()) return
 
@@ -3054,7 +3058,18 @@ function App() {
       warn('Ships can only be placed on edges bordering the sea.')
       return
     }
-    if (!isShipPlacementConnected(graph, edgeById, gameState.board.settlements, gameState.board.ships, edgeId, player.id)) {
+    if (
+      !isShipPlacementConnected(
+        graph,
+        edgeById,
+        gameState.board.settlements,
+        gameState.board.ships,
+        edgeId,
+        player.id,
+        undefined,
+        gameState.board.pirateTileId,
+      )
+    ) {
       warn('Ship must connect to one of your ships or buildings.')
       return
     }
@@ -3076,8 +3091,6 @@ function App() {
   // way buildRoad is wired just below.
   void buildShipRaw
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
   const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
     if (!canInteract()) return
 
@@ -3121,6 +3134,7 @@ function App() {
         toEdgeId,
         player.id,
         fromEdgeId,
+        gameState.board.pirateTileId,
       )
     ) {
       warn('Ship must connect to one of your ships or buildings.')

@@ -25,11 +25,10 @@ export function hasPlayerShipAt(
 // a settlement/city first, which the settlements check below already
 // covers.
 //
-// KNOWN GAP (see the Seafarers Ships & Longest Route plan's Global
-// Constraints): CN3083 also blocks placement on any edge of the hex the
-// pirate currently occupies. The pirate doesn't exist yet (Robber &
-// Pirate Migration sub-plan) — this function has no way to check that
-// yet. Revisit once pirateTileId exists.
+// CN3083: "You may not place any new ship on an edge of the hex
+// currently occupied by the pirate" (and, for moves, the destination
+// obeys the same placement rule) — pirateTileId is optional so every
+// pre-pirate call site keeps compiling; pass null/omit to check nothing.
 export function isShipPlacementConnected(
   graph: BoardGraph,
   edgeById: Map<string, BoardEdge>,
@@ -38,9 +37,11 @@ export function isShipPlacementConnected(
   edgeId: string,
   playerId: number,
   excludeEdgeId?: string,
+  pirateTileId?: string | null,
 ): boolean {
   const edge = edgeById.get(edgeId)
   if (!edge) return false
+  if (pirateTileId != null && (graph.edgeTileIds.get(edgeId) ?? []).includes(pirateTileId)) return false
   if (settlements[edge.a]?.ownerId === playerId || settlements[edge.b]?.ownerId === playerId) return true
   return (
     hasPlayerShipAt(graph, ships, edge.a, playerId, excludeEdgeId) ||

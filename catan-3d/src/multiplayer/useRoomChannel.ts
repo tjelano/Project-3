@@ -664,6 +664,16 @@ export interface ScienceFreeResourcePickedPayload {
   resource: ResourceType
 }
 
+// Gold Fields' per-roll resource pick(s) — same shape as
+// ScienceFreeResourcePickedPayload above, and same reasoning: this can fire
+// for ANY player regardless of whose turn it is, and (unlike Science) can
+// fire MORE THAN ONCE for the same player on the same roll (a city's 2
+// independent picks) — see the goldFieldResourcePlayerIds queue in App.tsx.
+export interface GoldFieldResourcePickedPayload {
+  playerId: number
+  resource: ResourceType
+}
+
 interface GameStartedPayload {
   names: string[]
   // Carried explicitly rather than inferred (e.g. "names[0]") so every
@@ -776,6 +786,7 @@ export interface RoomChannelHandlers {
   // Science level 3's free-resource queue — fires once per eligible player
   // per roll, same "independent per-player queue" shape as discard above.
   onScienceFreeResourcePicked?: (payload: ScienceFreeResourcePickedPayload) => void
+  onGoldFieldResourcePicked?: (payload: GoldFieldResourcePickedPayload) => void
   // Longest Road / Largest Army are sticky on ties (see pickTrophyHolder in
   // game/trophies.ts) — inherently path-dependent, not just a function of
   // the CURRENT board, so every client computing this independently risks
@@ -1069,6 +1080,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<ScienceFreeResourcePickedPayload>('broadcast', { event: 'SCIENCE_FREE_RESOURCE_PICKED' }, ({ payload }) => {
       handlersRef.current.onScienceFreeResourcePicked?.(payload)
     })
+    channel.on<GoldFieldResourcePickedPayload>('broadcast', { event: 'GOLD_FIELD_RESOURCE_PICKED' }, ({ payload }) => {
+      handlersRef.current.onGoldFieldResourcePicked?.(payload)
+    })
     channel.on<TrophyUpdatedPayload>('broadcast', { event: 'TROPHY_UPDATED' }, ({ payload }) => {
       handlersRef.current.onTrophyUpdated?.(payload)
     })
@@ -1355,6 +1369,9 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastScienceFreeResourcePicked = (payload: ScienceFreeResourcePickedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'SCIENCE_FREE_RESOURCE_PICKED', payload })
   }
+  const broadcastGoldFieldResourcePicked = (payload: GoldFieldResourcePickedPayload) => {
+    void channelRef.current?.send({ type: 'broadcast', event: 'GOLD_FIELD_RESOURCE_PICKED', payload })
+  }
   const broadcastTrophyUpdated = (payload: TrophyUpdatedPayload) => {
     void channelRef.current?.send({ type: 'broadcast', event: 'TROPHY_UPDATED', payload })
   }
@@ -1478,6 +1495,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastDiscardConfirmed,
     broadcastProgressDiscardConfirmed,
     broadcastScienceFreeResourcePicked,
+    broadcastGoldFieldResourcePicked,
     broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,

@@ -40,9 +40,12 @@ export const BIOME_ELEVATION: Record<Biome, number> = {
   // visually via the dev server once Task 2 wires the model in, and adjust
   // this one constant if it clips or floats.
   sea: 0.05,
-  // Reuses fields' own already-measured elevation, since gold reuses fields'
-  // model as a placeholder (Task 2) — will need its own value once real
-  // gold-field art exists.
+  // PLACEHOLDER — gold-tile.glb is real art now, but this value is still
+  // fields' own already-measured elevation, carried over from when gold
+  // reused fields' model. Not yet measured from gold-tile.glb's own
+  // geometry the way the 6 land values above were; verify visually via the
+  // dev server and adjust this one constant if it clips or floats (same
+  // treatment as sea's own placeholder above).
   gold: 0.13,
 }
 

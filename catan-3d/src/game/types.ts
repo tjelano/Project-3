@@ -324,10 +324,11 @@ export const IMPROVEMENT_TRACK_NAMES: Record<ImprovementTrack, string[]> = {
 // What each hex biome produces when its number is rolled. Desert and sea
 // never produce anything — that's permanent. Gold is different: it DOES
 // produce, but the resource is player-chosen at production time rather
-// than fixed, so it can't be represented as a single ResourceType here.
-// `null` is a placeholder until the Gold Fields sub-plan adds the
-// player-choice production path; until then gold fields carry a real
-// number disc (see hexBoard.ts) but resolve to nothing when rolled.
+// than fixed, so it can't be represented as a single ResourceType here —
+// see game/goldFieldProduction.ts's collectGoldFieldPicks (called from
+// App.tsx's dice-roll production handler, alongside — not through — the
+// RESOURCES_PRODUCED loop this table drives) and the GOLD_FIELD_RESOURCE_PICKED
+// action (game/reducers/players.ts) that resolves each pick.
 export const BIOME_TO_RESOURCE: Record<Biome, ResourceType | null> = {
   forest: 'lumber',
   hills: 'brick',

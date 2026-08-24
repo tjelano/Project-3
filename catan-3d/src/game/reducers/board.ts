@@ -67,7 +67,13 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       return {
         ...state,
         ships: { ...state.ships, [action.edgeId]: action.playerId },
-        shipsBuiltThisTurn: [...state.shipsBuiltThisTurn, action.edgeId],
+        // A setup-placed ship isn't "built this turn" in the gameplay sense —
+        // there is no turn yet during setup, and applyShipPlacement's setup
+        // branch never dispatches TURN_ADVANCED on its way into real play, so
+        // an entry added here would otherwise survive into the player's
+        // actual first turn and wrongly block that same ship from being
+        // moved on it.
+        shipsBuiltThisTurn: action.isSetup ? state.shipsBuiltThisTurn : [...state.shipsBuiltThisTurn, action.edgeId],
       }
     case 'PILLAGE_CITY': {
       const building = state.settlements[action.vertexId]

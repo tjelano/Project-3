@@ -48,7 +48,7 @@ import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 // scienceFreeResourcePlayerIds in App.tsx) but shares the exact same
 // "click N resource icons" modal, so it gets a case in this same copy map
 // rather than a second hardcoded picker render below.
-type PickerMode = DevCardPickerMode | 'scienceFreeResource'
+type PickerMode = DevCardPickerMode | 'scienceFreeResource' | 'goldFieldResource'
 
 const DEV_CARD_PICKER_COPY: Record<PickerMode, { title: string; subtitle: string; pickCount: number }> = {
   yearOfPlenty: { title: 'Year of Plenty', subtitle: 'Choose 2 resources to take from the bank.', pickCount: 2 },
@@ -69,6 +69,7 @@ const DEV_CARD_PICKER_COPY: Record<PickerMode, { title: string; subtitle: string
     pickCount: 1,
   },
   scienceFreeResource: { title: 'Free Resource', subtitle: 'Science level 3: choose 1 resource.', pickCount: 1 },
+  goldFieldResource: { title: 'Gold Field', subtitle: 'Choose 1 resource to take from the bank.', pickCount: 1 },
 }
 
 // Stable "nothing is blocked" verdict for when the Cities & Knights house
@@ -141,6 +142,15 @@ interface GameHudProps {
   // are played during the Action phase, this only opens right after a roll).
   scienceFreeResourceActive: boolean
   onResolveScienceFreeResource: (resource: ResourceType) => void
+  // Gold Fields' per-roll resource pick — same "own flag/handler pair, can
+  // be a different player than currentPlayerIndex" shape as
+  // scienceFreeResourceActive above. Mutually exclusive with it in practice:
+  // a player only ever owes ONE of the two per roll (Science level 3 only
+  // fires when a player got zero production that roll; a Gold Field pick IS
+  // production, so the two conditions can't both be true for the same
+  // player on the same roll).
+  goldFieldResourceActive: boolean
+  onResolveGoldFieldResource: (resource: ResourceType) => void
   devCardPlayedThisTurn: boolean
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
@@ -438,6 +448,8 @@ export function GameHud({
   onResolveDevCardCommodityPicker,
   scienceFreeResourceActive,
   onResolveScienceFreeResource,
+  goldFieldResourceActive,
+  onResolveGoldFieldResource,
   devCardPlayedThisTurn,
   longestRoadHolderId,
   longestRoadLengths,
@@ -530,7 +542,8 @@ export function GameHud({
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
   // that every other picker/modal in this file already applies.
-  const activePickerMode: PickerMode | null = devCardPicker ?? (scienceFreeResourceActive ? 'scienceFreeResource' : null)
+  const activePickerMode: PickerMode | null =
+    devCardPicker ?? (scienceFreeResourceActive ? 'scienceFreeResource' : goldFieldResourceActive ? 'goldFieldResource' : null)
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
@@ -1159,7 +1172,11 @@ export function GameHud({
           subtitle={DEV_CARD_PICKER_COPY[activePickerMode].subtitle}
           pickCount={DEV_CARD_PICKER_COPY[activePickerMode].pickCount}
           onComplete={(picks) =>
-            activePickerMode === 'scienceFreeResource' ? onResolveScienceFreeResource(picks[0]) : onResolveDevCardPicker(picks)
+            activePickerMode === 'scienceFreeResource'
+              ? onResolveScienceFreeResource(picks[0])
+              : activePickerMode === 'goldFieldResource'
+                ? onResolveGoldFieldResource(picks[0])
+                : onResolveDevCardPicker(picks)
           }
         />
       )}

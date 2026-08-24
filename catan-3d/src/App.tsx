@@ -102,6 +102,7 @@ import {
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
 import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
+import { collectGoldFieldPicks } from './game/goldFieldProduction'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -546,6 +547,15 @@ function App() {
   // activeScienceFreeResourcePlayerId below). The two queues never overlap:
   // discard only triggers on a 7, this explicitly excludes a 7.
   const [scienceFreeResourcePlayerIds, setScienceFreeResourcePlayerIds] = useState<number[]>([])
+  // Player IDs owed a Gold Field resource pick after the most recent roll —
+  // unlike scienceFreeResourcePlayerIds (at most one entry per player per
+  // roll), the same player id can appear more than once here: a city on a
+  // Gold Field owes 2 independent picks (CN3083's "any combination," they
+  // don't have to match), and a player can have multiple producing Gold
+  // Field buildings in the same roll. Resolved one entry at a time (see
+  // applyGoldFieldResourcePick below), never deduped via Set the way
+  // scienceFreeResourcePlayerIds is.
+  const [goldFieldResourcePlayerIds, setGoldFieldResourcePlayerIds] = useState<number[]>([])
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -1351,6 +1361,23 @@ function App() {
     setScienceFreeResourcePlayerIds((prev) => prev.filter((id) => id !== playerId))
   }
 
+  // Trusted state mutation for one player's Gold Field resource pick —
+  // shared by the local actor (resolveGoldFieldResourcePick, below, which
+  // also broadcasts) and receiving clients (onGoldFieldResourcePicked), same
+  // trusted-apply split as applyScienceFreeResourcePick above. Removes only
+  // ONE matching queue entry, not every occurrence (Array.prototype.filter
+  // would incorrectly clear a city's second pending pick along with its
+  // first) — a player with 2 pending picks must still owe 1 after resolving
+  // the first.
+  const applyGoldFieldResourcePick = (playerId: number, resource: ResourceType) => {
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PICKED', playerId, resource })
+    setGoldFieldResourcePlayerIds((prev) => {
+      const index = prev.indexOf(playerId)
+      if (index === -1) return prev
+      return [...prev.slice(0, index), ...prev.slice(index + 1)]
+    })
+  }
+
   // Trusted state mutation for one player's barbarian-pillage resolution —
   // shared by the local actor (handlePillageTargetSelect, below, which also
   // broadcasts) and receiving clients (onPillageResolved), same trusted-apply
@@ -1542,6 +1569,7 @@ function App() {
     broadcastTradeCancelled,
     broadcastDiscardConfirmed,
     broadcastScienceFreeResourcePicked,
+    broadcastGoldFieldResourcePicked,
     broadcastTrophyUpdated,
     broadcastNewGame,
     broadcastDevCardBought,
@@ -1744,6 +1772,19 @@ function App() {
         return
       }
       applyScienceFreeResourcePick(payload.playerId, payload.resource)
+    },
+    onGoldFieldResourcePicked: (payload) => {
+      // Broadcast-sourced — same validation shape as onScienceFreeResourcePicked
+      // above: payload.resource goes straight into resources[resource]
+      // arithmetic, so a bogus key would write NaN into a real player's state
+      // permanently. Also requiring playerId to still be in the pending queue
+      // — a duplicated message must not grant a second free pick or apply one
+      // to a player who was never actually eligible on this client.
+      if (!RESOURCE_ORDER.includes(payload.resource) || !goldFieldResourcePlayerIds.includes(payload.playerId)) {
+        console.error('[Catan] Ignoring malformed gold field resource payload:', payload)
+        return
+      }
+      applyGoldFieldResourcePick(payload.playerId, payload.resource)
     },
     // Trusted-apply from the effective host's own broadcast — see the
     // render-time trophy computation below, which only runs locally for
@@ -2275,6 +2316,19 @@ function App() {
       ? onlineInfo.localPlayerId
       : null
     : (scienceFreeResourcePlayerIds[0] ?? null)
+
+  // Who's actively resolving a Gold Field resource pick on THIS screen right
+  // now — same "sequential locally, parallel online" split as
+  // activeScienceFreeResourcePlayerId above. Position in the queue doesn't
+  // matter for this check (only how many entries remain does, handled by
+  // applyGoldFieldResourcePick's single-entry removal), so this reads
+  // exactly the same way scienceFreeResourcePlayerIds does despite allowing
+  // duplicate entries.
+  const activeGoldFieldResourcePlayerId = onlineInfo
+    ? goldFieldResourcePlayerIds.includes(onlineInfo.localPlayerId)
+      ? onlineInfo.localPlayerId
+      : null
+    : (goldFieldResourcePlayerIds[0] ?? null)
 
   // Cities & Knights barbarian attack (Task 5) — who's actively resolving
   // their own pillage/draw choice on THIS screen right now. Mirrors
@@ -3563,6 +3617,31 @@ function App() {
     }
 
     dispatch({ type: 'RESOURCES_PRODUCED', productions })
+
+    // Gold Fields: player-chosen resource, can't go through the synchronous
+    // RESOURCES_PRODUCED loop above the way every other hex's fixed
+    // resource does (BIOME_TO_RESOURCE['gold'] is null — see that table's
+    // own comment). collectGoldFieldPicks is a pure extraction of this exact
+    // same tile/vertex walk, kept in its own testable module rather than
+    // inline here (see game/goldFieldProduction.ts).
+    const goldFieldPicks = collectGoldFieldPicks(
+      tiles,
+      total,
+      gameState.board.robberTileId,
+      gameState.board.settlements,
+      graph.tileVertexIds,
+    )
+    if (goldFieldPicks.length > 0) {
+      setGoldFieldResourcePlayerIds((prev) => [...prev, ...goldFieldPicks.map((pick) => pick.playerId)])
+      const pickCountByPlayer = new Map<number, number>()
+      for (const pick of goldFieldPicks) {
+        pickCountByPlayer.set(pick.playerId, (pickCountByPlayer.get(pick.playerId) ?? 0) + 1)
+      }
+      for (const [playerId, count] of pickCountByPlayer) {
+        const owner = playerById.get(playerId)
+        if (owner) messages.push(`${owner.name} may pick ${count} resource${count > 1 ? 's' : ''} from the Gold Field!`)
+      }
+    }
 
     // Science level 3: a player who received nothing this roll gets 1 free
     // resource of their choice — never on a 7 (a 7 doesn't produce at all,
@@ -6168,6 +6247,27 @@ function App() {
     if (onlineInfo) broadcastScienceFreeResourcePicked({ playerId, resource })
   }
 
+  // Resolves the active Gold Field pick with the resource the player chose
+  // in the modal. Only ever reachable by the local actor whose id matches
+  // activeGoldFieldResourcePlayerId — see that derivation above for why this
+  // can be a different player than currentPlayerIndex.
+  const resolveGoldFieldResourcePick = (resource: ResourceType) => {
+    const playerId = activeGoldFieldResourcePlayerId
+    if (playerId == null) return
+    const player = playerById.get(playerId)
+    applyGoldFieldResourcePick(playerId, resource)
+    if (player) inform(`${player.name} took 1 ${RESOURCE_LABELS[resource]} from the Gold Field.`)
+    if (onlineInfo) broadcastGoldFieldResourcePicked({ playerId, resource })
+  }
+  // Neither activeGoldFieldResourcePlayerId nor resolveGoldFieldResourcePick
+  // has a caller yet within this task — Task 5 wires both into <GameHud .../>.
+  // Same `void` idiom this codebase already uses for a function implemented
+  // ahead of its UI wiring (e.g. buildShipRaw in sub-plan 2), applied here to
+  // satisfy noUnusedLocals in the meantime. Task 5 removes both of these
+  // lines as part of adding the real usage.
+  void activeGoldFieldResourcePlayerId
+  void resolveGoldFieldResourcePick
+
   const currentPlayerPortRates = Object.fromEntries(
     RESOURCE_ORDER.map((resource) => [resource, getPortRate(players[currentPlayerIndex].id, resource)]),
   ) as Record<ResourceType, number>
@@ -6314,6 +6414,7 @@ function App() {
     setDiscardSelection([])
     setProgressDiscardSelection([])
     setScienceFreeResourcePlayerIds([])
+    setGoldFieldResourcePlayerIds([])
     setBoardInstance((n) => n + 1)
     setLongestRoadHolderId(null)
     setLargestArmyHolderId(null)
@@ -6619,6 +6720,9 @@ function App() {
     // condition of current state. A pending free-resource pick from before
     // a disconnect is simply dropped on reconnect rather than reconstructed.
     setScienceFreeResourcePlayerIds([])
+    // Same treatment as scienceFreeResourcePlayerIds above — not persisted,
+    // not derivable from restored state, simply dropped on reconnect.
+    setGoldFieldResourcePlayerIds([])
     // discardPlayerIds isn't persisted (fully derivable from resource
     // counts) — if the snapshot was saved mid-discard, recompute who still
     // owes one from the restored players rather than trusting a stale list.

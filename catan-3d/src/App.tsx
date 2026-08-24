@@ -122,7 +122,6 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
-import type { SetupStage } from './game/reducers/turn'
 
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -508,12 +507,12 @@ function App() {
   } | null>(null)
 
   const gamePhase = gameState.turn.gamePhase
-  const [setupStepIndex, setSetupStepIndex] = useState(0)
-  const [setupStage, setSetupStage] = useState<SetupStage>('settlement')
+  const setupStepIndex = gameState.turn.setupStepIndex
+  const setupStage = gameState.turn.setupStage
   // The settlement placed during the current setup step. The free road that
   // follows it must touch this exact intersection — that pairing is what
   // makes the opening draft a real strategic choice.
-  const [setupSettlementVertexId, setSetupSettlementVertexId] = useState<string | null>(null)
+  const setupSettlementVertexId = gameState.turn.setupSettlementVertexId
   // Official rule: at most one development card may be PLAYED per turn
   // (buying is unlimited). Cleared by endTurn.
   const [devCardPlayedThisTurn, setDevCardPlayedThisTurn] = useState(false)
@@ -977,8 +976,8 @@ function App() {
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
-      setSetupSettlementVertexId(vertexId)
-      setSetupStage('road')
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId })
+      dispatch({ type: 'SETUP_STAGE_SET', stage: 'road' })
     }
   }
 
@@ -998,19 +997,19 @@ function App() {
       const nextStepIndex = setupStepIndex + 1
       // This step's settlement/road pairing is complete — don't let the
       // vertex linger into the next step.
-      setSetupSettlementVertexId(null)
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
       if (nextStepIndex >= setupOrder.length) {
         dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         // The snake's starting seat (setupOrder[0], randomized in resetGame)
         // takes the first REAL turn too, same as standard Catan rules —
         // whoever placed first also rolls first.
         dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
-        setSetupStepIndex(0)
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       } else {
-        setSetupStepIndex(nextStepIndex)
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: nextStepIndex })
         dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       }
     }
   }
@@ -1027,16 +1026,16 @@ function App() {
     // step, not actually the same code path in disguise.
     if (isSetup) {
       const nextStepIndex = setupStepIndex + 1
-      setSetupSettlementVertexId(null)
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
       if (nextStepIndex >= setupOrder.length) {
         dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
-        setSetupStepIndex(0)
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       } else {
-        setSetupStepIndex(nextStepIndex)
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: nextStepIndex })
         dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       }
     }
   }
@@ -6537,9 +6536,9 @@ function App() {
     resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
     dispatch({ type: 'GAME_PHASE_SET', phase: 'setup' })
-    setSetupStepIndex(0)
-    setSetupStage('settlement')
-    setSetupSettlementVertexId(null)
+    dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+    dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
+    dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
   }
 
   // Rejoining a match already in progress: hydrate every piece of state
@@ -6631,9 +6630,9 @@ function App() {
     })
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
     dispatch({ type: 'GAME_PHASE_SET', phase: snapshot.gamePhase })
-    setSetupStepIndex(snapshot.setupStepIndex)
-    setSetupStage(snapshot.setupStage)
-    setSetupSettlementVertexId(snapshot.setupSettlementVertexId)
+    dispatch({ type: 'SETUP_STEP_SET', stepIndex: snapshot.setupStepIndex })
+    dispatch({ type: 'SETUP_STAGE_SET', stage: snapshot.setupStage })
+    dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: snapshot.setupSettlementVertexId })
     setLastRoll(snapshot.lastRoll)
     setDevDeck(snapshot.devDeck)
     setWinner(snapshot.winner)

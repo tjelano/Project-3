@@ -342,7 +342,7 @@ function App() {
   // (and any other future consumer) can reuse one copy instead of each
   // building its own.
   const colorTokenByPlayerId = useMemo(() => new Map(players.map((p) => [p.id, p.colorToken])), [players])
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
+  const currentPlayerIndex = gameState.turn.currentPlayerIndex
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   // Which tiles have had a settlement built on a touching vertex — drives
   // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
@@ -927,7 +927,6 @@ function App() {
     // TURN_PASSED receiver apply the identical reset.
     setKnightsPromotedThisTurn(new Set())
     dispatch({ type: 'TURN_ADVANCED', nextPlayerIndex: nextIndex })
-    setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to
     // hover something themselves.
@@ -1005,12 +1004,12 @@ function App() {
         // The snake's starting seat (setupOrder[0], randomized in resetGame)
         // takes the first REAL turn too, same as standard Catan rules —
         // whoever placed first also rolls first.
-        setCurrentPlayerIndex(setupOrder[0])
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
         setSetupStepIndex(0)
         setSetupStage('settlement')
       } else {
         setSetupStepIndex(nextStepIndex)
-        setCurrentPlayerIndex(setupOrder[nextStepIndex])
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
         setSetupStage('settlement')
       }
     }
@@ -1031,12 +1030,12 @@ function App() {
       setSetupSettlementVertexId(null)
       if (nextStepIndex >= setupOrder.length) {
         setGamePhase('playing')
-        setCurrentPlayerIndex(setupOrder[0])
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
         setSetupStepIndex(0)
         setSetupStage('settlement')
       } else {
         setSetupStepIndex(nextStepIndex)
-        setCurrentPlayerIndex(setupOrder[nextStepIndex])
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
         setSetupStage('settlement')
       }
     }
@@ -6426,7 +6425,7 @@ function App() {
           }
         : null,
     )
-    setCurrentPlayerIndex(freshStartingPlayerIndex)
+    dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: freshStartingPlayerIndex })
     setLastRoll(null)
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
@@ -6630,7 +6629,7 @@ function App() {
       robberTileId: snapshot.robberTileId,
       pirateTileId: snapshot.pirateTileId ?? null,
     })
-    setCurrentPlayerIndex(snapshot.currentPlayerIndex)
+    dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
     setGamePhase(snapshot.gamePhase)
     setSetupStepIndex(snapshot.setupStepIndex)
     setSetupStage(snapshot.setupStage)

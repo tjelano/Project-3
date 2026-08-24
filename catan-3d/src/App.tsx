@@ -211,6 +211,22 @@ function heldItemsFor(player: Player): StolenItem[] {
   return items
 }
 
+// Shared payload-trust-boundary check for applyRobberMove/applyPiratePlace
+// below — both take a network-sourced stolenItem and must validate it before
+// it's ever used as a resources[]/commodities[] key/arithmetic operand. An
+// untrusted or version-mismatched payload with a bogus item string would
+// otherwise write NaN into a real player's count permanently (every future
+// +/- on it stays NaN), which then poisons the 7-card discard threshold for
+// the rest of the match. Pulled out so the two callers' validation can't
+// silently drift apart — each caller still logs its own console.error, since
+// "robber-move" vs "pirate-move" in the message is the only thing that
+// differs between them.
+function validateStolenItem(stolenItem: StolenItem | null): StolenItem | null {
+  return stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
+    ? stolenItem
+    : null
+}
+
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
   const [playerCount, setPlayerCount] = useState(3)
@@ -268,6 +284,15 @@ function App() {
   const [customBoardBiomeOverrides, setCustomBoardBiomeOverrides] = useState<Record<string, Biome> | undefined>(undefined)
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
   const graph = useMemo(() => buildBoardGraph(tiles), [tiles])
+  // Critical-bug fix (final review round) — BIOME_OVERRIDES_BY_SHAPE only
+  // pins any 'sea' tiles for the seafarersBasic shape (hexBoard.ts); every
+  // other shape, including the default 'standard', has zero. Choosing
+  // "Pirate" on such a board sent gamePhase to 'movePirate' with no valid
+  // target (isPirateEligibleTile/RobberLayer's sea-only filter both find
+  // nothing), and nothing could ever leave that phase — a permanent
+  // soft-lock. Gates the picker's Pirate option below and choosePirate's own
+  // guard, so 'movePirate' is simply unreachable on a sea-tile-less board.
+  const boardHasSeaTile = useMemo(() => tiles.some((tile) => tile.biome === 'sea'), [tiles])
   // Newfoundland/Peanut/any custom BoardShapeEditor.tsx shape can be wider
   // than standard — the tray, water and shadow frustum all derive their
   // size from the board's OWN real extent instead of a fixed constant, so
@@ -873,6 +898,10 @@ function App() {
     // is defense-in-depth only (matching pendingKnightRecruit/armedKnightAction
     // just above), not a fix for an observed exploit.
     setChasingRobberKnightId(null)
+    // Mirrors chasingRobberKnightId immediately above — same "local-only,
+    // always cleared synchronously within movePirate's own body first"
+    // reasoning, for the pirate's own Chase Away.
+    setChasingPirateKnightId(null)
     // Cities & Knights knight promote (Task 8) — same turn-boundary exploit
     // pendingKnightRecruit's own comment above describes: without this, a
     // stale knightsPromotedThisTurn entry from the OUTGOING player would
@@ -988,17 +1017,10 @@ function App() {
     victimId: number | null,
     stolenItem: StolenItem | null,
   ) => {
-    // Broadcast-sourced — validated before ever being used as a resources[]/
-    // commodities[] key/arithmetic operand. An untrusted or version-
-    // mismatched payload with a bogus item string would otherwise write NaN
-    // into a real player's count permanently (every future +/- on it stays
-    // NaN), which then poisons the 7-card discard threshold for the rest
-    // of the match. Falls back to "nothing stolen" rather than dropping the
-    // whole robber move, same as a genuinely empty-handed victim.
-    const safeStolenItem =
-      stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
-        ? stolenItem
-        : null
+    // Falls back to "nothing stolen" rather than dropping the whole robber
+    // move, same as a genuinely empty-handed victim. See validateStolenItem's
+    // own comment above for why this validation exists at all.
+    const safeStolenItem = validateStolenItem(stolenItem)
     if (stolenItem != null && safeStolenItem == null) {
       console.error('[Catan] Ignoring robber-move payload with an invalid stolen item:', stolenItem)
     }
@@ -1042,10 +1064,7 @@ function App() {
     victimId: number | null,
     stolenItem: StolenItem | null,
   ) => {
-    const safeStolenItem =
-      stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
-        ? stolenItem
-        : null
+    const safeStolenItem = validateStolenItem(stolenItem)
     if (stolenItem != null && safeStolenItem == null) {
       console.error('[Catan] Ignoring pirate-move payload with an invalid stolen item:', stolenItem)
     }
@@ -1089,6 +1108,15 @@ function App() {
     }
     if (tileId != null && !isPirateEligibleTile(tileById, tileId)) {
       warn('The Pirate can only be placed on a sea hex.')
+      return
+    }
+    // Mirrors moveRobber's own "must move to a new hex" guard below — only
+    // when tileId != null, since parking the pirate on the frame (tileId ===
+    // null) is always legal regardless of its current position, including
+    // from the frame itself (pirateTileId would also be null there, but the
+    // tileId != null check above already excludes that null === null case).
+    if (tileId != null && tileId === gameState.board.pirateTileId) {
+      warn('The Pirate must move to a new hex!')
       return
     }
 
@@ -1287,7 +1315,8 @@ function App() {
     // branch below.
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-        setGamePhase('moveRobber')
+        inform('Discards resolved — choose the Robber or the Pirate.')
+        setGamePhase('chooseRobberOrPirate')
       } else {
         setGamePhase('playing')
       }
@@ -2492,10 +2521,12 @@ function App() {
     // attack resolves, skip arming moveRobber and return straight to play.
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setGamePhase('moveRobber')
+      inform('Discards resolved — choose the Robber or the Pirate.')
+      setGamePhase('chooseRobberOrPirate')
     } else {
       setGamePhase('playing')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inform is read fresh via closure (recreated every render); only gamePhase/validDiscardPlayerIds/discardPlayerIds/the barbarian rule/robberActive identity should re-run this self-heal.
   }, [gamePhase, validDiscardPlayerIds, discardPlayerIds, gameRules.citiesAndKnightsBarbarians, robberActive])
 
   // Does this player have a road touching the given intersection? Used for
@@ -4020,6 +4051,15 @@ function App() {
   const choosePirate = () => {
     if (gamePhase !== 'chooseRobberOrPirate') return
     if (!isMyTurn) return
+    // Defense-in-depth mirror of the picker's own boardHasSeaTile gate below
+    // (see boardHasSeaTile's own comment) — the Pirate button is hidden
+    // whenever this would fire, but this keeps the invariant true even if
+    // some other future entry point ever calls choosePirate directly.
+    if (!boardHasSeaTile) {
+      warn('There is no sea hex on this board — the Pirate cannot be placed.')
+      return
+    }
+    inform('Choose a sea hex for the Pirate.')
     setGamePhase('movePirate')
   }
 
@@ -6329,6 +6369,9 @@ function App() {
     // reset on a fresh game" treatment pendingKnightRecruit/armedKnightAction
     // just above get; local-only UI state, never persisted/broadcast.
     setChasingRobberKnightId(null)
+    // Mirrors chasingRobberKnightId immediately above, for the pirate's own
+    // Chase Away; same "always reset on a fresh game" treatment.
+    setChasingPirateKnightId(null)
     // Cities & Knights Taxation (Task 10) — same "always reset on a fresh
     // game" treatment chasingRobberKnightId just above gets; local-only UI
     // state, never persisted/broadcast. A stranded pendingTaxation would be
@@ -7213,12 +7256,22 @@ function App() {
           paired with TradeOfferPrompt's own flex-1 two-button row — reusing
           both rather than inventing a new overlay style. isMyTurn/!winner
           match every other phase-gated affordance's own guard (RobberLayer's
-          isMovingRobber just above uses the identical pair). */}
+          isMovingRobber just above uses the identical pair).
+
+          Critical-bug fix (final review round) — the Pirate button only
+          renders when boardHasSeaTile (see its own comment near tileById
+          above): on every board shape except seafarersBasic there is no
+          valid sea hex to place the pirate on, so offering the choice would
+          strand the game in 'movePirate' with zero click targets and no way
+          out. Falls back to a single Robber button/heading instead of a
+          two-way choice — moving the robber is still always valid. */}
       {gamePhase === 'chooseRobberOrPirate' && isMyTurn && !winner && (
         <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
           <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Choose a Move</p>
-            <p className="mt-2 font-display text-lg text-white">Move the Robber or the Pirate?</p>
+            <p className="mt-2 font-display text-lg text-white">
+              {boardHasSeaTile ? 'Move the Robber or the Pirate?' : 'Move the Robber'}
+            </p>
             <div className="mt-4 flex gap-3">
               <button
                 type="button"
@@ -7227,14 +7280,40 @@ function App() {
               >
                 Robber
               </button>
-              <button
-                type="button"
-                onClick={choosePirate}
-                className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
-              >
-                Pirate
-              </button>
+              {boardHasSeaTile && (
+                <button
+                  type="button"
+                  onClick={choosePirate}
+                  className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+                >
+                  Pirate
+                </button>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Escape hatch (final review round, Part B) — CN3083 explicitly
+          allows parking the pirate on the frame instead of moving it to a
+          new sea hex ("Move the pirate to the frame or to a new sea hex").
+          movePirate(null)/applyPiratePlace(null, ...)/PIRATE_MOVED with
+          tileId: null are already fully implemented and tested (Task 4);
+          this is just the missing UI entry point, and doubles as a safety
+          net against any other edge case that might strand a player in
+          'movePirate'. Same glass-card style as the choice panel above. */}
+      {gamePhase === 'movePirate' && isMyTurn && !winner && (
+        <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
+          <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Move the Pirate</p>
+            <p className="mt-2 font-display text-sm text-white/80">Click a sea hex, or return the Pirate to the frame.</p>
+            <button
+              type="button"
+              onClick={() => movePirate(null)}
+              className="mt-4 w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+            >
+              Return to the Frame
+            </button>
           </div>
         </div>
       )}

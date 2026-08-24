@@ -723,7 +723,11 @@ export function GameHud({
           ? `${discardingPlayerName} discarding…`
           : gamePhase === 'moveRobber'
             ? 'Move the Robber'
-            : `${currentPlayer.name}’s turn`
+            : gamePhase === 'chooseRobberOrPirate'
+              ? 'Choose Robber or Pirate'
+              : gamePhase === 'movePirate'
+                ? 'Move the Pirate'
+                : `${currentPlayer.name}’s turn`
 
   return (
     <div className="pointer-events-none absolute inset-0 font-body text-white">

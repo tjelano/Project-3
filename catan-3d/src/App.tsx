@@ -122,7 +122,7 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
-import type { GamePhase, SetupStage } from './game/reducers/turn'
+import type { SetupStage } from './game/reducers/turn'
 
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -507,7 +507,7 @@ function App() {
     playerId: number
   } | null>(null)
 
-  const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
+  const gamePhase = gameState.turn.gamePhase
   const [setupStepIndex, setSetupStepIndex] = useState(0)
   const [setupStage, setSetupStage] = useState<SetupStage>('settlement')
   // The settlement placed during the current setup step. The free road that
@@ -1000,7 +1000,7 @@ function App() {
       // vertex linger into the next step.
       setSetupSettlementVertexId(null)
       if (nextStepIndex >= setupOrder.length) {
-        setGamePhase('playing')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         // The snake's starting seat (setupOrder[0], randomized in resetGame)
         // takes the first REAL turn too, same as standard Catan rules —
         // whoever placed first also rolls first.
@@ -1029,7 +1029,7 @@ function App() {
       const nextStepIndex = setupStepIndex + 1
       setSetupSettlementVertexId(null)
       if (nextStepIndex >= setupOrder.length) {
-        setGamePhase('playing')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
         setSetupStepIndex(0)
         setSetupStage('settlement')
@@ -1085,7 +1085,7 @@ function App() {
     // Never ends the turn here, whether this came from a natural 7 or a
     // Knight card — turn advancement only ever happens via the explicit
     // End Turn button. Control simply returns to the mover's active turn.
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
   }
 
   // Mirrors applyRobberMove above, for the pirate — the same trusted-apply
@@ -1125,7 +1125,7 @@ function App() {
     } else {
       inform('The Pirate returns to the frame.')
     }
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
   }
 
   // The click-handler equivalent of moveRobber, minus the taxation branch —
@@ -1201,7 +1201,7 @@ function App() {
           : `${player.name} played a Knight! Move the Robber.`,
       )
     }
-    setGamePhase('chooseRobberOrPirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
   }
 
   const applyRoadBuildingPlay = (playerId: number) => {
@@ -1356,9 +1356,9 @@ function App() {
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
         inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
-        setGamePhase('chooseRobberOrPirate')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
       } else {
-        setGamePhase('playing')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
       }
     }
   }
@@ -2435,7 +2435,7 @@ function App() {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
       // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPillageQueue
       // calls, same deliberate "self-heal" shape as the discard-queue effect
-      // above (setGamePhase('moveRobber')) — there's no user gesture to hang
+      // above (dispatch(GAME_PHASE_SET, 'moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the
       // effect has to trigger it itself.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -2591,9 +2591,9 @@ function App() {
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
-      setGamePhase('chooseRobberOrPirate')
+      dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
     } else {
-      setGamePhase('playing')
+      dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- inform is read fresh via closure (recreated every render); only gamePhase/validDiscardPlayerIds/discardPlayerIds/the barbarian rule/robberActive identity should re-run this self-heal.
   }, [gamePhase, validDiscardPlayerIds, discardPlayerIds, gameRules.citiesAndKnightsBarbarians, robberActive])
@@ -3586,11 +3586,11 @@ function App() {
         if (overLimitIds.length > 0) {
           setDiscardPlayerIds(overLimitIds)
           setDiscardSelection([])
-          setGamePhase('discard')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'discard' })
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
           inform(boardHasSeaTile ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
-          setGamePhase('chooseRobberOrPirate')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the
           // first barbarian attack resolves, the robber stays inert: CN3087
@@ -3598,7 +3598,7 @@ function App() {
           // desert following the first barbarian attack." No robber move,
           // no steal — control returns straight to play.
           inform('Rolled 7 — the Robber has not activated yet.')
-          setGamePhase('playing')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         }
       }
       return doublesCount
@@ -4001,7 +4001,7 @@ function App() {
     const actor = playerById.get(playerId)
     if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
     setPendingTaxation(null)
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
     if (isDeciding && onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals: safeSteals })
   }
 
@@ -4146,7 +4146,7 @@ function App() {
     // (it's the shared helper both this local path and the onRobberMoved
     // network receiver call — see its own comment), so this simply appends
     // to moveRobber's tail rather than needing to precede a
-    // setGamePhase('playing') call of moveRobber's own (moveRobber has none;
+    // dispatch(GAME_PHASE_SET, 'playing') call of moveRobber's own (moveRobber has none;
     // it delegates that transition to applyRobberMove). `thief` is the SAME
     // binding computed above, reused here rather than redeclared — a knight
     // action can only ever be armed by the current turn's player (armChaseRobber
@@ -4171,7 +4171,7 @@ function App() {
   const chooseRobber = () => {
     if (gamePhase !== 'chooseRobberOrPirate') return
     if (!isMyTurn) return
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
   }
 
   const choosePirate = () => {
@@ -4186,7 +4186,7 @@ function App() {
       return
     }
     inform('Choose a sea hex for the Pirate.')
-    setGamePhase('movePirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'movePirate' })
   }
 
   // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
@@ -5305,7 +5305,7 @@ function App() {
       return
     }
     setChasingRobberKnightId(knightId)
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
   }
 
   // Mirrors armChaseRobber exactly (same gate order: barbarian-activation
@@ -5343,7 +5343,7 @@ function App() {
       return
     }
     setChasingPirateKnightId(knightId)
-    setGamePhase('movePirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'movePirate' })
   }
 
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
@@ -6047,7 +6047,7 @@ function App() {
     }
     dispatch({ type: 'TAXATION_ARMED', playerId: player.id })
     setPendingTaxation(player.id)
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
     inform(`${player.name} played Taxation — choose a hex for the robber.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'taxation' })
   }
@@ -6536,7 +6536,7 @@ function App() {
     setPillageQueue([])
     resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
-    setGamePhase('setup')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'setup' })
     setSetupStepIndex(0)
     setSetupStage('settlement')
     setSetupSettlementVertexId(null)
@@ -6630,7 +6630,7 @@ function App() {
       pirateTileId: snapshot.pirateTileId ?? null,
     })
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
-    setGamePhase(snapshot.gamePhase)
+    dispatch({ type: 'GAME_PHASE_SET', phase: snapshot.gamePhase })
     setSetupStepIndex(snapshot.setupStepIndex)
     setSetupStage(snapshot.setupStage)
     setSetupSettlementVertexId(snapshot.setupSettlementVertexId)

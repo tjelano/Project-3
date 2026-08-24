@@ -1015,6 +1015,27 @@ function App() {
   const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
     if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+
+    // Deliberately a verbatim duplicate of applyRoadPlacement's own isSetup
+    // block above, not a shared helper — same "near-verbatim copy for a
+    // symmetric mechanic" precedent this codebase already uses elsewhere
+    // (Chase Away the Pirate vs. Chase Away the Robber), since a road and a
+    // ship are the two interchangeable choices for the exact same setup
+    // step, not actually the same code path in disguise.
+    if (isSetup) {
+      const nextStepIndex = setupStepIndex + 1
+      setSetupSettlementVertexId(null)
+      if (nextStepIndex >= setupOrder.length) {
+        setGamePhase('playing')
+        setCurrentPlayerIndex(setupOrder[0])
+        setSetupStepIndex(0)
+        setSetupStage('settlement')
+      } else {
+        setSetupStepIndex(nextStepIndex)
+        setCurrentPlayerIndex(setupOrder[nextStepIndex])
+        setSetupStage('settlement')
+      }
+    }
   }
 
   const applyShipMove = (fromEdgeId: string, toEdgeId: string, playerId: number, isDeciding: boolean) => {
@@ -3135,10 +3156,19 @@ function App() {
     if (!canInteract()) return
 
     const player = players[currentPlayerIndex]
-    const isFreeShip = freeRoadsRemaining > 0
+    const isSetup = gamePhase === 'setup'
+    const isFreeShip = !isSetup && freeRoadsRemaining > 0
 
-    if (!isFreeShip && !hasRolledThisTurn) {
+    // Same reasoning as buildRoadRaw's own guard — a setup piece is legal to
+    // place before the game's first roll (there is no roll yet), and a free
+    // ship (from a Road Building card) is exempt for the same reason a free
+    // road already is.
+    if (!isSetup && !isFreeShip && !hasRolledThisTurn) {
       warn('Roll the dice before building.')
+      return
+    }
+    if (isSetup && setupStage !== 'road') {
+      warn('Place your settlement first.')
       return
     }
     if (gameState.board.roads[edgeId] != null || gameState.board.ships[edgeId] != null) {
@@ -3149,7 +3179,21 @@ function App() {
       warn('Ships can only be placed on edges bordering the sea.')
       return
     }
-    if (
+    if (isSetup) {
+      // CN3083's setup substitution — same rule buildRoadRaw's own setup
+      // branch already enforces for roads: the free second piece must
+      // connect to the settlement just placed, not the player's network at
+      // large (which doesn't exist yet this early anyway).
+      const edge = edgeById.get(edgeId)
+      const touchesNewSettlement =
+        edge != null &&
+        setupSettlementVertexId != null &&
+        (edge.a === setupSettlementVertexId || edge.b === setupSettlementVertexId)
+      if (!touchesNewSettlement) {
+        warn('Your ship must connect to the settlement you just placed!')
+        return
+      }
+    } else if (
       !isShipPlacementConnected(
         graph,
         edgeById,
@@ -3168,12 +3212,12 @@ function App() {
       warn('You have no ships left to place.')
       return
     }
-    if (!isFreeShip && !canAfford(player.resources, SHIP_COST)) {
+    if (!isSetup && !isFreeShip && !canAfford(player.resources, SHIP_COST)) {
       warn('Not enough resources for a ship.')
       return
     }
 
-    applyShipPlacement(edgeId, player.id, false, isFreeShip, true)
+    applyShipPlacement(edgeId, player.id, isSetup, isFreeShip, true)
   }
   // No 3D UI calls buildShipRaw yet (ship-building click UI is a later
   // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as

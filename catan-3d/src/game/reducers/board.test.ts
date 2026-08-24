@@ -94,6 +94,15 @@ describe('reduceBoard — BUILD_SHIP', () => {
     expect(result.shipsBuiltThisTurn).toEqual(['E1'])
   })
 
+  it('does not record the edge in shipsBuiltThisTurn when placed during setup', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'BUILD_SHIP', edgeId: 'E1', playerId: 1, isSetup: true, isFreeShip: false },
+      initialGameState,
+    )
+    expect(result.shipsBuiltThisTurn).toEqual([])
+  })
+
   it('leaves roads untouched', () => {
     const result = reduceBoard(
       initialBoardState,

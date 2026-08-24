@@ -37,8 +37,8 @@ It does **not** move if:
 ## Ponytail-Audit Findings (verified, feeding this design)
 
 1. **5 near-identical pending-player-queue mechanisms** (`discardPlayerIds`, `scienceFreeResourcePlayerIds`, `goldFieldResourcePlayerIds`, `pillageQueue`, `winnerDrawQueue`) share the same online/local-split "active id" derivation shape (online: is-local-player-in-queue; local pass-and-play: front-of-queue) and the same resolve-removes-one-entry shape — but their *resolution payloads* are genuinely different (`applyDiscard(playerId, counts: {...})`, `applyPillage(vertexId, playerId, ...)`, `handleBarbarianWinnerDraw(track)`, single-resource picks for Science/Gold) and `pillageQueue`'s element type is an object, not a bare player id like the other 4. A 6th (`progressCardOverLimitPlayerIds`) is a simpler variant with no online split at all. **Correction from the original audit pass:** this is not "one generic reducer action for all 6" — it's a shared *waiting-room* helper (active-id derivation + single-entry dequeue) that each mechanic's own distinct resolution action plugs into.
-2. **56 of 57 `broadcastX` functions** in `useRoomChannel.ts` are the identical one-liner `void channelRef.current?.send({type:'broadcast', event:'NAME', payload})`, differing only in the event string and payload type.
-3. **55 of 57 `channel.on<T>(...)` subscriptions** are the identical shape: register an event, forward its payload to `handlersRef.current.onX?.(payload)`. The one exception, `onGameStarted`, calls its handler with multiple destructured arguments instead of a single payload object — excluded from the generalization by design, not an oversight.
+2. **54 of 57 `broadcastX` functions** in `useRoomChannel.ts` are the identical one-liner `void channelRef.current?.send({type:'broadcast', event:'NAME', payload})`, differing only in the event string and payload type. Exhaustively checked (every `broadcastX`/`channel.on` body in the file, not a sample) — 3 real exceptions: `broadcastGameStarted` takes multiple named arguments instead of one payload object (matches `onGameStarted`'s own exception below); `broadcastDiceRolled` and `broadcastDiscardConfirmed` both keep a `.then((result) => debugLog(...))` wrapper for a specific stuck-screen bug hunt (`broadcastDiscardConfirmed`'s own comment: "See broadcastDiceRolled above — same reasoning, same bug hunt"). An earlier pass of this design only caught `broadcastDiceRolled`'s debugLog exception and missed `broadcastDiscardConfirmed`'s identical one — worth naming both explicitly here so Sub-plan 1's implementer doesn't silently collapse the second one and drop its debug logging.
+3. **55 of 57 `channel.on<T>(...)` subscriptions** are the identical shape: register an event, forward its payload to `handlersRef.current.onX?.(payload)`. Also exhaustively checked — exactly one exception, `onGameStarted`, which calls its handler with multiple destructured arguments instead of a single payload object (matching `broadcastGameStarted`'s own exception above) — excluded from the generalization by design, not an oversight.
 4. **`GameHudProps` is a flat 100+-entry interface** with no internal grouping — every new picker/queue mechanic added 2+ top-level props rather than fitting into any existing structure.
 
 ## Data Model — New/Extended Reducer Slices
@@ -67,18 +67,25 @@ New slices, each its own file under `game/reducers/`, own tests, own action-unio
 
 ### Broadcast dispatcher (`useRoomChannel.ts`)
 
-Keep all 56 named `broadcastX`/56 typed `channel.on<T>` call sites — collapsing to a fully generic `broadcast(event: string, payload: unknown)` would touch ~100+ call sites across `App.tsx` for no correctness benefit and would lose per-event compile-time payload verification. Instead, collapse each *body*:
+Keep all 57 named `broadcastX`/57 typed `channel.on<T>` call sites — collapsing to a fully generic `broadcast(event: string, payload: unknown)` would touch ~100+ call sites across `App.tsx` for no correctness benefit and would lose per-event compile-time payload verification. Instead, collapse each *body*:
 
 ```ts
 function send<T>(event: string, payload: T) {
   void channelRef.current?.send({ type: 'broadcast', event, payload })
 }
+// broadcastGameStarted keeps its existing multi-argument signature (not
+// a single payload) — not touched by this collapse.
+// broadcastDiceRolled and broadcastDiscardConfirmed BOTH keep their
+// existing .then((result) => debugLog(...)) wrapper — two exceptions,
+// not one; don't collapse either into send().
 const broadcastDiceRolled = (payload: DiceRolledPayload) => {
-  // keeps its bespoke debugLog wrapper — the one broadcast with real extra logic
   void channelRef.current?.send({ type: 'broadcast', event: 'DICE_ROLLED', payload }).then((result) => debugLog(...))
 }
+const broadcastDiscardConfirmed = (payload: DiscardConfirmedPayload) => {
+  void channelRef.current?.send({ type: 'broadcast', event: 'DISCARD_CONFIRMED', payload }).then((result) => debugLog(...))
+}
 const broadcastTurnPassed = (payload: TurnPassedPayload) => send('TURN_PASSED', payload)
-// ...54 more one-liners
+// ...53 more one-liners
 ```
 
 ```ts
@@ -88,7 +95,7 @@ function forwardTo<T>(handlerKey: keyof RoomChannelHandlers) {
   }
 }
 channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, forwardTo('onDiceRolled'))
-// ...54 more one-liners; onGameStarted keeps its existing bespoke subscription
+// ...55 more one-liners; onGameStarted keeps its existing bespoke subscription
 ```
 
 Cuts ~220 lines of duplicated boilerplate to near-zero, zero loss of type safety, zero change to any `App.tsx` call site.

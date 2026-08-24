@@ -622,6 +622,12 @@ function App() {
   // that arms it and so never needs to survive to a turn boundary.
   const [chasingRobberKnightId, setChasingRobberKnightId] = useState<string | null>(null)
 
+  // Mirrors chasingRobberKnightId exactly, for the pirate's own Chase Away
+  // counterpart (CN3083/CN3087: the existing C&K chase-away mechanic
+  // applies to whichever piece — robber or pirate — the acting knight is
+  // adjacent to).
+  const [chasingPirateKnightId, setChasingPirateKnightId] = useState<string | null>(null)
+
   // Cities & Knights Taxation (Task 10) — which player armed Taxation and is
   // now choosing a hex via the SAME RobberLayer/gamePhase='moveRobber' UI a
   // rolled 7 or chasingRobberKnightId above already use. moveRobber's
@@ -1102,6 +1108,17 @@ function App() {
 
     applyPiratePlace(tileId, thief.id, victimId, stolenItem)
     if (onlineInfo) broadcastPirateMoved({ tileId, thiefId: thief.id, victimId, stolenItem })
+
+    // Cities & Knights "Chase Away the Pirate" — mirrors moveRobber's own
+    // chasingRobberKnightId tail exactly (see that function's comment):
+    // only set when this resolution was armed via armChasePirate, so a
+    // plain robber-or-pirate-choice-triggered move (Task 6) is unaffected.
+    if (chasingPirateKnightId) {
+      const chaserId = chasingPirateKnightId
+      dispatch({ type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: thief.id, knightId: chaserId })
+      setChasingPirateKnightId(null)
+      if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
+    }
   }
   // No 3D UI calls movePirate yet (the robber-or-pirate choice picker is a
   // later task in this same sub-plan) — kept reachable so noUnusedLocals
@@ -5094,6 +5111,44 @@ function App() {
     setGamePhase('moveRobber')
   }
 
+  // Mirrors armChaseRobber exactly (same gate order: barbarian-activation
+  // -> turn ownership -> gamePhase -> knight exists & active), checking
+  // pirateTileId instead of robberTileId, plus one extra guard
+  // armChaseRobber doesn't need: the pirate can be parked off-board
+  // (pirateTileId == null) between placements, and a knight can't be
+  // adjacent to a piece that isn't on any tile.
+  const armChasePirate = (knightId: string) => {
+    if (gameRules.citiesAndKnightsBarbarians && !robberActive) {
+      warn('The robber has not activated yet.')
+      return
+    }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (gamePhase !== 'playing') {
+      warn('Cannot chase the pirate right now.')
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !knight.active) {
+      warn('That knight cannot chase the pirate.')
+      return
+    }
+    if (gameState.board.pirateTileId == null) {
+      warn('The Pirate is not on the board.')
+      return
+    }
+    const adjacentTileIds = new Set(graph.vertexTileIds.get(knight.vertexId) ?? [])
+    if (!adjacentTileIds.has(gameState.board.pirateTileId)) {
+      warn('That knight is not next to the pirate.')
+      return
+    }
+    setChasingPirateKnightId(knightId)
+    setGamePhase('movePirate')
+  }
+
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
   // Move handler extends this with a branch checking armedKnightAction
   // instead of pendingKnightRecruit, rather than a second handler.
@@ -7058,6 +7113,11 @@ function App() {
         onArmKnightDisplace={armKnightDisplace}
         onArmChaseRobber={armChaseRobber}
         canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId)}
+        onArmChasePirate={armChasePirate}
+        canChasePirate={(knight) =>
+          gameState.board.pirateTileId != null &&
+          new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId)
+        }
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         onBuildWall={buildCityWall}

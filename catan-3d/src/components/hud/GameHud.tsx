@@ -228,6 +228,11 @@ interface GameHudProps {
   // right here from a plain imported pure function.
   onArmChaseRobber: (knightId: string) => void
   canChaseRobber: (knight: KnightPiece) => boolean
+  // Mirrors onArmChaseRobber/canChaseRobber exactly — the pirate's own
+  // Chase Away counterpart (see App.tsx's armChasePirate/canChasePirate
+  // comments for why this is a parallel prop pair, not a shared one).
+  onArmChasePirate: (knightId: string) => void
+  canChasePirate: (knight: KnightPiece) => boolean
   armedKnightId: string | null
   // Once per turn, per knight INSTANCE — gates the Promote button
   // alongside canPromoteKnight's own cost/supply/track checks, since that
@@ -455,6 +460,8 @@ export function GameHud({
   onArmKnightDisplace,
   onArmChaseRobber,
   canChaseRobber,
+  onArmChasePirate,
+  canChasePirate,
   armedKnightId,
   knightsPromotedThisTurn,
   onBuildWall,
@@ -851,9 +858,11 @@ export function GameHud({
             onArmMove={onArmKnightMove}
             onArmDisplace={onArmKnightDisplace}
             onArmChaseRobber={onArmChaseRobber}
+            onArmChasePirate={onArmChasePirate}
             canRecruit={canRecruitKnight}
             canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}
             canChaseRobber={canChaseRobber}
+            canChasePirate={canChasePirate}
             armedKnightId={armedKnightId}
           />
         )}

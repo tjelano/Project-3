@@ -9,9 +9,11 @@ export interface KnightsPanelProps {
   onArmMove: (knightId: string) => void
   onArmDisplace: (knightId: string) => void
   onArmChaseRobber: (knightId: string) => void
+  onArmChasePirate: (knightId: string) => void
   canRecruit: boolean
   canPromote: (knight: KnightPiece) => boolean
   canChaseRobber: (knight: KnightPiece) => boolean
+  canChasePirate: (knight: KnightPiece) => boolean
   armedKnightId: string | null
 }
 
@@ -24,9 +26,11 @@ export function KnightsPanel({
   onArmMove,
   onArmDisplace,
   onArmChaseRobber,
+  onArmChasePirate,
   canRecruit,
   canPromote,
   canChaseRobber,
+  canChasePirate,
   armedKnightId,
 }: KnightsPanelProps) {
   const slots: { strength: (typeof KNIGHT_STRENGTH_ORDER)[number]; knight: KnightPiece | undefined }[] = []
@@ -107,6 +111,14 @@ export function KnightsPanel({
                   className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-white/20 disabled:opacity-40"
                 >
                   Chase Robber
+                </button>
+                <button
+                  type="button"
+                  disabled={!isMyTurn || !canChasePirate(slot.knight)}
+                  onClick={() => onArmChasePirate(slot.knight!.id)}
+                  className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide hover:bg-white/20 disabled:opacity-40"
+                >
+                  Chase Pirate
                 </button>
               </div>
             )}

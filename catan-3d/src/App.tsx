@@ -265,18 +265,6 @@ function App() {
   // Same persistence pattern as boardShapeId — chosen once at Start Game,
   // survives a same-session restart, only changes on a fresh submission.
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
-  // Counts ACCEPTED rolls only (incremented inside applyRollResult, which
-  // every client — roller and spectators alike — runs identically), never
-  // a rerolled 7 — that's what lets noSevensFirstTwoRolls check "is this
-  // one of the first two" consistently across every client without any of
-  // them needing to separately coordinate it. Reset on every resetGame.
-  const [totalRollsThisGame, setTotalRollsThisGame] = useState(0)
-  // Consecutive doubles rolled by the CURRENT player, THIS turn — for the
-  // doublesRerollRule (extra roll on a double, hand wiped on the third in a
-  // row). Reset on every turn advance (applyTurnAdvance), not just a new
-  // game, since it only ever describes an in-progress streak within the
-  // active player's current turn.
-  const [consecutiveDoublesThisTurn, setConsecutiveDoublesThisTurn] = useState(0)
   // Set together with boardShapeId, only when a player-drawn shape is
   // active — takes priority over boardShapeId in buildHexBoard whenever
   // non-empty (see resetGame/restoreFromSnapshot below).
@@ -515,12 +503,24 @@ function App() {
   const setupSettlementVertexId = gameState.turn.setupSettlementVertexId
   // Official rule: at most one development card may be PLAYED per turn
   // (buying is unlimited). Cleared by endTurn.
-  const [devCardPlayedThisTurn, setDevCardPlayedThisTurn] = useState(false)
+  const devCardPlayedThisTurn = gameState.turn.devCardPlayedThisTurn
   // Whether the CURRENT player has already rolled this turn. Drives the
   // Roll Dice button's morph into an End Turn button — turn advancement is
   // now ONLY ever triggered by that explicit button click, never by dice
   // physics settling or a robber move resolving. Reset by applyTurnAdvance.
-  const [hasRolledThisTurn, setHasRolledThisTurn] = useState(false)
+  const hasRolledThisTurn = gameState.turn.hasRolledThisTurn
+  // Counts ACCEPTED rolls only (incremented inside applyRollResult, which
+  // every client — roller and spectators alike — runs identically), never
+  // a rerolled 7 — that's what lets noSevensFirstTwoRolls check "is this
+  // one of the first two" consistently across every client without any of
+  // them needing to separately coordinate it. Reset on every resetGame.
+  const totalRollsThisGame = gameState.turn.totalRollsThisGame
+  // Consecutive doubles rolled by the CURRENT player, THIS turn — for the
+  // doublesRerollRule (extra roll on a double, hand wiped on the third in a
+  // row). Reset on every turn advance (applyTurnAdvance), not just a new
+  // game, since it only ever describes an in-progress streak within the
+  // active player's current turn.
+  const consecutiveDoublesThisTurn = gameState.turn.consecutiveDoublesThisTurn
   // Player IDs still owing a discard after a 7-roll (holding more than 7
   // cards). Non-empty while gamePhase is 'discard'; moveRobber only opens
   // once every over-limit player has confirmed. Fully derivable from
@@ -885,9 +885,6 @@ function App() {
       return
     }
     setFreeRoadsRemaining(0)
-    setDevCardPlayedThisTurn(false)
-    setHasRolledThisTurn(false)
-    setConsecutiveDoublesThisTurn(0)
     // Cities & Knights Merchant Fleet — "for the rest of this turn," so any
     // active rate expires the instant the turn actually passes, regardless
     // of who it passes to.
@@ -3512,7 +3509,7 @@ function App() {
     // on every client, roller and spectators alike.
     if (gameRules.doublesRerollRule && isDouble && doublesCount < 3) {
       inform('Doubles! Roll again.')
-      setHasRolledThisTurn(false)
+      dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
     }
   }
 
@@ -3539,14 +3536,14 @@ function App() {
     const isStillRollersTurn = players[currentPlayerIndex]?.id === rollerId
     if (isStillRollersTurn) {
       setLastRoll(total)
-      setHasRolledThisTurn(true)
+      dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: true })
     }
     // Only reachable with an ACCEPTED roll (a rerolled 7 returns early in
     // handlePhysicsSettled above and never reaches here), so this stays a
     // reliable "how many rolls has the game had" count for noSevensFirstTwoRolls.
-    setTotalRollsThisGame((n) => n + 1)
+    dispatch({ type: 'TOTAL_ROLLS_INCREMENTED' })
     const doublesCount = isDouble && isStillRollersTurn ? consecutiveDoublesThisTurn + 1 : 0
-    if (isStillRollersTurn) setConsecutiveDoublesThisTurn(doublesCount)
+    if (isStillRollersTurn) dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: doublesCount })
     debugLog('applyRollResult', {
       rollerId,
       total,
@@ -4730,7 +4727,7 @@ function App() {
   // applying a remote play.
   const spendDevCard = (playerId: number, type: DevCardType) => {
     dispatch({ type: 'DEV_CARD_SPENT', playerId, devCardType: type })
-    setDevCardPlayedThisTurn(true)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: true })
   }
 
   const playKnight = () => {
@@ -6355,8 +6352,8 @@ function App() {
     setCustomBoardCells(effectiveCustomCells)
     setCustomBoardBiomeOverrides(effectiveCustomBiomeOverrides)
     setGameRules(effectiveRules)
-    setTotalRollsThisGame(0)
-    setConsecutiveDoublesThisTurn(0)
+    dispatch({ type: 'TOTAL_ROLLS_RESET' })
+    dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: 0 })
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
@@ -6440,8 +6437,8 @@ function App() {
     setPendingTrade(null)
     setFreeRoadsRemaining(0)
     setDevCardPicker(null)
-    setDevCardPlayedThisTurn(false)
-    setHasRolledThisTurn(false)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
+    dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
     setDiscardPlayerIds([])
     setDiscardSelection([])
     setProgressDiscardSelection([])
@@ -6561,8 +6558,8 @@ function App() {
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setRevealedTileIds(new Set(snapshot.revealedTileIds ?? []))
-    setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
-    setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
+    dispatch({ type: 'TOTAL_ROLLS_SET', count: snapshot.totalRollsThisGame ?? 0 })
+    dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: snapshot.consecutiveDoublesThisTurn ?? 0 })
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
     const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells, snapshot.customBoardBiomeOverrides)
     setTiles(freshTiles)
@@ -6651,9 +6648,9 @@ function App() {
     // compatible treatment as merchantTileId/merchantHolderId above.
     setBarbarianTrackPosition(snapshot.barbarianTrackPosition ?? 0)
     setRobberActive(snapshot.robberActive ?? false)
-    setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
-    setHasRolledThisTurn(snapshot.hasRolledThisTurn)
+    dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
     setBanner(null)
     setPendingTrade(null)
     setDevCardPicker(null)

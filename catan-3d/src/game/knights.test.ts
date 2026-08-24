@@ -29,7 +29,7 @@ function graphOf(edges: BoardEdge[]): BoardGraph {
       else vertexEdgeIds.set(v, [e.id])
     }
   }
-  return { vertices: [], edges, vertexById: new Map(), tileVertexIds: new Map(), vertexTileIds: new Map(), vertexEdgeIds, tileCenters: new Map(), edgeTileIds: new Map() }
+  return { vertices: [], edges, vertexById: new Map(), tileVertexIds: new Map(), vertexTileIds: new Map(), vertexEdgeIds, tileCenters: new Map(), edgeTileIds: new Map(), tileEdgeIds: new Map() }
 }
 
 function ownedBy(playerId: number, edges: BoardEdge[]): Record<string, number> {

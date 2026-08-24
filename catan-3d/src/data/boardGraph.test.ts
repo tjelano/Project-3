@@ -50,6 +50,7 @@ describe('assignPorts', () => {
       vertexEdgeIds: new Map(),
       tileCenters: new Map(),
       edgeTileIds: new Map(),
+      tileEdgeIds: new Map(),
     }
     const ports = assignPorts(emptyGraph)
     expect(ports).toEqual([])
@@ -152,6 +153,26 @@ describe('buildBoardGraph — edgeTileIds', () => {
     const tileIds = graph.edgeTileIds.get(interiorEdge!.id)!
     expect(tileIds).toHaveLength(2)
     expect(new Set(tileIds).size).toBe(2) // two distinct tiles, not the same tile twice
+  })
+})
+
+describe('buildBoardGraph — tileEdgeIds', () => {
+  it('gives every tile exactly 6 edge ids', () => {
+    const tiles = buildHexBoard() // standard 19-tile board
+    const graph = buildBoardGraph(tiles)
+    for (const tile of tiles) {
+      expect(graph.tileEdgeIds.get(tile.id)).toHaveLength(6)
+    }
+  })
+
+  it('is the exact reverse of edgeTileIds', () => {
+    const tiles = buildHexBoard()
+    const graph = buildBoardGraph(tiles)
+    for (const [tileId, edgeIds] of graph.tileEdgeIds) {
+      for (const edgeId of edgeIds) {
+        expect(graph.edgeTileIds.get(edgeId)).toContain(tileId)
+      }
+    }
   })
 })
 

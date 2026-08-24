@@ -101,6 +101,7 @@ import {
 } from './game/types'
 import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
+import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -120,7 +121,7 @@ import {
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
 
-export type GamePhase = 'setup' | 'playing' | 'discard' | 'moveRobber'
+export type GamePhase = 'setup' | 'playing' | 'discard' | 'chooseRobberOrPirate' | 'moveRobber' | 'movePirate'
 export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -210,6 +211,22 @@ function heldItemsFor(player: Player): StolenItem[] {
   return items
 }
 
+// Shared payload-trust-boundary check for applyRobberMove/applyPiratePlace
+// below — both take a network-sourced stolenItem and must validate it before
+// it's ever used as a resources[]/commodities[] key/arithmetic operand. An
+// untrusted or version-mismatched payload with a bogus item string would
+// otherwise write NaN into a real player's count permanently (every future
+// +/- on it stays NaN), which then poisons the 7-card discard threshold for
+// the rest of the match. Pulled out so the two callers' validation can't
+// silently drift apart — each caller still logs its own console.error, since
+// "robber-move" vs "pirate-move" in the message is the only thing that
+// differs between them.
+function validateStolenItem(stolenItem: StolenItem | null): StolenItem | null {
+  return stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
+    ? stolenItem
+    : null
+}
+
 function App() {
   const [gameStarted, setGameStarted] = useState(false)
   const [playerCount, setPlayerCount] = useState(3)
@@ -267,6 +284,15 @@ function App() {
   const [customBoardBiomeOverrides, setCustomBoardBiomeOverrides] = useState<Record<string, Biome> | undefined>(undefined)
   const tileById = useMemo(() => new Map(tiles.map((tile) => [tile.id, tile])), [tiles])
   const graph = useMemo(() => buildBoardGraph(tiles), [tiles])
+  // Critical-bug fix (final review round) — BIOME_OVERRIDES_BY_SHAPE only
+  // pins any 'sea' tiles for the seafarersBasic shape (hexBoard.ts); every
+  // other shape, including the default 'standard', has zero. Choosing
+  // "Pirate" on such a board sent gamePhase to 'movePirate' with no valid
+  // target (isPirateEligibleTile/RobberLayer's sea-only filter both find
+  // nothing), and nothing could ever leave that phase — a permanent
+  // soft-lock. Gates the picker's Pirate option below and choosePirate's own
+  // guard, so 'movePirate' is simply unreachable on a sea-tile-less board.
+  const boardHasSeaTile = useMemo(() => tiles.some((tile) => tile.biome === 'sea'), [tiles])
   // Newfoundland/Peanut/any custom BoardShapeEditor.tsx shape can be wider
   // than standard — the tray, water and shadow frustum all derive their
   // size from the board's OWN real extent instead of a fixed constant, so
@@ -545,8 +571,6 @@ function App() {
   // GPU resource from scratch instead of leaving a permanently black canvas.
   const [canvasInstance, setCanvasInstance] = useState(0)
 
-  const [robberTileId, setRobberTileId] = useState(() => tiles.find((tile) => tile.biome === 'desert')!.id)
-
   // Cities & Knights robber activation — starts inert (robber behaves as
   // base-game: always movable on a rolled 7). Permanently flips true the
   // first time a barbarian attack resolves (Task 4), regardless of
@@ -570,9 +594,9 @@ function App() {
   const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
-  // category as robberTileId just above, not a per-player field: the piece
-  // sits on one tile and is controlled by at most one player at a time,
-  // independent of createInitialPlayers/Player. null until the card is
+  // category as gameState.board.robberTileId, not a per-player field: the
+  // piece sits on one tile and is controlled by at most one player at a
+  // time, independent of createInitialPlayers/Player. null until the card is
   // first played and placed.
   const [merchantTileId, setMerchantTileId] = useState<string | null>(null)
   const [merchantHolderId, setMerchantHolderId] = useState<number | null>(null)
@@ -622,6 +646,12 @@ function App() {
   // moveRobber always resolves synchronously within the same interaction
   // that arms it and so never needs to survive to a turn boundary.
   const [chasingRobberKnightId, setChasingRobberKnightId] = useState<string | null>(null)
+
+  // Mirrors chasingRobberKnightId exactly, for the pirate's own Chase Away
+  // counterpart (CN3083/CN3087: the existing C&K chase-away mechanic
+  // applies to whichever piece — robber or pirate — the acting knight is
+  // adjacent to).
+  const [chasingPirateKnightId, setChasingPirateKnightId] = useState<string | null>(null)
 
   // Cities & Knights Taxation (Task 10) — which player armed Taxation and is
   // now choosing a hex via the SAME RobberLayer/gamePhase='moveRobber' UI a
@@ -868,6 +898,10 @@ function App() {
     // is defense-in-depth only (matching pendingKnightRecruit/armedKnightAction
     // just above), not a fix for an observed exploit.
     setChasingRobberKnightId(null)
+    // Mirrors chasingRobberKnightId immediately above — same "local-only,
+    // always cleared synchronously within movePirate's own body first"
+    // reasoning, for the pirate's own Chase Away.
+    setChasingPirateKnightId(null)
     // Cities & Knights knight promote (Task 8) — same turn-boundary exploit
     // pendingKnightRecruit's own comment above describes: without this, a
     // stale knightsPromotedThisTurn entry from the OUTGOING player would
@@ -983,26 +1017,19 @@ function App() {
     victimId: number | null,
     stolenItem: StolenItem | null,
   ) => {
-    // Broadcast-sourced — validated before ever being used as a resources[]/
-    // commodities[] key/arithmetic operand. An untrusted or version-
-    // mismatched payload with a bogus item string would otherwise write NaN
-    // into a real player's count permanently (every future +/- on it stays
-    // NaN), which then poisons the 7-card discard threshold for the rest
-    // of the match. Falls back to "nothing stolen" rather than dropping the
-    // whole robber move, same as a genuinely empty-handed victim.
-    const safeStolenItem =
-      stolenItem != null && ((RESOURCE_ORDER as string[]).includes(stolenItem) || (COMMODITY_ORDER as string[]).includes(stolenItem))
-        ? stolenItem
-        : null
+    // Falls back to "nothing stolen" rather than dropping the whole robber
+    // move, same as a genuinely empty-handed victim. See validateStolenItem's
+    // own comment above for why this validation exists at all.
+    const safeStolenItem = validateStolenItem(stolenItem)
     if (stolenItem != null && safeStolenItem == null) {
       console.error('[Catan] Ignoring robber-move payload with an invalid stolen item:', stolenItem)
     }
-    setRobberTileId(tileId)
     playSfx('robber')
+
+    dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
 
     let stealNote = ''
     if (victimId != null && safeStolenItem != null) {
-      dispatch({ type: 'ROBBER_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
       // Same "which bucket by membership in COMMODITY_ORDER" idiom the
       // reducers use (see players.ts's COMMODITY_TRADED and ROBBER_MOVED
       // cases) — just for picking the right label here, the two pools never
@@ -1027,6 +1054,102 @@ function App() {
     setGamePhase('playing')
   }
 
+  // Mirrors applyRobberMove above, for the pirate — the same trusted-apply
+  // shared helper both the local actor and every onPirateMoved receiver call.
+  // tileId is nullable (the pirate can be legally parked on the frame),
+  // unlike applyRobberMove's tileId which always names a hex.
+  const applyPiratePlace = (
+    tileId: string | null,
+    thiefId: number,
+    victimId: number | null,
+    stolenItem: StolenItem | null,
+  ) => {
+    const safeStolenItem = validateStolenItem(stolenItem)
+    if (stolenItem != null && safeStolenItem == null) {
+      console.error('[Catan] Ignoring pirate-move payload with an invalid stolen item:', stolenItem)
+    }
+    dispatch({ type: 'PIRATE_MOVED', tileId, thiefId, victimId, stolenItem: safeStolenItem })
+    playSfx('robber')
+
+    let stealNote = ''
+    if (victimId != null && safeStolenItem != null) {
+      const isCommodity = (COMMODITY_ORDER as string[]).includes(safeStolenItem)
+      const thief = playerById.get(thiefId)
+      const victim = playerById.get(victimId)
+      if (thief && victim) {
+        const label = isCommodity ? COMMODITY_LABELS[safeStolenItem as CommodityType] : RESOURCE_LABELS[safeStolenItem as ResourceType]
+        stealNote = ` ${thief.name} stole 1 ${label} from ${victim.name}!`
+      }
+    } else if (victimId != null) {
+      const victim = playerById.get(victimId)
+      if (victim) stealNote = ` ${victim.name} had nothing to steal.`
+    }
+
+    if (tileId != null) {
+      const tile = tileById.get(tileId)
+      if (tile) inform(`The Pirate moves to ${BIOME_LABELS[tile.biome]}.${stealNote}`)
+    } else {
+      inform('The Pirate returns to the frame.')
+    }
+    setGamePhase('playing')
+  }
+
+  // The click-handler equivalent of moveRobber, minus the taxation branch —
+  // taxation never applies to the pirate (CN3087 is robber-only). Called
+  // from RobberLayer's onMovePirate (Task 6, wired at this component's own
+  // call site below) once gamePhase reaches 'movePirate', same as
+  // moveRobber's own onMoveRobber wiring.
+  const movePirate = (tileId: string | null) => {
+    if (winner) return
+    if (gamePhase !== 'movePirate') return
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (tileId != null && !isPirateEligibleTile(tileById, tileId)) {
+      warn('The Pirate can only be placed on a sea hex.')
+      return
+    }
+    // Mirrors moveRobber's own "must move to a new hex" guard below — only
+    // when tileId != null, since parking the pirate on the frame (tileId ===
+    // null) is always legal regardless of its current position, including
+    // from the frame itself (pirateTileId would also be null there, but the
+    // tileId != null check above already excludes that null === null case).
+    if (tileId != null && tileId === gameState.board.pirateTileId) {
+      warn('The Pirate must move to a new hex!')
+      return
+    }
+
+    const thief = players[currentPlayerIndex]
+    let victimId: number | null = null
+    let stolenItem: StolenItem | null = null
+    if (tileId != null) {
+      const victimIds = pirateVictimShipOwners(graph, gameState.board.ships, tileId, thief.id)
+      if (victimIds.length > 0) {
+        victimId = pickRandom(victimIds)
+        const victim = playerById.get(victimId)
+        if (victim) {
+          const heldItems = heldItemsFor(victim)
+          if (heldItems.length > 0) stolenItem = pickRandom(heldItems)
+        }
+      }
+    }
+
+    applyPiratePlace(tileId, thief.id, victimId, stolenItem)
+    if (onlineInfo) broadcastPirateMoved({ tileId, thiefId: thief.id, victimId, stolenItem })
+
+    // Cities & Knights "Chase Away the Pirate" — mirrors moveRobber's own
+    // chasingRobberKnightId tail exactly (see that function's comment):
+    // only set when this resolution was armed via armChasePirate, so a
+    // plain robber-or-pirate-choice-triggered move (Task 6) is unaffected.
+    if (chasingPirateKnightId) {
+      const chaserId = chasingPirateKnightId
+      dispatch({ type: 'KNIGHT_DEACTIVATED_AFTER_CHASE', playerId: thief.id, knightId: chaserId })
+      setChasingPirateKnightId(null)
+      if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
+    }
+  }
+
   // Knight and Road Building are single-step plays — spend-plus-effect
   // happens atomically, so the same function safely serves both the local
   // actor (via playKnight/playRoadBuilding, after their own guards pass)
@@ -1037,8 +1160,14 @@ function App() {
   const applyKnightPlay = (playerId: number) => {
     spendDevCard(playerId, 'knight')
     const player = playerById.get(playerId)
-    if (player) inform(`${player.name} played a Knight! Move the Robber.`)
-    setGamePhase('moveRobber')
+    if (player) {
+      inform(
+        boardHasSeaTile
+          ? `${player.name} played a Knight! Choose the Robber or the Pirate.`
+          : `${player.name} played a Knight! Move the Robber.`,
+      )
+    }
+    setGamePhase('chooseRobberOrPirate')
   }
 
   const applyRoadBuildingPlay = (playerId: number) => {
@@ -1192,7 +1321,8 @@ function App() {
     // branch below.
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-        setGamePhase('moveRobber')
+        inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
+        setGamePhase('chooseRobberOrPirate')
       } else {
         setGamePhase('playing')
       }
@@ -1395,6 +1525,7 @@ function App() {
     broadcastShipBuilt,
     broadcastShipMoved,
     broadcastRobberMoved,
+    broadcastPirateMoved,
     broadcastBarbarianShipAdvanced,
     broadcastBarbarianAttackResolved,
     broadcastPillageResolved,
@@ -1477,6 +1608,8 @@ function App() {
       applyShipMove(payload.fromEdgeId, payload.toEdgeId, payload.playerId, false),
     onRobberMoved: (payload) =>
       applyRobberMove(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
+    onPirateMoved: (payload) =>
+      applyPiratePlace(payload.tileId, payload.thiefId, payload.victimId, payload.stolenItem),
     // Cities & Knights barbarian ship (Task 4) — trusted-apply, see
     // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
     // comments in useRoomChannel.ts.
@@ -2394,10 +2527,12 @@ function App() {
     // attack resolves, skip arming moveRobber and return straight to play.
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setGamePhase('moveRobber')
+      inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
+      setGamePhase('chooseRobberOrPirate')
     } else {
       setGamePhase('playing')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inform is read fresh via closure (recreated every render); only gamePhase/validDiscardPlayerIds/discardPlayerIds/the barbarian rule/robberActive identity should re-run this self-heal.
   }, [gamePhase, validDiscardPlayerIds, discardPlayerIds, gameRules.citiesAndKnightsBarbarians, robberActive])
 
   // Does this player have a road touching the given intersection? Used for
@@ -2434,8 +2569,10 @@ function App() {
     return aUsable || bUsable
   }
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
+  // Coastal-only check: does this edge border a sea hex at all. Deliberately
+  // doesn't exclude the pirate's own hex — every call site here also calls
+  // isShipPlacementConnected (or, for the move source, canMoveShip) on the
+  // same edge right after, and that's where the pirate-adjacency rule lives.
   const edgeTouchesSea = (edgeId: string): boolean => {
     const tileIds = graph.edgeTileIds.get(edgeId) ?? []
     return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
@@ -2451,12 +2588,16 @@ function App() {
     return !edgeIds.some((edgeId) => edgeId !== shipEdgeId && gameState.board.ships[edgeId] === playerId)
   }
 
-  // KNOWN GAP (see this plan's Global Constraints): CN3083 also blocks
-  // moving a ship to or from an edge of the hex the pirate currently
-  // occupies — not checkable yet, no pirateTileId exists.
+  // CN3083: "You may not move a ship to or from an edge of the hex the
+  // pirate currently occupies." The destination ("to") side is enforced by
+  // isShipPlacementConnected's own pirate check inside moveShipRaw; this is
+  // the source ("from") side — the ship's own current edge is rejected here
+  // before it's ever considered movable at all.
   const canMoveShip = (edgeId: string, playerId: number): boolean => {
     if (gameState.board.ships[edgeId] !== playerId) return false
     if (gameState.board.shipsBuiltThisTurn.includes(edgeId)) return false
+    const pirateTileId = gameState.board.pirateTileId
+    if (pirateTileId != null && (graph.edgeTileIds.get(edgeId) ?? []).includes(pirateTileId)) return false
     const edge = edgeById.get(edgeId)
     if (!edge) return false
     return isShipEndOpen(edge.a, edgeId, playerId) || isShipEndOpen(edge.b, edgeId, playerId)
@@ -2523,8 +2664,8 @@ function App() {
       warn('Wait for the dice to finish rolling.')
       return false
     }
-    if (gamePhase === 'moveRobber') {
-      warn('Move the Robber before building.')
+    if (gamePhase === 'moveRobber' || gamePhase === 'chooseRobberOrPirate' || gamePhase === 'movePirate') {
+      warn('Resolve the Robber or Pirate before building.')
       return false
     }
     if (!isMyTurn) {
@@ -2936,8 +3077,6 @@ function App() {
     applyRoadPlacement(edgeId, player.id, isSetup, isFreeRoad, true)
   }
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
   const buildShipRaw = (edgeId: string) => {
     if (!canInteract()) return
 
@@ -2956,7 +3095,18 @@ function App() {
       warn('Ships can only be placed on edges bordering the sea.')
       return
     }
-    if (!isShipPlacementConnected(graph, edgeById, gameState.board.settlements, gameState.board.ships, edgeId, player.id)) {
+    if (
+      !isShipPlacementConnected(
+        graph,
+        edgeById,
+        gameState.board.settlements,
+        gameState.board.ships,
+        edgeId,
+        player.id,
+        undefined,
+        gameState.board.pirateTileId,
+      )
+    ) {
       warn('Ship must connect to one of your ships or buildings.')
       return
     }
@@ -2978,8 +3128,6 @@ function App() {
   // way buildRoad is wired just below.
   void buildShipRaw
 
-  // KNOWN GAP: does not yet check pirate-adjacency (no pirateTileId exists)
-  // — see isShipPlacementConnected's own comment for the full context.
   const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
     if (!canInteract()) return
 
@@ -3023,6 +3171,7 @@ function App() {
         toEdgeId,
         player.id,
         fromEdgeId,
+        gameState.board.pirateTileId,
       )
     ) {
       warn('Ship must connect to one of your ships or buildings.')
@@ -3354,8 +3503,8 @@ function App() {
           setGamePhase('discard')
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-          inform('Rolled 7 — move the Robber.')
-          setGamePhase('moveRobber')
+          inform(boardHasSeaTile ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
+          setGamePhase('chooseRobberOrPirate')
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the
           // first barbarian attack resolves, the robber stays inert: CN3087
@@ -3369,7 +3518,7 @@ function App() {
       return doublesCount
     }
 
-    const robberTile = tileById.get(robberTileId)
+    const robberTile = tileById.get(gameState.board.robberTileId)
     const isBlocked = robberTile?.number === total
     const messages: string[] = []
     if (isBlocked && robberTile) {
@@ -3379,7 +3528,7 @@ function App() {
     const productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] = []
     for (const tile of tiles) {
       if (tile.number !== total) continue
-      if (tile.id === robberTileId) continue // blocked by the Robber
+      if (tile.id === gameState.board.robberTileId) continue // blocked by the Robber
 
       const resource = BIOME_TO_RESOURCE[tile.biome]
       if (!resource) continue
@@ -3422,7 +3571,7 @@ function App() {
     // players' cityImprovements aren't touched by that loop, so the
     // pre-update snapshot is still accurate for the science-level check.
     if (gameRules.citiesAndKnightsCommodities && total !== 7) {
-      const producedTileIds = tiles.filter((t) => t.number === total && t.id !== robberTileId).map((t) => t.id)
+      const producedTileIds = tiles.filter((t) => t.number === total && t.id !== gameState.board.robberTileId).map((t) => t.id)
       const producingVertexIds = new Set(producedTileIds.flatMap((id) => graph.tileVertexIds.get(id) ?? []))
       const playersWithProduction = new Set(
         [...producingVertexIds]
@@ -3726,7 +3875,6 @@ function App() {
       }
       safeSteals.push(s)
     }
-    setRobberTileId(tileId)
     playSfx('robber')
     dispatch({ type: 'TAXATION_RESOLVED', playerId, tileId, steals: safeSteals })
     const tile = tileById.get(tileId)
@@ -3764,7 +3912,7 @@ function App() {
   const resolveTaxation = (tileId: string) => {
     const playerId = pendingTaxation
     if (playerId == null) return
-    if (tileId === robberTileId) {
+    if (tileId === gameState.board.robberTileId) {
       warn('The Robber must move to a new hex!')
       return
     }
@@ -3815,7 +3963,7 @@ function App() {
       resolveTaxation(tileId)
       return
     }
-    if (tileId === robberTileId) {
+    if (tileId === gameState.board.robberTileId) {
       warn('The Robber must move to a new hex!')
       return
     }
@@ -3890,6 +4038,35 @@ function App() {
       setChasingRobberKnightId(null)
       if (onlineInfo) broadcastKnightDeactivatedAfterChase({ playerId: thief.id, knightId: chaserId })
     }
+  }
+
+  // Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a
+  // played Knight now land on instead of arming 'moveRobber' directly (see
+  // those two call sites above). Local-only resolution: nothing to
+  // broadcast here, since gamePhase itself is derived identically on every
+  // client from the same trigger, the same way 'moveRobber'/'movePirate'
+  // already are. Taxation and both Chase Away entry points bypass this
+  // choice entirely — they already know which piece they're moving, so
+  // they arm 'moveRobber'/'movePirate' directly, same as before this task.
+  const chooseRobber = () => {
+    if (gamePhase !== 'chooseRobberOrPirate') return
+    if (!isMyTurn) return
+    setGamePhase('moveRobber')
+  }
+
+  const choosePirate = () => {
+    if (gamePhase !== 'chooseRobberOrPirate') return
+    if (!isMyTurn) return
+    // Defense-in-depth mirror of the picker's own boardHasSeaTile gate below
+    // (see boardHasSeaTile's own comment) — the Pirate button is hidden
+    // whenever this would fire, but this keeps the invariant true even if
+    // some other future entry point ever calls choosePirate directly.
+    if (!boardHasSeaTile) {
+      warn('There is no sea hex on this board — the Pirate cannot be placed.')
+      return
+    }
+    inform('Choose a sea hex for the Pirate.')
+    setGamePhase('movePirate')
   }
 
   // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
@@ -5003,12 +5180,50 @@ function App() {
       return
     }
     const adjacentTileIds = new Set(graph.vertexTileIds.get(knight.vertexId) ?? [])
-    if (!adjacentTileIds.has(robberTileId)) {
+    if (!adjacentTileIds.has(gameState.board.robberTileId)) {
       warn('That knight is not next to the robber.')
       return
     }
     setChasingRobberKnightId(knightId)
     setGamePhase('moveRobber')
+  }
+
+  // Mirrors armChaseRobber exactly (same gate order: barbarian-activation
+  // -> turn ownership -> gamePhase -> knight exists & active), checking
+  // pirateTileId instead of robberTileId, plus one extra guard
+  // armChaseRobber doesn't need: the pirate can be parked off-board
+  // (pirateTileId == null) between placements, and a knight can't be
+  // adjacent to a piece that isn't on any tile.
+  const armChasePirate = (knightId: string) => {
+    if (gameRules.citiesAndKnightsBarbarians && !robberActive) {
+      warn('The robber has not activated yet.')
+      return
+    }
+    if (!isMyTurn) {
+      warn("It's not your turn.")
+      return
+    }
+    if (gamePhase !== 'playing') {
+      warn('Cannot chase the pirate right now.')
+      return
+    }
+    const player = players[currentPlayerIndex]
+    const knight = player.knightPieces.find((k) => k.id === knightId)
+    if (!knight || !knight.active) {
+      warn('That knight cannot chase the pirate.')
+      return
+    }
+    if (gameState.board.pirateTileId == null) {
+      warn('The Pirate is not on the board.')
+      return
+    }
+    const adjacentTileIds = new Set(graph.vertexTileIds.get(knight.vertexId) ?? [])
+    if (!adjacentTileIds.has(gameState.board.pirateTileId)) {
+      warn('That knight is not next to the pirate.')
+      return
+    }
+    setChasingPirateKnightId(knightId)
+    setGamePhase('movePirate')
   }
 
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
@@ -6024,7 +6239,6 @@ function App() {
     if (!desertTile) {
       console.error('[Catan] Generated board has no desert tile — placing the robber on the first tile instead:', freshTiles[0]?.id)
     }
-    setRobberTileId((desertTile ?? freshTiles[0]).id)
     // Cities & Knights barbarian-track gate (Task 3) — same "always reset on
     // a fresh game" treatment as every other single-shot C&K flag below: a
     // leftover `true` from a PREVIOUS match's resolved barbarian attack would
@@ -6080,7 +6294,7 @@ function App() {
     )
     setCurrentPlayerIndex(freshStartingPlayerIndex)
     setLastRoll(null)
-    dispatch({ type: 'RESET_BOARD' })
+    dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
     setBanner(null)
     setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
@@ -6161,6 +6375,9 @@ function App() {
     // reset on a fresh game" treatment pendingKnightRecruit/armedKnightAction
     // just above get; local-only UI state, never persisted/broadcast.
     setChasingRobberKnightId(null)
+    // Mirrors chasingRobberKnightId immediately above, for the pirate's own
+    // Chase Away; same "always reset on a fresh game" treatment.
+    setChasingPirateKnightId(null)
     // Cities & Knights Taxation (Task 10) — same "always reset on a fresh
     // game" treatment chasingRobberKnightId just above gets; local-only UI
     // state, never persisted/broadcast. A stranded pendingTaxation would be
@@ -6275,9 +6492,10 @@ function App() {
       ships: snapshot.ships ?? {},
       shipsBuiltThisTurn: snapshot.shipsBuiltThisTurn ?? [],
       hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
+      robberTileId: snapshot.robberTileId,
+      pirateTileId: snapshot.pirateTileId ?? null,
     })
     setCurrentPlayerIndex(snapshot.currentPlayerIndex)
-    setRobberTileId(snapshot.robberTileId)
     setGamePhase(snapshot.gamePhase)
     setSetupStepIndex(snapshot.setupStepIndex)
     setSetupStage(snapshot.setupStage)
@@ -6531,7 +6749,8 @@ function App() {
       shipsBuiltThisTurn: gameState.board.shipsBuiltThisTurn,
       hasMovedShipThisTurn: gameState.board.hasMovedShipThisTurn,
       currentPlayerIndex,
-      robberTileId,
+      robberTileId: gameState.board.robberTileId,
+      pirateTileId: gameState.board.pirateTileId,
       gamePhase,
       setupStepIndex,
       setupStage,
@@ -6574,7 +6793,8 @@ function App() {
     gameState.board.shipsBuiltThisTurn,
     gameState.board.hasMovedShipThisTurn,
     currentPlayerIndex,
-    robberTileId,
+    gameState.board.robberTileId,
+    gameState.board.pirateTileId,
     gamePhase,
     setupStepIndex,
     setupStage,
@@ -6748,7 +6968,7 @@ function App() {
           />
           <RobberLayer
             tiles={tiles}
-            robberTileId={robberTileId}
+            robberTileId={gameState.board.robberTileId}
             isMovingRobber={gamePhase === 'moveRobber' && !winner && isMyTurn}
             onMoveRobber={moveRobber}
             // Same two inputs CatanBoard gets: the figurine has to stand on
@@ -6756,6 +6976,13 @@ function App() {
             // sealed inside the dome and simply invisible.
             hiddenTilesMode={gameRules.hiddenTiles}
             revealedTileIds={revealedTileIds}
+            // Cities & Knights pirate (Task 6) — same isMovingRobber/
+            // onMoveRobber shape, mirrored for the pirate now that
+            // 'movePirate' has a real entry point (the robber-or-pirate
+            // choice picker above).
+            pirateTileId={gameState.board.pirateTileId}
+            isMovingPirate={gamePhase === 'movePirate' && !winner && isMyTurn}
+            onMovePirate={movePirate}
           />
           {/* Cities & Knights Invention — sibling to RobberLayer/
               BoardInteractions, same Canvas. active is scoped to the LOCAL
@@ -6972,7 +7199,12 @@ function App() {
         onArmKnightMove={armKnightMove}
         onArmKnightDisplace={armKnightDisplace}
         onArmChaseRobber={armChaseRobber}
-        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(robberTileId)}
+        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId)}
+        onArmChasePirate={armChasePirate}
+        canChasePirate={(knight) =>
+          gameState.board.pirateTileId != null &&
+          new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId)
+        }
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
         onBuildWall={buildCityWall}
@@ -7022,6 +7254,75 @@ function App() {
         chatMessages={chatMessages}
         onSendChatMessage={sendChatMessage}
       />
+
+      {/* Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a
+          played Knight now land on (see chooseRobber/choosePirate's own
+          comment above). Same "glass card" panel DiscardPanel uses (rounded-
+          2xl border-glass-border bg-glass, top-28 centered, backdrop-blur),
+          paired with TradeOfferPrompt's own flex-1 two-button row — reusing
+          both rather than inventing a new overlay style. isMyTurn/!winner
+          match every other phase-gated affordance's own guard (RobberLayer's
+          isMovingRobber just above uses the identical pair).
+
+          Critical-bug fix (final review round) — the Pirate button only
+          renders when boardHasSeaTile (see its own comment near tileById
+          above): on every board shape except seafarersBasic there is no
+          valid sea hex to place the pirate on, so offering the choice would
+          strand the game in 'movePirate' with zero click targets and no way
+          out. Falls back to a single Robber button/heading instead of a
+          two-way choice — moving the robber is still always valid. */}
+      {gamePhase === 'chooseRobberOrPirate' && isMyTurn && !winner && (
+        <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
+          <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Choose a Move</p>
+            <p className="mt-2 font-display text-lg text-white">
+              {boardHasSeaTile ? 'Move the Robber or the Pirate?' : 'Move the Robber'}
+            </p>
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={chooseRobber}
+                className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                Robber
+              </button>
+              {boardHasSeaTile && (
+                <button
+                  type="button"
+                  onClick={choosePirate}
+                  className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+                >
+                  Pirate
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Escape hatch (final review round, Part B) — CN3083 explicitly
+          allows parking the pirate on the frame instead of moving it to a
+          new sea hex ("Move the pirate to the frame or to a new sea hex").
+          movePirate(null)/applyPiratePlace(null, ...)/PIRATE_MOVED with
+          tileId: null are already fully implemented and tested (Task 4);
+          this is just the missing UI entry point, and doubles as a safety
+          net against any other edge case that might strand a player in
+          'movePirate'. Same glass-card style as the choice panel above. */}
+      {gamePhase === 'movePirate' && isMyTurn && !winner && (
+        <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
+          <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+            <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Move the Pirate</p>
+            <p className="mt-2 font-display text-sm text-white/80">Click a sea hex, or return the Pirate to the frame.</p>
+            <button
+              type="button"
+              onClick={() => movePirate(null)}
+              className="mt-4 w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+            >
+              Return to the Frame
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cities & Knights barbarian attack (Task 5-7) — modal shell +
           sequencing state, the pillage board-picker (PillageLayer, gated on

@@ -10,6 +10,12 @@ import type { GameRules } from '../game/types'
 import robberModelUrl from '../assets/models/robber-figurine-v2.glb'
 
 const ROBBER_HIGHLIGHT_COLOR = '#d64545'
+// Pirate's own always-on glow color (finding 7, final review round) — the
+// pirate reuses the robber's token model/RobberTileGlow verbatim (no pirate
+// art yet), but unlike every other placeholder piece, both can be on the
+// board at once, so a distinct teal keeps them tellable apart at a glance
+// instead of relying solely on which biome each sits on.
+const PIRATE_HIGHLIGHT_COLOR = '#1ea6a6'
 
 // The model's own bounding box is ~symmetric around its local origin
 // (roughly ±0.95 on its tall axis, measured via gltf-transform inspect —
@@ -63,19 +69,12 @@ function RobberToken({ tile, yOffset = 0 }: { tile: HexTileData; yOffset?: numbe
 // the figurine alone can get lost against taller terrain (mountains,
 // trees) around it, so the tile itself needs to read as "the robber is
 // here" at a glance.
-function RobberTileGlow({ tile }: { tile: HexTileData }) {
+function RobberTileGlow({ tile, color = ROBBER_HIGHLIGHT_COLOR }: { tile: HexTileData; color?: string }) {
   const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.060)
   return (
     <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh geometry={glowGeometry}>
-        <meshStandardMaterial
-          color={ROBBER_HIGHLIGHT_COLOR}
-          emissive={ROBBER_HIGHLIGHT_COLOR}
-          emissiveIntensity={0.9}
-          transparent
-          opacity={0.45}
-          depthWrite={false}
-        />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.9} transparent opacity={0.45} depthWrite={false} />
       </mesh>
     </group>
   )
@@ -138,6 +137,19 @@ interface RobberLayerProps {
   onMoveRobber: (tileId: string) => void
   hiddenTilesMode: GameRules['hiddenTiles']
   revealedTileIds: ReadonlySet<string>
+  // Cities & Knights pirate (Task 6) — the pirate's own position, mirroring
+  // robberTileId/isMovingRobber/onMoveRobber above. pirateTileId is
+  // nullable (the pirate can be legally parked off-board between
+  // placements, unlike the robber which always sits on some hex) and all
+  // three are optional so every OTHER caller of this component (there are
+  // none yet, but the type shouldn't force one to appear) can keep omitting
+  // them. No pirate-specific 3D model exists yet — RobberToken/
+  // RobberTileGlow below are reused verbatim as a placeholder, matching
+  // this project's established "flag and reuse an existing model" pattern
+  // from the Board Foundation sub-plan.
+  pirateTileId?: string | null
+  isMovingPirate?: boolean
+  onMovePirate?: (tileId: string) => void
 }
 
 export function RobberLayer({
@@ -147,14 +159,21 @@ export function RobberLayer({
   onMoveRobber,
   hiddenTilesMode,
   revealedTileIds,
+  pirateTileId = null,
+  isMovingPirate = false,
+  onMovePirate,
 }: RobberLayerProps) {
   const robberTile = tiles.find((tile) => tile.id === robberTileId)
+  const pirateTile = pirateTileId != null ? tiles.find((tile) => tile.id === pirateTileId) : undefined
 
   // Only the two modes that actually put a mist dome on the board can bury
   // the figurine — 'numbers' just blanks the chit and leaves terrain (and
   // therefore the robber) in plain sight.
   const tileIsHidden =
     robberTile != null && hidesResourceMesh(hiddenTilesMode) && !revealedTileIds.has(robberTile.id)
+  // Sea tiles never carry a number chit or a mist dome (CatanBoard only
+  // fogs land resource tiles), so the pirate never needs the same
+  // hidden-tile Y offset the robber's own tileIsHidden branch computes.
 
   return (
     <group>
@@ -164,8 +183,25 @@ export function RobberLayer({
           <RobberToken tile={robberTile} yOffset={tileIsHidden ? ROBBER_HIDDEN_TILE_Y_OFFSET : 0} />
         </ModelErrorBoundary>
       )}
+      {/* CN3083 requires the robber to always sit on a land hex — mirrors the
+          pirate's own sea-only filter just below, inverted. Without this, the
+          robber could be moved onto a sea tile on any board with one
+          (seafarersBasic), which the rules never allow. */}
       {isMovingRobber &&
-        tiles.map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMoveRobber(tile.id)} />)}
+        tiles
+          .filter((tile) => tile.biome !== 'sea')
+          .map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMoveRobber(tile.id)} />)}
+      {pirateTile && <RobberTileGlow tile={pirateTile} color={PIRATE_HIGHLIGHT_COLOR} />}
+      {pirateTile && (
+        <ModelErrorBoundary label="pirate figurine">
+          <RobberToken tile={pirateTile} />
+        </ModelErrorBoundary>
+      )}
+      {isMovingPirate &&
+        onMovePirate != null &&
+        tiles
+          .filter((tile) => tile.biome === 'sea')
+          .map((tile) => <RobberTileTarget key={tile.id} tile={tile} onSelect={() => onMovePirate(tile.id)} />)}
     </group>
   )
 }

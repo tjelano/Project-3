@@ -223,7 +223,7 @@ describe('reduceBoard — RESET_BOARD', () => {
       initialGameState,
     )
     state = reduceBoard(state, { type: 'BUILD_ROAD', edgeId: 'E1', playerId: 1, isSetup: false, isFreeRoad: false }, initialGameState)
-    const result = reduceBoard(state, { type: 'RESET_BOARD' }, initialGameState)
+    const result = reduceBoard(state, { type: 'RESET_BOARD', robberTileId: '' }, initialGameState)
     expect(result).toEqual(initialBoardState)
   })
 })
@@ -234,7 +234,7 @@ describe('reduceBoard — RESTORE_BOARD', () => {
     const roads = { E1: 2 }
     const result = reduceBoard(
       initialBoardState,
-      { type: 'RESTORE_BOARD', settlements, roads, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false },
+      { type: 'RESTORE_BOARD', settlements, roads, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: 'D1', pirateTileId: null },
       initialGameState,
     )
     expect(result.settlements).toEqual(settlements)
@@ -256,8 +256,10 @@ describe('reduceBoard — ships data model', () => {
       ships: { E1: 1 },
       shipsBuiltThisTurn: ['E1'],
       hasMovedShipThisTurn: true,
+      robberTileId: 'D1',
+      pirateTileId: null,
     }
-    const result = reduceBoard(dirty, { type: 'RESET_BOARD' }, initialGameState)
+    const result = reduceBoard(dirty, { type: 'RESET_BOARD', robberTileId: 'D2' }, initialGameState)
     expect(result.ships).toEqual({})
     expect(result.shipsBuiltThisTurn).toEqual([])
     expect(result.hasMovedShipThisTurn).toBe(false)
@@ -273,12 +275,126 @@ describe('reduceBoard — ships data model', () => {
         ships: { E1: 2 },
         shipsBuiltThisTurn: ['E1'],
         hasMovedShipThisTurn: true,
+        robberTileId: 'D1',
+        pirateTileId: null,
       },
       initialGameState,
     )
     expect(result.ships).toEqual({ E1: 2 })
     expect(result.shipsBuiltThisTurn).toEqual(['E1'])
     expect(result.hasMovedShipThisTurn).toBe(true)
+  })
+})
+
+describe('reduceBoard — robber/pirate data model', () => {
+  it('RESET_BOARD sets robberTileId to the given tile and pirateTileId to null', () => {
+    const dirty = { ...initialBoardState, robberTileId: 'stale', pirateTileId: 'S1' }
+    const result = reduceBoard(dirty, { type: 'RESET_BOARD', robberTileId: 'D1' }, initialGameState)
+    expect(result.robberTileId).toBe('D1')
+    expect(result.pirateTileId).toBeNull()
+  })
+
+  it('RESTORE_BOARD restores robberTileId and pirateTileId verbatim', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      {
+        type: 'RESTORE_BOARD',
+        settlements: {},
+        roads: {},
+        ships: {},
+        shipsBuiltThisTurn: [],
+        hasMovedShipThisTurn: false,
+        robberTileId: 'D1',
+        pirateTileId: 'S1',
+      },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('D1')
+    expect(result.pirateTileId).toBe('S1')
+  })
+
+  it('RESTORE_BOARD accepts a null pirateTileId (pirate parked on the frame)', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      {
+        type: 'RESTORE_BOARD',
+        settlements: {},
+        roads: {},
+        ships: {},
+        shipsBuiltThisTurn: [],
+        hasMovedShipThisTurn: false,
+        robberTileId: 'D1',
+        pirateTileId: null,
+      },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBeNull()
+  })
+})
+
+describe('reduceBoard — ROBBER_MOVED', () => {
+  it('moves the robber to the given tile', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1' }
+    const result = reduceBoard(
+      state,
+      { type: 'ROBBER_MOVED', tileId: 'F3', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('F3')
+  })
+
+  it('leaves the pirate untouched', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1', pirateTileId: 'S1' }
+    const result = reduceBoard(
+      state,
+      { type: 'ROBBER_MOVED', tileId: 'F3', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBe('S1')
+  })
+})
+
+describe('reduceBoard — TAXATION_RESOLVED', () => {
+  it('moves the robber to the given tile', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1' }
+    const result = reduceBoard(
+      state,
+      { type: 'TAXATION_RESOLVED', playerId: 1, tileId: 'F3', steals: [] },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('F3')
+  })
+})
+
+describe('reduceBoard — PIRATE_MOVED', () => {
+  it('moves the pirate to the given tile', () => {
+    const state = { ...initialBoardState, pirateTileId: null }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBe('S5')
+  })
+
+  it('accepts a null tileId (parked on the frame)', () => {
+    const state = { ...initialBoardState, pirateTileId: 'S5' }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: null, thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.pirateTileId).toBeNull()
+  })
+
+  it('leaves the robber untouched', () => {
+    const state = { ...initialBoardState, robberTileId: 'D1', pirateTileId: null }
+    const result = reduceBoard(
+      state,
+      { type: 'PIRATE_MOVED', tileId: 'S5', thiefId: 1, victimId: null, stolenItem: null },
+      initialGameState,
+    )
+    expect(result.robberTileId).toBe('D1')
   })
 })
 

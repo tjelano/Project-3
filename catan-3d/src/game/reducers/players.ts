@@ -59,6 +59,35 @@ export type PlayersAction =
   | { type: 'RESOURCES_PRODUCED'; productions: { playerId: number; resource: ResourceType; amount: number; commodity?: CommodityType }[] }
   | { type: 'DOUBLES_REROLL_HAND_WIPED'; playerId: number }
 
+// Shared by ROBBER_MOVED and PIRATE_MOVED — genuinely piece-agnostic: a
+// resource/commodity transfer between two players keyed by stolenItem, with
+// no reference to a tile, a biome, or which piece triggered it. tileId is
+// deliberately not a parameter here — neither caller's steal logic needs it,
+// it only matters to the corresponding reduceBoard case and to App.tsx's own
+// toast-message lookup.
+function applyStealTransfer(
+  players: Player[],
+  thiefId: number,
+  victimId: number | null,
+  stolenItem: StolenItem | null,
+): Player[] {
+  if (victimId == null || stolenItem == null) return players
+  const isCommodity = (COMMODITY_ORDER as string[]).includes(stolenItem)
+  return players.map((p) => {
+    if (p.id === victimId) {
+      return isCommodity
+        ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] - 1 } }
+        : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] - 1 } }
+    }
+    if (p.id === thiefId) {
+      return isCommodity
+        ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] + 1 } }
+        : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] + 1 } }
+    }
+    return p
+  })
+}
+
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
   switch (action.type) {
     case 'RESET_PLAYERS':
@@ -117,24 +146,10 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         }
         return { ...p, resources }
       })
-    case 'ROBBER_MOVED': {
-      if (action.victimId == null || action.stolenItem == null) return players
-      const stolenItem = action.stolenItem
-      const isCommodity = (COMMODITY_ORDER as string[]).includes(stolenItem)
-      return players.map((p) => {
-        if (p.id === action.victimId) {
-          return isCommodity
-            ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] - 1 } }
-            : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] - 1 } }
-        }
-        if (p.id === action.thiefId) {
-          return isCommodity
-            ? { ...p, commodities: { ...p.commodities, [stolenItem as CommodityType]: p.commodities[stolenItem as CommodityType] + 1 } }
-            : { ...p, resources: { ...p.resources, [stolenItem as ResourceType]: p.resources[stolenItem as ResourceType] + 1 } }
-        }
-        return p
-      })
-    }
+    case 'ROBBER_MOVED':
+      return applyStealTransfer(players, action.thiefId, action.victimId, action.stolenItem)
+    case 'PIRATE_MOVED':
+      return applyStealTransfer(players, action.thiefId, action.victimId, action.stolenItem)
     case 'PILLAGE_CITY': {
       // Same ownership guard reduceBoard's own PILLAGE_CITY case uses —
       // reject anything that isn't a city this player actually owns, so a

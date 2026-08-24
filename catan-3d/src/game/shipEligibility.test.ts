@@ -25,6 +25,7 @@ function graphOf(edges: BoardEdge[]): BoardGraph {
     vertexEdgeIds,
     tileCenters: new Map(),
     edgeTileIds: new Map(),
+    tileEdgeIds: new Map(),
   }
 }
 
@@ -99,5 +100,31 @@ describe('isShipPlacementConnected', () => {
   it('returns false for a nonexistent edge id', () => {
     const graph = graphOf([])
     expect(isShipPlacementConnected(graph, new Map(), {}, {}, 'ZZ', 1)).toBe(false)
+  })
+})
+
+describe('isShipPlacementConnected — pirate adjacency', () => {
+  it('rejects placement on an edge bordering the pirate\'s hex', () => {
+    // Edge AB borders tile T1 (the pirate's hex) and tile T2.
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    graph.edgeTileIds.set('AB', ['T1', 'T2'])
+    const settlements: Record<string, Building> = { A: { ownerId: 1, type: 'settlement' } }
+    expect(isShipPlacementConnected(graph, edgeMap(edges), settlements, {}, 'AB', 1, undefined, 'T1')).toBe(false)
+  })
+
+  it('still allows placement on an edge NOT bordering the pirate\'s hex', () => {
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    graph.edgeTileIds.set('AB', ['T2', 'T3'])
+    const settlements: Record<string, Building> = { A: { ownerId: 1, type: 'settlement' } }
+    expect(isShipPlacementConnected(graph, edgeMap(edges), settlements, {}, 'AB', 1, undefined, 'T1')).toBe(true)
+  })
+
+  it('a null pirateTileId (parked) blocks nothing', () => {
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    const settlements: Record<string, Building> = { A: { ownerId: 1, type: 'settlement' } }
+    expect(isShipPlacementConnected(graph, edgeMap(edges), settlements, {}, 'AB', 1, undefined, null)).toBe(true)
   })
 })

@@ -36,6 +36,12 @@ export interface BoardGraph {
   // way tileVertexIds/vertexTileIds already answer the equivalent question
   // for vertices.
   edgeTileIds: Map<string, string[]>
+  // Tile id -> the 6 edge ids bounding it — the exact reverse of
+  // edgeTileIds above, same "forward/reverse pair" shape tileVertexIds/
+  // vertexTileIds already use. Lets the pirate's steal-eligibility check
+  // ask "which edges border this hex" the way it already asks "which
+  // vertices border this hex" via tileVertexIds.
+  tileEdgeIds: Map<string, string[]>
 }
 
 // Flat-top hex corners sit at 30/90/150/210/270/330 degrees from center —
@@ -63,6 +69,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
   const vertexEdgeIds = new Map<string, string[]>()
   const tileCenters = new Map<string, { x: number; z: number }>()
   const edgeTileIds = new Map<string, string[]>()
+  const tileEdgeIds = new Map<string, string[]>()
 
   const getVertex = (x: number, z: number): BoardVertex => {
     const rx = roundCoord(x)
@@ -130,6 +137,14 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
       } else {
         edgeTileIds.set(id, [tile.id])
       }
+      // Mirrors the block above in the opposite direction — every tile
+      // visits each of its own 6 edges exactly once in this loop.
+      const edgeIds = tileEdgeIds.get(tile.id)
+      if (edgeIds) {
+        edgeIds.push(id)
+      } else {
+        tileEdgeIds.set(tile.id, [id])
+      }
     }
   }
 
@@ -142,6 +157,7 @@ export function buildBoardGraph(tiles: HexTileData[]): BoardGraph {
     vertexEdgeIds,
     tileCenters,
     edgeTileIds,
+    tileEdgeIds,
   }
 }
 

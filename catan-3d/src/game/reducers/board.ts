@@ -1,4 +1,4 @@
-import type { Building, Player, Resources } from '../types'
+import type { Building, Player, Resources, StolenItem } from '../types'
 import type { SfxKey } from '../../audio/sfx'
 import type { GameAction, GameState } from '../gameState'
 
@@ -11,6 +11,11 @@ export interface BoardState {
   shipsBuiltThisTurn: string[]
   // At most 1 ship move per turn (CN3083 p.2). Cleared on TURN_ADVANCED.
   hasMovedShipThisTurn: boolean
+  robberTileId: string
+  // null = parked on the frame — a legal "off the board" state the robber
+  // never has (CN3083). Set once the pirate first activates; there is no
+  // meaningful "initial" tile for it the way the robber starts on desert.
+  pirateTileId: string | null
 }
 
 export const initialBoardState: BoardState = {
@@ -19,6 +24,8 @@ export const initialBoardState: BoardState = {
   ships: {},
   shipsBuiltThisTurn: [],
   hasMovedShipThisTurn: false,
+  robberTileId: '',
+  pirateTileId: null,
 }
 
 export type BoardAction =
@@ -29,7 +36,8 @@ export type BoardAction =
   | { type: 'PILLAGE_CITY'; vertexId: string; playerId: number }
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'MOVE_SHIP'; fromEdgeId: string; toEdgeId: string; playerId: number }
-  | { type: 'RESET_BOARD' }
+  | { type: 'PIRATE_MOVED'; tileId: string | null; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
+  | { type: 'RESET_BOARD'; robberTileId: string }
   | {
       type: 'RESTORE_BOARD'
       settlements: Record<string, Building>
@@ -37,6 +45,8 @@ export type BoardAction =
       ships: Record<string, number>
       shipsBuiltThisTurn: string[]
       hasMovedShipThisTurn: boolean
+      robberTileId: string
+      pirateTileId: string | null
     }
 
 export function reduceBoard(state: BoardState, action: GameAction, _fullState: GameState): BoardState {
@@ -80,6 +90,12 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       ships[action.toEdgeId] = action.playerId
       return { ...state, ships, hasMovedShipThisTurn: true }
     }
+    case 'ROBBER_MOVED':
+      return { ...state, robberTileId: action.tileId }
+    case 'TAXATION_RESOLVED':
+      return { ...state, robberTileId: action.tileId }
+    case 'PIRATE_MOVED':
+      return { ...state, pirateTileId: action.tileId }
     case 'TURN_ADVANCED':
       return { ...state, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
     case 'RESET_BOARD':
@@ -87,7 +103,7 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       // singleton — nothing mutates settlements/roads in place today, but
       // aliasing the module-level object into live state costs nothing to
       // avoid.
-      return { settlements: {}, roads: {}, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
+      return { settlements: {}, roads: {}, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: action.robberTileId, pirateTileId: null }
     case 'RESTORE_BOARD':
       return {
         settlements: action.settlements,
@@ -95,6 +111,8 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
         ships: action.ships,
         shipsBuiltThisTurn: action.shipsBuiltThisTurn,
         hasMovedShipThisTurn: action.hasMovedShipThisTurn,
+        robberTileId: action.robberTileId,
+        pirateTileId: action.pirateTileId,
       }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full
@@ -119,6 +137,16 @@ export function describeBoardAction(
     case 'BUILD_SHIP':
       return { message: null, sfx: 'roadPlacement' }
     case 'MOVE_SHIP':
+      return { message: null, sfx: null }
+    case 'ROBBER_MOVED':
+    case 'TAXATION_RESOLVED':
+      // No banner/sfx here — App.tsx's applyRobberMove/applyTaxationResolved
+      // already build their own richer `inform(...)` message (steal outcome,
+      // biome name) and play their own sfx directly, bypassing
+      // describeBoardAction entirely for these two actions, same as
+      // RESET_BOARD/RESTORE_BOARD already do (see that case's own comment).
+      return { message: null, sfx: null }
+    case 'PIRATE_MOVED':
       return { message: null, sfx: null }
     case 'PILLAGE_CITY': {
       const owner = playerById.get(action.playerId)

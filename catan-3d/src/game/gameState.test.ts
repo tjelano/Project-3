@@ -44,6 +44,12 @@ describe('reduceGame', () => {
     expect(result.players.find((p) => p.id === initialGameState.players[0].id)!.resources.grain).toBe(1)
   })
 
+  it('routes a turn action through reduceTurn', () => {
+    const result = reduceGame(initialGameState, { type: 'GAME_PHASE_SET', phase: 'playing' })
+    expect(result.turn.gamePhase).toBe('playing')
+    expect(result.board).toBe(initialGameState.board)
+  })
+
   it('does not mutate the input state', () => {
     const before = initialGameState
     const settlementsRemainingBefore = before.players[0].settlementsRemaining

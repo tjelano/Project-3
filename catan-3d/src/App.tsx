@@ -123,8 +123,6 @@ import {
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
 
-export type GamePhase = 'setup' | 'playing' | 'discard' | 'chooseRobberOrPirate' | 'moveRobber' | 'movePirate'
-export type SetupStage = 'settlement' | 'road'
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
   text: string
@@ -267,18 +265,6 @@ function App() {
   // Same persistence pattern as boardShapeId — chosen once at Start Game,
   // survives a same-session restart, only changes on a fresh submission.
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
-  // Counts ACCEPTED rolls only (incremented inside applyRollResult, which
-  // every client — roller and spectators alike — runs identically), never
-  // a rerolled 7 — that's what lets noSevensFirstTwoRolls check "is this
-  // one of the first two" consistently across every client without any of
-  // them needing to separately coordinate it. Reset on every resetGame.
-  const [totalRollsThisGame, setTotalRollsThisGame] = useState(0)
-  // Consecutive doubles rolled by the CURRENT player, THIS turn — for the
-  // doublesRerollRule (extra roll on a double, hand wiped on the third in a
-  // row). Reset on every turn advance (applyTurnAdvance), not just a new
-  // game, since it only ever describes an in-progress streak within the
-  // active player's current turn.
-  const [consecutiveDoublesThisTurn, setConsecutiveDoublesThisTurn] = useState(0)
   // Set together with boardShapeId, only when a player-drawn shape is
   // active — takes priority over boardShapeId in buildHexBoard whenever
   // non-empty (see resetGame/restoreFromSnapshot below).
@@ -343,7 +329,7 @@ function App() {
   // (and any other future consumer) can reuse one copy instead of each
   // building its own.
   const colorTokenByPlayerId = useMemo(() => new Map(players.map((p) => [p.id, p.colorToken])), [players])
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0)
+  const currentPlayerIndex = gameState.turn.currentPlayerIndex
   const [lastRoll, setLastRoll] = useState<number | null>(null)
   // Which tiles have had a settlement built on a touching vertex — drives
   // the Hidden Tiles house rule's mist/blank-chit rendering. Empty at game
@@ -508,21 +494,33 @@ function App() {
     playerId: number
   } | null>(null)
 
-  const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
-  const [setupStepIndex, setSetupStepIndex] = useState(0)
-  const [setupStage, setSetupStage] = useState<SetupStage>('settlement')
+  const gamePhase = gameState.turn.gamePhase
+  const setupStepIndex = gameState.turn.setupStepIndex
+  const setupStage = gameState.turn.setupStage
   // The settlement placed during the current setup step. The free road that
   // follows it must touch this exact intersection — that pairing is what
   // makes the opening draft a real strategic choice.
-  const [setupSettlementVertexId, setSetupSettlementVertexId] = useState<string | null>(null)
+  const setupSettlementVertexId = gameState.turn.setupSettlementVertexId
   // Official rule: at most one development card may be PLAYED per turn
   // (buying is unlimited). Cleared by endTurn.
-  const [devCardPlayedThisTurn, setDevCardPlayedThisTurn] = useState(false)
+  const devCardPlayedThisTurn = gameState.turn.devCardPlayedThisTurn
   // Whether the CURRENT player has already rolled this turn. Drives the
   // Roll Dice button's morph into an End Turn button — turn advancement is
   // now ONLY ever triggered by that explicit button click, never by dice
   // physics settling or a robber move resolving. Reset by applyTurnAdvance.
-  const [hasRolledThisTurn, setHasRolledThisTurn] = useState(false)
+  const hasRolledThisTurn = gameState.turn.hasRolledThisTurn
+  // Counts ACCEPTED rolls only (incremented inside applyRollResult, which
+  // every client — roller and spectators alike — runs identically), never
+  // a rerolled 7 — that's what lets noSevensFirstTwoRolls check "is this
+  // one of the first two" consistently across every client without any of
+  // them needing to separately coordinate it. Reset on every resetGame.
+  const totalRollsThisGame = gameState.turn.totalRollsThisGame
+  // Consecutive doubles rolled by the CURRENT player, THIS turn — for the
+  // doublesRerollRule (extra roll on a double, hand wiped on the third in a
+  // row). Reset on every turn advance (applyTurnAdvance), not just a new
+  // game, since it only ever describes an in-progress streak within the
+  // active player's current turn.
+  const consecutiveDoublesThisTurn = gameState.turn.consecutiveDoublesThisTurn
   // Player IDs still owing a discard after a 7-roll (holding more than 7
   // cards). Non-empty while gamePhase is 'discard'; moveRobber only opens
   // once every over-limit player has confirmed. Fully derivable from
@@ -887,9 +885,6 @@ function App() {
       return
     }
     setFreeRoadsRemaining(0)
-    setDevCardPlayedThisTurn(false)
-    setHasRolledThisTurn(false)
-    setConsecutiveDoublesThisTurn(0)
     // Cities & Knights Merchant Fleet — "for the rest of this turn," so any
     // active rate expires the instant the turn actually passes, regardless
     // of who it passes to.
@@ -928,7 +923,6 @@ function App() {
     // TURN_PASSED receiver apply the identical reset.
     setKnightsPromotedThisTurn(new Set())
     dispatch({ type: 'TURN_ADVANCED', nextPlayerIndex: nextIndex })
-    setCurrentPlayerIndex(nextIndex)
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to
     // hover something themselves.
@@ -979,8 +973,8 @@ function App() {
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
-      setSetupSettlementVertexId(vertexId)
-      setSetupStage('road')
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId })
+      dispatch({ type: 'SETUP_STAGE_SET', stage: 'road' })
     }
   }
 
@@ -1000,19 +994,19 @@ function App() {
       const nextStepIndex = setupStepIndex + 1
       // This step's settlement/road pairing is complete — don't let the
       // vertex linger into the next step.
-      setSetupSettlementVertexId(null)
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
       if (nextStepIndex >= setupOrder.length) {
-        setGamePhase('playing')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         // The snake's starting seat (setupOrder[0], randomized in resetGame)
         // takes the first REAL turn too, same as standard Catan rules —
         // whoever placed first also rolls first.
-        setCurrentPlayerIndex(setupOrder[0])
-        setSetupStepIndex(0)
-        setSetupStage('settlement')
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       } else {
-        setSetupStepIndex(nextStepIndex)
-        setCurrentPlayerIndex(setupOrder[nextStepIndex])
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: nextStepIndex })
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       }
     }
   }
@@ -1029,16 +1023,16 @@ function App() {
     // step, not actually the same code path in disguise.
     if (isSetup) {
       const nextStepIndex = setupStepIndex + 1
-      setSetupSettlementVertexId(null)
+      dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
       if (nextStepIndex >= setupOrder.length) {
-        setGamePhase('playing')
-        setCurrentPlayerIndex(setupOrder[0])
-        setSetupStepIndex(0)
-        setSetupStage('settlement')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[0] })
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       } else {
-        setSetupStepIndex(nextStepIndex)
-        setCurrentPlayerIndex(setupOrder[nextStepIndex])
-        setSetupStage('settlement')
+        dispatch({ type: 'SETUP_STEP_SET', stepIndex: nextStepIndex })
+        dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: setupOrder[nextStepIndex] })
+        dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
       }
     }
   }
@@ -1087,7 +1081,7 @@ function App() {
     // Never ends the turn here, whether this came from a natural 7 or a
     // Knight card — turn advancement only ever happens via the explicit
     // End Turn button. Control simply returns to the mover's active turn.
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
   }
 
   // Mirrors applyRobberMove above, for the pirate — the same trusted-apply
@@ -1127,7 +1121,7 @@ function App() {
     } else {
       inform('The Pirate returns to the frame.')
     }
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
   }
 
   // The click-handler equivalent of moveRobber, minus the taxation branch —
@@ -1203,7 +1197,7 @@ function App() {
           : `${player.name} played a Knight! Move the Robber.`,
       )
     }
-    setGamePhase('chooseRobberOrPirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
   }
 
   const applyRoadBuildingPlay = (playerId: number) => {
@@ -1358,9 +1352,9 @@ function App() {
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
         inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
-        setGamePhase('chooseRobberOrPirate')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
       } else {
-        setGamePhase('playing')
+        dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
       }
     }
   }
@@ -2437,7 +2431,7 @@ function App() {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
       // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPillageQueue
       // calls, same deliberate "self-heal" shape as the discard-queue effect
-      // above (setGamePhase('moveRobber')) — there's no user gesture to hang
+      // above (dispatch(GAME_PHASE_SET, 'moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the
       // effect has to trigger it itself.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -2593,9 +2587,9 @@ function App() {
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
-      setGamePhase('chooseRobberOrPirate')
+      dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
     } else {
-      setGamePhase('playing')
+      dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- inform is read fresh via closure (recreated every render); only gamePhase/validDiscardPlayerIds/discardPlayerIds/the barbarian rule/robberActive identity should re-run this self-heal.
   }, [gamePhase, validDiscardPlayerIds, discardPlayerIds, gameRules.citiesAndKnightsBarbarians, robberActive])
@@ -3515,7 +3509,7 @@ function App() {
     // on every client, roller and spectators alike.
     if (gameRules.doublesRerollRule && isDouble && doublesCount < 3) {
       inform('Doubles! Roll again.')
-      setHasRolledThisTurn(false)
+      dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
     }
   }
 
@@ -3542,14 +3536,14 @@ function App() {
     const isStillRollersTurn = players[currentPlayerIndex]?.id === rollerId
     if (isStillRollersTurn) {
       setLastRoll(total)
-      setHasRolledThisTurn(true)
+      dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: true })
     }
     // Only reachable with an ACCEPTED roll (a rerolled 7 returns early in
     // handlePhysicsSettled above and never reaches here), so this stays a
     // reliable "how many rolls has the game had" count for noSevensFirstTwoRolls.
-    setTotalRollsThisGame((n) => n + 1)
+    dispatch({ type: 'TOTAL_ROLLS_INCREMENTED' })
     const doublesCount = isDouble && isStillRollersTurn ? consecutiveDoublesThisTurn + 1 : 0
-    if (isStillRollersTurn) setConsecutiveDoublesThisTurn(doublesCount)
+    if (isStillRollersTurn) dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: doublesCount })
     debugLog('applyRollResult', {
       rollerId,
       total,
@@ -3588,11 +3582,11 @@ function App() {
         if (overLimitIds.length > 0) {
           setDiscardPlayerIds(overLimitIds)
           setDiscardSelection([])
-          setGamePhase('discard')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'discard' })
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
           inform(boardHasSeaTile ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
-          setGamePhase('chooseRobberOrPirate')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the
           // first barbarian attack resolves, the robber stays inert: CN3087
@@ -3600,7 +3594,7 @@ function App() {
           // desert following the first barbarian attack." No robber move,
           // no steal — control returns straight to play.
           inform('Rolled 7 — the Robber has not activated yet.')
-          setGamePhase('playing')
+          dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
         }
       }
       return doublesCount
@@ -4003,7 +3997,7 @@ function App() {
     const actor = playerById.get(playerId)
     if (tile && actor) inform(`${actor.name} played Taxation on ${BIOME_LABELS[tile.biome]}.`)
     setPendingTaxation(null)
-    setGamePhase('playing')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
     if (isDeciding && onlineInfo) broadcastTaxationResolved({ playerId, tileId, steals: safeSteals })
   }
 
@@ -4148,7 +4142,7 @@ function App() {
     // (it's the shared helper both this local path and the onRobberMoved
     // network receiver call — see its own comment), so this simply appends
     // to moveRobber's tail rather than needing to precede a
-    // setGamePhase('playing') call of moveRobber's own (moveRobber has none;
+    // dispatch(GAME_PHASE_SET, 'playing') call of moveRobber's own (moveRobber has none;
     // it delegates that transition to applyRobberMove). `thief` is the SAME
     // binding computed above, reused here rather than redeclared — a knight
     // action can only ever be armed by the current turn's player (armChaseRobber
@@ -4173,7 +4167,7 @@ function App() {
   const chooseRobber = () => {
     if (gamePhase !== 'chooseRobberOrPirate') return
     if (!isMyTurn) return
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
   }
 
   const choosePirate = () => {
@@ -4188,7 +4182,7 @@ function App() {
       return
     }
     inform('Choose a sea hex for the Pirate.')
-    setGamePhase('movePirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'movePirate' })
   }
 
   // The ONLY place currentPlayerIndex ever advances or TURN_PASSED fires —
@@ -4733,7 +4727,7 @@ function App() {
   // applying a remote play.
   const spendDevCard = (playerId: number, type: DevCardType) => {
     dispatch({ type: 'DEV_CARD_SPENT', playerId, devCardType: type })
-    setDevCardPlayedThisTurn(true)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: true })
   }
 
   const playKnight = () => {
@@ -5307,7 +5301,7 @@ function App() {
       return
     }
     setChasingRobberKnightId(knightId)
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
   }
 
   // Mirrors armChaseRobber exactly (same gate order: barbarian-activation
@@ -5345,7 +5339,7 @@ function App() {
       return
     }
     setChasingPirateKnightId(knightId)
-    setGamePhase('movePirate')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'movePirate' })
   }
 
   // The SINGLE resolve handler KnightLayer's onSelectVertex calls — Task 9's
@@ -6049,7 +6043,7 @@ function App() {
     }
     dispatch({ type: 'TAXATION_ARMED', playerId: player.id })
     setPendingTaxation(player.id)
-    setGamePhase('moveRobber')
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'moveRobber' })
     inform(`${player.name} played Taxation — choose a hex for the robber.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'taxation' })
   }
@@ -6358,8 +6352,8 @@ function App() {
     setCustomBoardCells(effectiveCustomCells)
     setCustomBoardBiomeOverrides(effectiveCustomBiomeOverrides)
     setGameRules(effectiveRules)
-    setTotalRollsThisGame(0)
-    setConsecutiveDoublesThisTurn(0)
+    dispatch({ type: 'TOTAL_ROLLS_RESET' })
+    dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: 0 })
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
@@ -6427,7 +6421,7 @@ function App() {
           }
         : null,
     )
-    setCurrentPlayerIndex(freshStartingPlayerIndex)
+    dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: freshStartingPlayerIndex })
     setLastRoll(null)
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
@@ -6443,8 +6437,8 @@ function App() {
     setPendingTrade(null)
     setFreeRoadsRemaining(0)
     setDevCardPicker(null)
-    setDevCardPlayedThisTurn(false)
-    setHasRolledThisTurn(false)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
+    dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
     setDiscardPlayerIds([])
     setDiscardSelection([])
     setProgressDiscardSelection([])
@@ -6538,10 +6532,10 @@ function App() {
     setPillageQueue([])
     resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
-    setGamePhase('setup')
-    setSetupStepIndex(0)
-    setSetupStage('settlement')
-    setSetupSettlementVertexId(null)
+    dispatch({ type: 'GAME_PHASE_SET', phase: 'setup' })
+    dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
+    dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
+    dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: null })
   }
 
   // Rejoining a match already in progress: hydrate every piece of state
@@ -6564,8 +6558,8 @@ function App() {
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
     setRevealedTileIds(new Set(snapshot.revealedTileIds ?? []))
-    setTotalRollsThisGame(snapshot.totalRollsThisGame ?? 0)
-    setConsecutiveDoublesThisTurn(snapshot.consecutiveDoublesThisTurn ?? 0)
+    dispatch({ type: 'TOTAL_ROLLS_SET', count: snapshot.totalRollsThisGame ?? 0 })
+    dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: snapshot.consecutiveDoublesThisTurn ?? 0 })
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
     const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells, snapshot.customBoardBiomeOverrides)
     setTiles(freshTiles)
@@ -6631,11 +6625,11 @@ function App() {
       robberTileId: snapshot.robberTileId,
       pirateTileId: snapshot.pirateTileId ?? null,
     })
-    setCurrentPlayerIndex(snapshot.currentPlayerIndex)
-    setGamePhase(snapshot.gamePhase)
-    setSetupStepIndex(snapshot.setupStepIndex)
-    setSetupStage(snapshot.setupStage)
-    setSetupSettlementVertexId(snapshot.setupSettlementVertexId)
+    dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
+    dispatch({ type: 'GAME_PHASE_SET', phase: snapshot.gamePhase })
+    dispatch({ type: 'SETUP_STEP_SET', stepIndex: snapshot.setupStepIndex })
+    dispatch({ type: 'SETUP_STAGE_SET', stage: snapshot.setupStage })
+    dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: snapshot.setupSettlementVertexId })
     setLastRoll(snapshot.lastRoll)
     setDevDeck(snapshot.devDeck)
     setWinner(snapshot.winner)
@@ -6654,9 +6648,9 @@ function App() {
     // compatible treatment as merchantTileId/merchantHolderId above.
     setBarbarianTrackPosition(snapshot.barbarianTrackPosition ?? 0)
     setRobberActive(snapshot.robberActive ?? false)
-    setDevCardPlayedThisTurn(snapshot.devCardPlayedThisTurn)
+    dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
-    setHasRolledThisTurn(snapshot.hasRolledThisTurn)
+    dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
     setBanner(null)
     setPendingTrade(null)
     setDevCardPicker(null)

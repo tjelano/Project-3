@@ -1,7 +1,7 @@
 import { getSupabaseClient } from '../lib/supabaseClient'
 import type { Building, DevCardType, GameRules, ImprovementTrack, MetropolisHolders, Player, ProgressCardType } from '../game/types'
 import type { BoardCell, BoardShapeId, Biome } from '../data/hexBoard'
-import type { GamePhase, SetupStage } from '../App'
+import type { GamePhase, SetupStage } from '../game/reducers/turn'
 
 const TABLE = 'match_snapshots'
 

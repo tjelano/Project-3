@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { BannerMessage, DevCardPickerMode, EventLogEntry, GamePhase, SetupStage } from '../../App'
+import type { BannerMessage, DevCardPickerMode, EventLogEntry } from '../../App'
+import type { GamePhase, SetupStage } from '../../game/reducers/turn'
 import {
   COMMODITY_LABELS,
   COMMODITY_ORDER,

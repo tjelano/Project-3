@@ -6265,8 +6265,6 @@ function App() {
   // ahead of its UI wiring (e.g. buildShipRaw in sub-plan 2), applied here to
   // satisfy noUnusedLocals in the meantime. Task 5 removes both of these
   // lines as part of adding the real usage.
-  void activeGoldFieldResourcePlayerId
-  void resolveGoldFieldResourcePick
 
   const currentPlayerPortRates = Object.fromEntries(
     RESOURCE_ORDER.map((resource) => [resource, getPortRate(players[currentPlayerIndex].id, resource)]),
@@ -7278,6 +7276,8 @@ function App() {
         onResolveDevCardCommodityPicker={resolveDevCardCommodityPicker}
         scienceFreeResourceActive={activeScienceFreeResourcePlayerId != null}
         onResolveScienceFreeResource={resolveScienceFreeResource}
+        goldFieldResourceActive={activeGoldFieldResourcePlayerId != null}
+        onResolveGoldFieldResource={resolveGoldFieldResourcePick}
         devCardPlayedThisTurn={devCardPlayedThisTurn}
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}

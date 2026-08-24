@@ -103,6 +103,7 @@ import { calculateLongestRoad, pickTrophyHolder } from './game/trophies'
 import { isShipPlacementConnected } from './game/shipEligibility'
 import { isPirateEligibleTile, pirateVictimShipOwners } from './game/pirateEligibility'
 import { collectGoldFieldPicks } from './game/goldFieldProduction'
+import { activeQueueEntry } from './game/pendingQueue'
 import {
   canActivateKnight,
   canBuildCityWall,
@@ -2318,11 +2319,7 @@ function App() {
   // still in the queue is ever "up." Online is parallel — every affected
   // player discards on their own screen at the same time, so this is just
   // "am I one of the people who still owes a discard."
-  const activeDiscarderId = onlineInfo
-    ? validDiscardPlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (validDiscardPlayerIds[0] ?? null)
+  const activeDiscarderId = activeQueueEntry(validDiscardPlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
   const isMyDiscardTurn = activeDiscarderId != null
   const discardingPlayer = activeDiscarderId != null ? playerById.get(activeDiscarderId) : null
   const discardRequiredCount = discardingPlayer
@@ -2340,11 +2337,7 @@ function App() {
   // activeDiscarderId above, and deliberately its own queue rather than
   // reusing devCardPicker (see scienceFreeResourcePlayerIds' declaration):
   // this can be true for a DIFFERENT player than currentPlayerIndex.
-  const activeScienceFreeResourcePlayerId = onlineInfo
-    ? scienceFreeResourcePlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (scienceFreeResourcePlayerIds[0] ?? null)
+  const activeScienceFreeResourcePlayerId = activeQueueEntry(scienceFreeResourcePlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Who's actively resolving a Gold Field resource pick on THIS screen right
   // now — same "sequential locally, parallel online" split as
@@ -2353,11 +2346,7 @@ function App() {
   // applyGoldFieldResourcePick's single-entry removal), so this reads
   // exactly the same way scienceFreeResourcePlayerIds does despite allowing
   // duplicate entries.
-  const activeGoldFieldResourcePlayerId = onlineInfo
-    ? goldFieldResourcePlayerIds.includes(onlineInfo.localPlayerId)
-      ? onlineInfo.localPlayerId
-      : null
-    : (goldFieldResourcePlayerIds[0] ?? null)
+  const activeGoldFieldResourcePlayerId = activeQueueEntry(goldFieldResourcePlayerIds, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Cities & Knights barbarian attack (Task 5) — who's actively resolving
   // their own pillage/draw choice on THIS screen right now. Mirrors
@@ -2370,12 +2359,8 @@ function App() {
   // screen, so only the front of the queue is ever "up," and these
   // naturally resolve to the front entry since there's only ever one
   // shared "me."
-  const activePillageTarget = onlineInfo
-    ? (pillageQueue.find((t) => t.playerId === onlineInfo.localPlayerId) ?? null)
-    : (pillageQueue[0] ?? null)
-  const activeWinnerDrawPlayerId = onlineInfo
-    ? (winnerDrawQueue.includes(onlineInfo.localPlayerId) ? onlineInfo.localPlayerId : null)
-    : (winnerDrawQueue[0] ?? null)
+  const activePillageTarget = activeQueueEntry(pillageQueue, (t) => t.playerId, onlineInfo?.localPlayerId ?? null)
+  const activeWinnerDrawPlayerId = activeQueueEntry(winnerDrawQueue, (id) => id, onlineInfo?.localPlayerId ?? null)
 
   // Resolves the active barbarian-pillage choice with the vertex the player
   // clicked on the board. Only ever reachable by the local actor whose id
@@ -3811,7 +3796,16 @@ function App() {
   // per-screen online (each screen's viewer is already that browser's own
   // player), and simply waits for the queue to reach a given player's own
   // turn in local Pass & Play.
-  const activeProgressDiscarderId = progressCardOverLimitPlayerIds[0] ?? null
+  // Unlike its 5 sibling queues, this one has never had an online/local
+  // split — it always reads the front of the queue regardless of
+  // onlineInfo. That looks like a real, pre-existing gap (parallel online
+  // resolution for the C&K 4-card hand-limit discard exists everywhere
+  // else, missing here), but fixing it is a behavior change outside this
+  // sub-plan's pure-refactor scope — see project_apptsx_reducer_refactor
+  // memory / the spec's Out of Scope section. localPlayerId is hardcoded
+  // null here specifically to preserve that exact pre-existing behavior,
+  // not because this queue is somehow local-only.
+  const activeProgressDiscarderId = activeQueueEntry(progressCardOverLimitPlayerIds, (id) => id, null)
   const progressDiscardingPlayer = activeProgressDiscarderId != null ? playerById.get(activeProgressDiscarderId) : null
   // applyProgressCardDraws now only enqueues players actually over the limit
   // (it used to enqueue everyone who drew anything and leave the filtering

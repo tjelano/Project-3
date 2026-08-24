@@ -1002,174 +1002,108 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         payload.customBoardBiomeOverrides,
       )
     })
-    channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, ({ payload }) => {
-      handlersRef.current.onDiceRolled?.(payload)
-    })
-    channel.on<TurnPassedPayload>('broadcast', { event: 'TURN_PASSED' }, ({ payload }) => {
-      handlersRef.current.onTurnPassed?.(payload)
-    })
-    channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, ({ payload }) => {
-      handlersRef.current.onSettlementBuilt?.(payload)
-    })
-    channel.on<CityBuiltPayload>('broadcast', { event: 'CITY_BUILT' }, ({ payload }) => {
-      handlersRef.current.onCityBuilt?.(payload)
-    })
-    channel.on<RoadBuiltPayload>('broadcast', { event: 'ROAD_BUILT' }, ({ payload }) => {
-      handlersRef.current.onRoadBuilt?.(payload)
-    })
-    channel.on<ShipBuiltPayload>('broadcast', { event: 'SHIP_BUILT' }, ({ payload }) => {
-      handlersRef.current.onShipBuilt?.(payload)
-    })
-    channel.on<ShipMovedPayload>('broadcast', { event: 'SHIP_MOVED' }, ({ payload }) => {
-      handlersRef.current.onShipMoved?.(payload)
-    })
-    channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, ({ payload }) => {
-      handlersRef.current.onRobberMoved?.(payload)
-    })
-    channel.on<PirateMovedPayload>('broadcast', { event: 'PIRATE_MOVED' }, ({ payload }) => {
-      handlersRef.current.onPirateMoved?.(payload)
-    })
-    channel.on<BarbarianShipAdvancedPayload>('broadcast', { event: 'BARBARIAN_SHIP_ADVANCED' }, ({ payload }) => {
-      handlersRef.current.onBarbarianShipAdvanced?.(payload)
-    })
-    channel.on<BarbarianAttackResolvedPayload>('broadcast', { event: 'BARBARIAN_ATTACK_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onBarbarianAttackResolved?.(payload)
-    })
-    channel.on<PillageResolvedPayload>('broadcast', { event: 'PILLAGE_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onPillageResolved?.(payload)
-    })
-    channel.on<BarbarianWinnerDrawResolvedPayload>('broadcast', { event: 'BARBARIAN_WINNER_DRAW_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onBarbarianWinnerDrawResolved?.(payload)
-    })
-    channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onKnightPlayed?.(payload)
-    })
-    channel.on<RoadBuildingPlayedPayload>('broadcast', { event: 'ROAD_BUILDING_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onRoadBuildingPlayed?.(payload)
-    })
-    channel.on<PlentyPlayedPayload>('broadcast', { event: 'PLENTY_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onPlentyPlayed?.(payload)
-    })
-    channel.on<MonopolyPlayedPayload>('broadcast', { event: 'MONOPOLY_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onMonopolyPlayed?.(payload)
-    })
-    channel.on<ResourceMonopolyPlayedPayload>('broadcast', { event: 'RESOURCE_MONOPOLY_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onResourceMonopolyPlayed?.(payload)
-    })
-    channel.on<TradeMonopolyPlayedPayload>('broadcast', { event: 'TRADE_MONOPOLY_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onTradeMonopolyPlayed?.(payload)
-    })
-    channel.on<TradePayload>('broadcast', { event: 'TRADE_OFFERED' }, ({ payload }) => {
-      handlersRef.current.onTradeOffered?.(payload)
-    })
-    channel.on<TradePayload>('broadcast', { event: 'TRADE_ACCEPT_REQUEST' }, ({ payload }) => {
-      handlersRef.current.onTradeAcceptRequest?.(payload)
-    })
-    channel.on<TradePayload>('broadcast', { event: 'TRADE_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onTradeResolved?.(payload)
-    })
-    channel.on<TradeCancelledPayload>('broadcast', { event: 'TRADE_CANCELLED' }, ({ payload }) => {
-      handlersRef.current.onTradeCancelled?.(payload)
-    })
-    channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, ({ payload }) => {
-      handlersRef.current.onDiscardConfirmed?.(payload)
-    })
-    channel.on<ProgressDiscardConfirmedPayload>('broadcast', { event: 'PROGRESS_DISCARD_CONFIRMED' }, ({ payload }) => {
-      handlersRef.current.onProgressDiscardConfirmed?.(payload)
-    })
-    channel.on<ScienceFreeResourcePickedPayload>('broadcast', { event: 'SCIENCE_FREE_RESOURCE_PICKED' }, ({ payload }) => {
-      handlersRef.current.onScienceFreeResourcePicked?.(payload)
-    })
-    channel.on<GoldFieldResourcePickedPayload>('broadcast', { event: 'GOLD_FIELD_RESOURCE_PICKED' }, ({ payload }) => {
-      handlersRef.current.onGoldFieldResourcePicked?.(payload)
-    })
-    channel.on<TrophyUpdatedPayload>('broadcast', { event: 'TROPHY_UPDATED' }, ({ payload }) => {
-      handlersRef.current.onTrophyUpdated?.(payload)
-    })
-    channel.on<NewGamePayload>('broadcast', { event: 'NEW_GAME' }, ({ payload }) => {
-      handlersRef.current.onNewGame?.(payload)
-    })
-    channel.on<DevCardBoughtPayload>('broadcast', { event: 'DEV_CARD_BOUGHT' }, ({ payload }) => {
-      handlersRef.current.onDevCardBought?.(payload)
-    })
-    channel.on<CityImprovementPurchasedPayload>('broadcast', { event: 'CITY_IMPROVEMENT_PURCHASED' }, ({ payload }) => {
-      handlersRef.current.onCityImprovementPurchased?.(payload)
-    })
-    channel.on<ProgressCardsDrawnPayload>('broadcast', { event: 'PROGRESS_CARDS_DRAWN' }, ({ payload }) => {
-      handlersRef.current.onProgressCardsDrawn?.(payload)
-    })
-    channel.on<ProgressCardPlayedPayload>('broadcast', { event: 'PROGRESS_CARD_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onProgressCardPlayed?.(payload)
-    })
-    channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, ({ payload }) => {
-      handlersRef.current.onMetropolisClaimed?.(payload)
-    })
-    channel.on<InventionSwappedPayload>('broadcast', { event: 'INVENTION_SWAPPED' }, ({ payload }) => {
-      handlersRef.current.onInventionSwapped?.(payload)
-    })
-    channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, ({ payload }) => {
-      handlersRef.current.onBankTrade?.(payload)
-    })
-    channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, ({ payload }) => {
-      handlersRef.current.onCommodityTraded?.(payload)
-    })
-    channel.on<GuildDuesTakenPayload>('broadcast', { event: 'GUILD_DUES_TAKEN' }, ({ payload }) => {
-      handlersRef.current.onGuildDuesTaken?.(payload)
-    })
-    channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, ({ payload }) => {
-      handlersRef.current.onEspionageTaken?.(payload)
-    })
-    channel.on<CommercialHarborPlayedPayload>('broadcast', { event: 'COMMERCIAL_HARBOR_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onCommercialHarborPlayed?.(payload)
-    })
-    channel.on<DiplomacyPlayedPayload>('broadcast', { event: 'DIPLOMACY_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onDiplomacyPlayed?.(payload)
-    })
-    channel.on<MerchantMovedPayload>('broadcast', { event: 'MERCHANT_MOVED' }, ({ payload }) => {
-      handlersRef.current.onMerchantMoved?.(payload)
-    })
-    channel.on<KnightRecruitedPayload>('broadcast', { event: 'KNIGHT_RECRUITED' }, ({ payload }) => {
-      handlersRef.current.onKnightRecruited?.(payload)
-    })
-    channel.on<KnightActivatedPayload>('broadcast', { event: 'KNIGHT_ACTIVATED' }, ({ payload }) => {
-      handlersRef.current.onKnightActivated?.(payload)
-    })
-    channel.on<KnightPromotedPayload>('broadcast', { event: 'KNIGHT_PROMOTED' }, ({ payload }) => {
-      handlersRef.current.onKnightPromoted?.(payload)
-    })
-    channel.on<KnightMovedPayload>('broadcast', { event: 'KNIGHT_MOVED' }, ({ payload }) => {
-      handlersRef.current.onKnightMoved?.(payload)
-    })
-    channel.on<KnightDisplacedPayload>('broadcast', { event: 'KNIGHT_DISPLACED' }, ({ payload }) => {
-      handlersRef.current.onKnightDisplaced?.(payload)
-    })
-    channel.on<KnightDeactivatedAfterChasePayload>('broadcast', { event: 'KNIGHT_DEACTIVATED_AFTER_CHASE' }, ({ payload }) => {
-      handlersRef.current.onKnightDeactivatedAfterChase?.(payload)
-    })
-    channel.on<CityWallBuiltPayload>('broadcast', { event: 'CITY_WALL_BUILT' }, ({ payload }) => {
-      handlersRef.current.onCityWallBuilt?.(payload)
-    })
-    channel.on<SmithingPlayedPayload>('broadcast', { event: 'SMITHING_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onSmithingPlayed?.(payload)
-    })
-    channel.on<EncouragementPlayedPayload>('broadcast', { event: 'ENCOURAGEMENT_PLAYED' }, ({ payload }) => {
-      handlersRef.current.onEncouragementPlayed?.(payload)
-    })
-    channel.on<IntrigueResolvedPayload>('broadcast', { event: 'INTRIGUE_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onIntrigueResolved?.(payload)
-    })
-    channel.on<TreasonRemovedPayload>('broadcast', { event: 'TREASON_REMOVED' }, ({ payload }) => {
-      handlersRef.current.onTreasonRemoved?.(payload)
-    })
-    channel.on<TaxationResolvedPayload>('broadcast', { event: 'TAXATION_RESOLVED' }, ({ payload }) => {
-      handlersRef.current.onTaxationResolved?.(payload)
-    })
-    channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, ({ payload }) => {
-      handlersRef.current.onHoverChanged?.(payload)
-    })
-    channel.on<ChatMessagePayload>('broadcast', { event: 'CHAT_MESSAGE' }, ({ payload }) => {
-      handlersRef.current.onChatMessage?.(payload)
-    })
+    // Shared by every subscription below except onGameStarted above (its
+    // handler takes 9 destructured arguments, not one payload — kept
+    // bespoke). Every other subscription's body was the identical
+    // one-liner this replaces: forward the received payload straight to
+    // the matching handler, if the caller supplied one.
+    function forwardTo<T>(handlerKey: keyof RoomChannelHandlers) {
+      return ({ payload }: { payload: T }) => {
+        ;(handlersRef.current[handlerKey] as ((p: T) => void) | undefined)?.(payload)
+      }
+    }
+    channel.on<DiceRolledPayload>('broadcast', { event: 'DICE_ROLLED' }, forwardTo('onDiceRolled'))
+    channel.on<TurnPassedPayload>('broadcast', { event: 'TURN_PASSED' }, forwardTo('onTurnPassed'))
+    channel.on<SettlementBuiltPayload>('broadcast', { event: 'SETTLEMENT_BUILT' }, forwardTo('onSettlementBuilt'))
+    channel.on<CityBuiltPayload>('broadcast', { event: 'CITY_BUILT' }, forwardTo('onCityBuilt'))
+    channel.on<RoadBuiltPayload>('broadcast', { event: 'ROAD_BUILT' }, forwardTo('onRoadBuilt'))
+    channel.on<ShipBuiltPayload>('broadcast', { event: 'SHIP_BUILT' }, forwardTo('onShipBuilt'))
+    channel.on<ShipMovedPayload>('broadcast', { event: 'SHIP_MOVED' }, forwardTo('onShipMoved'))
+    channel.on<RobberMovedPayload>('broadcast', { event: 'ROBBER_MOVED' }, forwardTo('onRobberMoved'))
+    channel.on<PirateMovedPayload>('broadcast', { event: 'PIRATE_MOVED' }, forwardTo('onPirateMoved'))
+    channel.on<BarbarianShipAdvancedPayload>('broadcast', { event: 'BARBARIAN_SHIP_ADVANCED' }, forwardTo('onBarbarianShipAdvanced'))
+    channel.on<BarbarianAttackResolvedPayload>(
+      'broadcast',
+      { event: 'BARBARIAN_ATTACK_RESOLVED' },
+      forwardTo('onBarbarianAttackResolved'),
+    )
+    channel.on<PillageResolvedPayload>('broadcast', { event: 'PILLAGE_RESOLVED' }, forwardTo('onPillageResolved'))
+    channel.on<BarbarianWinnerDrawResolvedPayload>(
+      'broadcast',
+      { event: 'BARBARIAN_WINNER_DRAW_RESOLVED' },
+      forwardTo('onBarbarianWinnerDrawResolved'),
+    )
+    channel.on<KnightPlayedPayload>('broadcast', { event: 'KNIGHT_PLAYED' }, forwardTo('onKnightPlayed'))
+    channel.on<RoadBuildingPlayedPayload>('broadcast', { event: 'ROAD_BUILDING_PLAYED' }, forwardTo('onRoadBuildingPlayed'))
+    channel.on<PlentyPlayedPayload>('broadcast', { event: 'PLENTY_PLAYED' }, forwardTo('onPlentyPlayed'))
+    channel.on<MonopolyPlayedPayload>('broadcast', { event: 'MONOPOLY_PLAYED' }, forwardTo('onMonopolyPlayed'))
+    channel.on<ResourceMonopolyPlayedPayload>(
+      'broadcast',
+      { event: 'RESOURCE_MONOPOLY_PLAYED' },
+      forwardTo('onResourceMonopolyPlayed'),
+    )
+    channel.on<TradeMonopolyPlayedPayload>('broadcast', { event: 'TRADE_MONOPOLY_PLAYED' }, forwardTo('onTradeMonopolyPlayed'))
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_OFFERED' }, forwardTo('onTradeOffered'))
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_ACCEPT_REQUEST' }, forwardTo('onTradeAcceptRequest'))
+    channel.on<TradePayload>('broadcast', { event: 'TRADE_RESOLVED' }, forwardTo('onTradeResolved'))
+    channel.on<TradeCancelledPayload>('broadcast', { event: 'TRADE_CANCELLED' }, forwardTo('onTradeCancelled'))
+    channel.on<DiscardConfirmedPayload>('broadcast', { event: 'DISCARD_CONFIRMED' }, forwardTo('onDiscardConfirmed'))
+    channel.on<ProgressDiscardConfirmedPayload>(
+      'broadcast',
+      { event: 'PROGRESS_DISCARD_CONFIRMED' },
+      forwardTo('onProgressDiscardConfirmed'),
+    )
+    channel.on<ScienceFreeResourcePickedPayload>(
+      'broadcast',
+      { event: 'SCIENCE_FREE_RESOURCE_PICKED' },
+      forwardTo('onScienceFreeResourcePicked'),
+    )
+    channel.on<GoldFieldResourcePickedPayload>(
+      'broadcast',
+      { event: 'GOLD_FIELD_RESOURCE_PICKED' },
+      forwardTo('onGoldFieldResourcePicked'),
+    )
+    channel.on<TrophyUpdatedPayload>('broadcast', { event: 'TROPHY_UPDATED' }, forwardTo('onTrophyUpdated'))
+    channel.on<NewGamePayload>('broadcast', { event: 'NEW_GAME' }, forwardTo('onNewGame'))
+    channel.on<DevCardBoughtPayload>('broadcast', { event: 'DEV_CARD_BOUGHT' }, forwardTo('onDevCardBought'))
+    channel.on<CityImprovementPurchasedPayload>(
+      'broadcast',
+      { event: 'CITY_IMPROVEMENT_PURCHASED' },
+      forwardTo('onCityImprovementPurchased'),
+    )
+    channel.on<ProgressCardsDrawnPayload>('broadcast', { event: 'PROGRESS_CARDS_DRAWN' }, forwardTo('onProgressCardsDrawn'))
+    channel.on<ProgressCardPlayedPayload>('broadcast', { event: 'PROGRESS_CARD_PLAYED' }, forwardTo('onProgressCardPlayed'))
+    channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, forwardTo('onMetropolisClaimed'))
+    channel.on<InventionSwappedPayload>('broadcast', { event: 'INVENTION_SWAPPED' }, forwardTo('onInventionSwapped'))
+    channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, forwardTo('onBankTrade'))
+    channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, forwardTo('onCommodityTraded'))
+    channel.on<GuildDuesTakenPayload>('broadcast', { event: 'GUILD_DUES_TAKEN' }, forwardTo('onGuildDuesTaken'))
+    channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, forwardTo('onEspionageTaken'))
+    channel.on<CommercialHarborPlayedPayload>(
+      'broadcast',
+      { event: 'COMMERCIAL_HARBOR_PLAYED' },
+      forwardTo('onCommercialHarborPlayed'),
+    )
+    channel.on<DiplomacyPlayedPayload>('broadcast', { event: 'DIPLOMACY_PLAYED' }, forwardTo('onDiplomacyPlayed'))
+    channel.on<MerchantMovedPayload>('broadcast', { event: 'MERCHANT_MOVED' }, forwardTo('onMerchantMoved'))
+    channel.on<KnightRecruitedPayload>('broadcast', { event: 'KNIGHT_RECRUITED' }, forwardTo('onKnightRecruited'))
+    channel.on<KnightActivatedPayload>('broadcast', { event: 'KNIGHT_ACTIVATED' }, forwardTo('onKnightActivated'))
+    channel.on<KnightPromotedPayload>('broadcast', { event: 'KNIGHT_PROMOTED' }, forwardTo('onKnightPromoted'))
+    channel.on<KnightMovedPayload>('broadcast', { event: 'KNIGHT_MOVED' }, forwardTo('onKnightMoved'))
+    channel.on<KnightDisplacedPayload>('broadcast', { event: 'KNIGHT_DISPLACED' }, forwardTo('onKnightDisplaced'))
+    channel.on<KnightDeactivatedAfterChasePayload>(
+      'broadcast',
+      { event: 'KNIGHT_DEACTIVATED_AFTER_CHASE' },
+      forwardTo('onKnightDeactivatedAfterChase'),
+    )
+    channel.on<CityWallBuiltPayload>('broadcast', { event: 'CITY_WALL_BUILT' }, forwardTo('onCityWallBuilt'))
+    channel.on<SmithingPlayedPayload>('broadcast', { event: 'SMITHING_PLAYED' }, forwardTo('onSmithingPlayed'))
+    channel.on<EncouragementPlayedPayload>('broadcast', { event: 'ENCOURAGEMENT_PLAYED' }, forwardTo('onEncouragementPlayed'))
+    channel.on<IntrigueResolvedPayload>('broadcast', { event: 'INTRIGUE_RESOLVED' }, forwardTo('onIntrigueResolved'))
+    channel.on<TreasonRemovedPayload>('broadcast', { event: 'TREASON_REMOVED' }, forwardTo('onTreasonRemoved'))
+    channel.on<TaxationResolvedPayload>('broadcast', { event: 'TAXATION_RESOLVED' }, forwardTo('onTaxationResolved'))
+    channel.on<HoverChangedPayload>('broadcast', { event: 'HOVER_CHANGED' }, forwardTo('onHoverChanged'))
+    channel.on<ChatMessagePayload>('broadcast', { event: 'CHAT_MESSAGE' }, forwardTo('onChatMessage'))
 
     channel.subscribe((subStatus, err) => {
       if (!isCurrent) return

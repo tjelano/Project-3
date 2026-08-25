@@ -82,7 +82,7 @@ export function reducePendingQueues(state: PendingQueuesState, action: GameActio
       // union (every slice's actions), not just PendingQueuesAction, so most
       // of that union — including every board-only/players-only/turn-only/
       // progress-only/decks-only/trophies-only action — is legitimately
-      // unhandled here. reducePendingQueues only owns the 16 dedicated cases
+      // unhandled here. reducePendingQueues only owns the 17 dedicated cases
       // above.
       return state
   }

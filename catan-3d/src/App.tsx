@@ -2420,7 +2420,7 @@ function App() {
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
-      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPillageQueue
+      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/dispatch(PILLAGE_QUEUE_ENTRY_REMOVED)
       // calls, same deliberate "self-heal" shape as the discard-queue effect
       // above (dispatch(GAME_PHASE_SET, 'moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the

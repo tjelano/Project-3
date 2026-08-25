@@ -1707,11 +1707,12 @@ function App() {
       // copy — same reasoning as onProgressCardsDrawn: contents are never
       // shown to anyone, so which specific card remains doesn't need to
       // match the acting client's; only the remaining length does.
-      dispatch({
-        type: 'PROGRESS_CARD_DECK_SET',
-        track: payload.track,
-        deck: progressCardDecks[payload.track].slice(1),
-      })
+      // POPPED (not SET from the closed-over progressCardDecks) because this
+      // receiver can fire twice back-to-back for the same track (the host's
+      // winner-draw timeout sweep, App.tsx's IMPROVEMENT_TRACK_ORDER loop
+      // below) — an absolute SET built from a stale closure would let the
+      // second dispatch overwrite the first instead of compounding with it.
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: 1 })
     },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
@@ -1871,12 +1872,11 @@ function App() {
       applyProgressCardDraws(payload.draws)
       // Pop the SAME COUNT off this client's own local deck copy — contents
       // never shown to anyone, so which specific cards remain doesn't need to
-      // match the roller's; only the remaining length does.
-      dispatch({
-        type: 'PROGRESS_CARD_DECK_SET',
-        track: payload.track,
-        deck: progressCardDecks[payload.track].slice(payload.draws.length),
-      })
+      // match the roller's; only the remaining length does. POPPED (not SET
+      // from the closed-over progressCardDecks) so a stale closure can't
+      // cause a rapid-fire repeat of this receiver to overwrite instead of
+      // compound — see onBarbarianWinnerDrawResolved above for the same fix.
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: payload.draws.length })
     },
     // Generic receiver for every self-only, no-picker progress card play
     // (Irrigation/Mining here; Task 14's Merchant Fleet reuses this same

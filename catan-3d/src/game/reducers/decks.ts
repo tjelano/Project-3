@@ -26,6 +26,7 @@ export type DecksAction =
   | { type: 'DEV_CARD_DRAWN' }
   | { type: 'DEV_DECK_SET'; deck: DevCardType[] }
   | { type: 'PROGRESS_CARD_DECK_SET'; track: ImprovementTrack; deck: ProgressCardType[] }
+  | { type: 'PROGRESS_CARD_DECK_POPPED'; track: ImprovementTrack; count: number }
 
 export function reduceDecks(state: DecksState, action: GameAction, _fullState: GameState): DecksState {
   switch (action.type) {
@@ -35,12 +36,20 @@ export function reduceDecks(state: DecksState, action: GameAction, _fullState: G
       return { ...state, devDeck: action.deck }
     case 'PROGRESS_CARD_DECK_SET':
       return { ...state, progressCardDecks: { ...state.progressCardDecks, [action.track]: action.deck } }
+    case 'PROGRESS_CARD_DECK_POPPED':
+      return {
+        ...state,
+        progressCardDecks: {
+          ...state.progressCardDecks,
+          [action.track]: state.progressCardDecks[action.track].slice(action.count),
+        },
+      }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full GameAction
       // union (every slice's actions), not just DecksAction, so most of that
       // union — including every board-only/players-only/turn-only/progress-
       // only action — is legitimately unhandled here. reduceDecks only owns
-      // the 3 dedicated cases above.
+      // the 4 dedicated cases above.
       return state
   }
 }

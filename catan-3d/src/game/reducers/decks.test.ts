@@ -48,6 +48,31 @@ describe('reduceDecks — PROGRESS_CARD_DECK_SET', () => {
   })
 })
 
+describe('reduceDecks — PROGRESS_CARD_DECK_POPPED', () => {
+  it('removes exactly count cards off the front of one track, computed against live state', () => {
+    const dirty = {
+      ...initialDecksState,
+      progressCardDecks: {
+        ...initialDecksState.progressCardDecks,
+        science: ['printing', 'engineering', 'sabotage', 'irrigation'] as ProgressCardType[],
+      },
+    }
+    const result = reduceDecks(dirty, { type: 'PROGRESS_CARD_DECK_POPPED', track: 'science', count: 2 }, initialGameState)
+    expect(result.progressCardDecks.science).toEqual(['sabotage', 'irrigation'])
+  })
+
+  it('leaves the other two tracks and devDeck untouched', () => {
+    const result = reduceDecks(
+      initialDecksState,
+      { type: 'PROGRESS_CARD_DECK_POPPED', track: 'trade', count: 2 },
+      initialGameState,
+    )
+    expect(result.progressCardDecks.science).toBe(initialDecksState.progressCardDecks.science)
+    expect(result.progressCardDecks.politics).toBe(initialDecksState.progressCardDecks.politics)
+    expect(result.devDeck).toBe(initialDecksState.devDeck)
+  })
+})
+
 describe('reduceDecks — action not owned by this reducer', () => {
   it('returns the same state reference unchanged', () => {
     const result = reduceDecks(initialDecksState, { type: 'RESET_BOARD', robberTileId: 'D1' }, initialGameState)

@@ -2,6 +2,8 @@ import { reduceBoard, initialBoardState, type BoardState, type BoardAction } fro
 import { reducePlayers, type PlayersAction } from './reducers/players'
 import { reduceTurn, initialTurnState, type TurnState, type TurnAction } from './reducers/turn'
 import { reduceProgress, initialProgressState, type ProgressState, type ProgressAction } from './reducers/progress'
+import { reduceDecks, initialDecksState, type DecksState, type DecksAction } from './reducers/decks'
+import { reduceTrophies, initialTrophiesState, type TrophiesState, type TrophiesAction } from './reducers/trophies'
 import { createInitialPlayers, type Player } from './types'
 
 export interface GameState {
@@ -9,6 +11,8 @@ export interface GameState {
   players: Player[]
   turn: TurnState
   progress: ProgressState
+  decks: DecksState
+  trophies: TrophiesState
 }
 
 export const initialGameState: GameState = {
@@ -18,9 +22,11 @@ export const initialGameState: GameState = {
   players: createInitialPlayers(3),
   turn: initialTurnState,
   progress: initialProgressState,
+  decks: initialDecksState,
+  trophies: initialTrophiesState,
 }
 
-export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction
+export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction
 
 export function reduceGame(state: GameState, action: GameAction): GameState {
   return {
@@ -28,5 +34,7 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
     players: reducePlayers(state.players, action, state),
     turn: reduceTurn(state.turn, action, state),
     progress: reduceProgress(state.progress, action, state),
+    decks: reduceDecks(state.decks, action, state),
+    trophies: reduceTrophies(state.trophies, action, state),
   }
 }

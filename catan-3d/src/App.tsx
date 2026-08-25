@@ -36,7 +36,6 @@ import { buildHexBoard, type BoardCell, type BoardShapeId, type Biome } from './
 import { createSeededRandom, shuffle } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
-import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
@@ -334,7 +333,7 @@ function App() {
   // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
   // never checks this set. Never re-hides a tile once added — see
   // game/hiddenTiles.ts.
-  const [revealedTileIds, setRevealedTileIds] = useState<Set<string>>(new Set())
+  const revealedTileIds = gameState.pendingQueues.revealedTileIds
   const [banner, setBanner] = useState<BannerMessage | null>(null)
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([])
   // Online-only — chat has no meaning in local Pass & Play (one shared
@@ -382,7 +381,7 @@ function App() {
   // players state inside applyProgressCardDraws below), so no broadcast is
   // needed to populate it; every client reaches the same queue independently
   // from the same trusted-applied hand contents.
-  const [progressCardOverLimitPlayerIds, setProgressCardOverLimitPlayerIds] = useState<number[]>([])
+  const progressCardOverLimitPlayerIds = gameState.pendingQueues.progressCardOverLimitPlayerIds
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
   // Guards resolvePlayerTrade against a rapid double-click on Accept — a
@@ -959,7 +958,8 @@ function App() {
   // in the same scope doesn't affect when they're safe to CALL.
   const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId, isSetup }, isDeciding)
-    setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
+    const tileIds = graph.vertexTileIds.get(vertexId) ?? []
+    dispatch({ type: 'TILES_REVEALED', tileIds })
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
@@ -1359,7 +1359,7 @@ function App() {
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
     dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
-    setProgressCardOverLimitPlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's Science level 3 free-resource
@@ -1503,10 +1503,7 @@ function App() {
     // fresh (still empty) array every roll would restart that timer for no
     // reason.
     if (overLimitIds.length === 0) return
-    setProgressCardOverLimitPlayerIds((prev) => {
-      const next = [...new Set([...prev, ...overLimitIds])]
-      return next
-    })
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_ADDED', playerIds: overLimitIds })
   }
 
   // Trusted state mutation for Trade level 3's 2:1 commodity trade — shared
@@ -6417,13 +6414,13 @@ function App() {
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: freshStartingPlayerIndex })
     setLastRoll(null)
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
-    setRevealedTileIds(new Set())
+    dispatch({ type: 'REVEALED_TILES_SET', tileIds: [] })
     setBanner(null)
     dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)) })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: buildProgressCardDeck('science') })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: buildProgressCardDeck('trade') })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
-    setProgressCardOverLimitPlayerIds([])
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
     setPendingTrade(null)
     setFreeRoadsRemaining(0)
@@ -6549,7 +6546,7 @@ function App() {
     // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
-    setRevealedTileIds(new Set(snapshot.revealedTileIds ?? []))
+    dispatch({ type: 'REVEALED_TILES_SET', tileIds: snapshot.revealedTileIds ?? [] })
     dispatch({ type: 'TOTAL_ROLLS_SET', count: snapshot.totalRollsThisGame ?? 0 })
     dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: snapshot.consecutiveDoublesThisTurn ?? 0 })
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
@@ -6743,7 +6740,7 @@ function App() {
     // restore" treatment as discardSelection just above — a stale set of
     // indices could otherwise point at the wrong cards in a freshly
     // restored progressCards array.
-    setProgressCardOverLimitPlayerIds(snapshot.progressCardOverLimitPlayerIds ?? [])
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: snapshot.progressCardOverLimitPlayerIds ?? [] })
     // Cities & Knights progress-card draw decks (Task 3, snapshot wiring
     // deferred to this task) — same `?? fallback` treatment as every other
     // optional MatchSnapshot field above: absent on any snapshot saved

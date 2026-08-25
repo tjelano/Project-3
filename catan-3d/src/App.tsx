@@ -383,7 +383,7 @@ function App() {
   // from the same trusted-applied hand contents.
   const progressCardOverLimitPlayerIds = gameState.pendingQueues.progressCardOverLimitPlayerIds
   const [winner, setWinner] = useState<Player | null>(null)
-  const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
+  const pendingTrade = gameState.trade.pendingTrade
   // Guards resolvePlayerTrade against a rapid double-click on Accept — a
   // ref rather than state specifically because it has to block a SECOND
   // click that lands before React has re-rendered from the first one (a
@@ -1756,7 +1756,7 @@ function App() {
       applyTradeMonopolyEffect(payload.playerId, payload.commodity)
     },
     onTradeOffered: (payload) => {
-      setPendingTrade(payload)
+      dispatch({ type: 'PENDING_TRADE_SET', trade: payload })
       playSfx('tradeRequest')
     },
     // Every client hears this, but only the (effective) host acts on it —
@@ -1767,10 +1767,10 @@ function App() {
     },
     onTradeResolved: (payload) => {
       applyTradeResolution(payload)
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
     },
     onTradeCancelled: (payload) => {
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
@@ -4415,7 +4415,7 @@ function App() {
     }
 
     const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerResource, wantResource }
-    setPendingTrade(trade)
+    dispatch({ type: 'PENDING_TRADE_SET', trade })
     playSfx('tradeRequest')
     if (onlineInfo) {
       broadcastTradeOffered(trade)
@@ -4436,18 +4436,18 @@ function App() {
     const fromPlayer = playerById.get(trade.fromPlayerId)
     const toPlayer = playerById.get(trade.toPlayerId)
     if (!fromPlayer || !toPlayer) {
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       return
     }
     if (toPlayer.resources[trade.wantResource] < 1 || fromPlayer.resources[trade.offerResource] < 1) {
       const reason = `The trade between ${fromPlayer.name} and ${toPlayer.name} fell through — resources changed.`
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       broadcastTradeCancelled({ reason })
       return
     }
     applyTradeResolution(trade)
-    setPendingTrade(null)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
     broadcastTradeResolved(trade)
   }
 
@@ -4465,7 +4465,7 @@ function App() {
     if (!accept) {
       const toPlayer = playerById.get(pendingTrade.toPlayerId)
       const reason = `${toPlayer?.name ?? 'The player'} declined the trade.`
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       if (onlineInfo) broadcastTradeCancelled({ reason })
       return
@@ -4491,12 +4491,12 @@ function App() {
         fromPlayer.resources[pendingTrade.offerResource] < 1
       ) {
         const reason = `The trade between ${fromPlayer?.name ?? 'a player'} and ${toPlayer?.name ?? 'a player'} fell through — resources changed.`
-        setPendingTrade(null)
+        dispatch({ type: 'PENDING_TRADE_CLEARED' })
         inform(reason)
         return
       }
       applyTradeResolution(pendingTrade)
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       return
     }
 
@@ -4531,7 +4531,7 @@ function App() {
     if (!pendingTrade) return
     const timer = setTimeout(() => {
       const reason = 'The trade offer expired with no response.'
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       if (onlineInfo) broadcastTradeCancelled({ reason })
     }, TRADE_OFFER_TIMEOUT_MS)
@@ -6428,7 +6428,7 @@ function App() {
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
     dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
-    setPendingTrade(null)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
     dispatch({ type: 'FREE_ROADS_SET', count: 0 })
     setDevCardPicker(null)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
@@ -6670,7 +6670,7 @@ function App() {
     dispatch({ type: 'FREE_ROADS_SET', count: snapshot.freeRoadsRemaining })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
     setBanner(null)
-    setPendingTrade(null)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
     setDevCardPicker(null)
     // Not part of MatchSnapshot — RE-DERIVED instead. Simply clearing it
     // (the original behavior) was fine at level 4, where the player can just

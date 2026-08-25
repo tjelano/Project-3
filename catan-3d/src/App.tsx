@@ -91,7 +91,6 @@ import {
   type ImprovementTrack,
   type KnightPiece,
   type KnightStrength,
-  type MetropolisHolders,
   type Player,
   type PlayerColorToken,
   type ProgressCardType,
@@ -376,12 +375,8 @@ function App() {
   // considering. Always null in local Pass & Play — there's only one
   // shared screen, which already shows the hover directly.
   const [remoteHover, setRemoteHover] = useState<HoverChangedPayload>({ playerId: -1, vertexId: null, edgeId: null })
-  const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
-  const [progressCardDecks, setProgressCardDecks] = useState<Record<ImprovementTrack, ProgressCardType[]>>(() => ({
-    science: buildProgressCardDeck('science'),
-    trade: buildProgressCardDeck('trade'),
-    politics: buildProgressCardDeck('politics'),
-  }))
+  const devDeck = gameState.decks.devDeck
+  const progressCardDecks = gameState.decks.progressCardDecks
   // Queue of players currently over the 4-card progress-card hand limit,
   // same per-player-queue shape as discardPlayerIds/scienceFreeResourcePlayerIds
   // below — deterministic (computed from each client's own now-updated
@@ -457,20 +452,16 @@ function App() {
   // above — only ever non-null on the acting client's own screen.
   const [pendingDiplomacyRemoval, setPendingDiplomacyRemoval] = useState<{ playerId: number } | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
-  const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
-  const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
+  const longestRoadHolderId = gameState.trophies.longestRoadHolderId
+  const largestArmyHolderId = gameState.trophies.largestArmyHolderId
   // Cities & Knights Metropolis — per-track control (who currently holds
   // each track's Metropolis, for scoring) and per-track placement (which of
   // that player's own city vertices carries the marker, for the 3D board —
   // Task 7). Kept as two separate records rather than one, since control is
   // per-player but the marker itself sits on one specific city (see the
   // design note on Task 6's own plan entry).
-  const [metropolisHolders, setMetropolisHolders] = useState<MetropolisHolders>({ science: null, trade: null, politics: null })
-  const [metropolisVertexIds, setMetropolisVertexIds] = useState<Record<ImprovementTrack, string | null>>({
-    science: null,
-    trade: null,
-    politics: null,
-  })
+  const metropolisHolders = gameState.trophies.metropolisHolders
+  const metropolisVertexIds = gameState.trophies.metropolisVertexIds
   // Set the instant a purchase actually claims a track's Metropolis, cleared
   // the instant the resulting city-selection click resolves
   // (buildSettlementRaw's early branch, below).
@@ -1716,7 +1707,12 @@ function App() {
       // copy — same reasoning as onProgressCardsDrawn: contents are never
       // shown to anyone, so which specific card remains doesn't need to
       // match the acting client's; only the remaining length does.
-      setProgressCardDecks((prev) => ({ ...prev, [payload.track]: prev[payload.track].slice(1) }))
+      // POPPED (not SET from the closed-over progressCardDecks) because this
+      // receiver can fire twice back-to-back for the same track (the host's
+      // winner-draw timeout sweep, App.tsx's IMPROVEMENT_TRACK_ORDER loop
+      // below) — an absolute SET built from a stale closure would let the
+      // second dispatch overwrite the first instead of compounding with it.
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: 1 })
     },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
@@ -1811,8 +1807,8 @@ function App() {
     // !onlineInfo || isEffectiveHost. Every other client just takes
     // whatever the host says here.
     onTrophyUpdated: (payload) => {
-      setLongestRoadHolderId(payload.longestRoadHolderId)
-      setLargestArmyHolderId(payload.largestArmyHolderId)
+      dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: payload.longestRoadHolderId })
+      dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: payload.largestArmyHolderId })
     },
     // Host-only action (see restartGame), but every client applies it the
     // same way it applies any other trusted broadcast — no re-validation.
@@ -1828,7 +1824,7 @@ function App() {
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
       applyDevCardBought(payload.playerId, payload.card)
-      setDevDeck((prev) => prev.slice(1))
+      dispatch({ type: 'DEV_CARD_DRAWN' })
     },
     // Same reasoning as onDevCardBought above — a city improvement purchase
     // only touches the buyer's own commodities/cityImprovements, so every
@@ -1876,11 +1872,11 @@ function App() {
       applyProgressCardDraws(payload.draws)
       // Pop the SAME COUNT off this client's own local deck copy — contents
       // never shown to anyone, so which specific cards remain doesn't need to
-      // match the roller's; only the remaining length does.
-      setProgressCardDecks((prev) => ({
-        ...prev,
-        [payload.track]: prev[payload.track].slice(payload.draws.length),
-      }))
+      // match the roller's; only the remaining length does. POPPED (not SET
+      // from the closed-over progressCardDecks) so a stale closure can't
+      // cause a rapid-fire repeat of this receiver to overwrite instead of
+      // compound — see onBarbarianWinnerDrawResolved above for the same fix.
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: payload.draws.length })
     },
     // Generic receiver for every self-only, no-picker progress card play
     // (Irrigation/Mining here; Task 14's Merchant Fleet reuses this same
@@ -1989,8 +1985,12 @@ function App() {
         console.error('[Catan] Ignoring malformed metropolis-claim payload:', payload)
         return
       }
-      setMetropolisVertexIds((prev) => ({ ...prev, [payload.track]: payload.vertexId }))
-      setMetropolisHolders((prev) => ({ ...prev, [payload.track]: payload.playerId }))
+      dispatch({
+        type: 'METROPOLIS_CLAIMED',
+        track: payload.track,
+        playerId: payload.playerId,
+        vertexId: payload.vertexId,
+      })
     },
     onBankTrade: (payload) => {
       // Broadcast-sourced — validated before ever being used as resources[]
@@ -2382,7 +2382,7 @@ function App() {
       return
     }
     applyBarbarianWinnerDraw(playerId, card)
-    setProgressCardDecks((prev) => ({ ...prev, [track]: rest }))
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track, deck: rest })
     const player = playerById.get(playerId)
     if (player) inform(`${player.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card for tying as Defender of Catan.`)
     if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
@@ -2522,12 +2522,12 @@ function App() {
   if (!onlineInfo || isEffectiveHost) {
     const nextLongestRoadHolderId = pickTrophyHolder(longestRoadHolderId, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH)
     if (nextLongestRoadHolderId !== longestRoadHolderId) {
-      setLongestRoadHolderId(nextLongestRoadHolderId)
+      dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: nextLongestRoadHolderId })
     }
 
     const nextLargestArmyHolderId = pickTrophyHolder(largestArmyHolderId, knightCounts, LARGEST_ARMY_MIN_KNIGHTS)
     if (nextLargestArmyHolderId !== largestArmyHolderId) {
-      setLargestArmyHolderId(nextLargestArmyHolderId)
+      dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: nextLargestArmyHolderId })
     }
   }
 
@@ -2773,8 +2773,7 @@ function App() {
         setPendingMetropolisClaim(null)
         return
       }
-      setMetropolisVertexIds((prev) => ({ ...prev, [track]: vertexId }))
-      setMetropolisHolders((prev) => ({ ...prev, [track]: nextHolderId }))
+      dispatch({ type: 'METROPOLIS_CLAIMED', track, playerId: nextHolderId, vertexId })
       setPendingMetropolisClaim(null)
       if (onlineInfo) broadcastMetropolisClaimed({ track, playerId: nextHolderId, vertexId })
       return
@@ -3443,7 +3442,7 @@ function App() {
       const result = resolveEventDieDraws(players, track, d1, progressCardDecks[track], turnOrderIds)
       if (result.draws.length > 0) {
         applyProgressCardDraws(result.draws)
-        setProgressCardDecks((prev) => ({ ...prev, [track]: result.remainingDeck }))
+        dispatch({ type: 'PROGRESS_CARD_DECK_SET', track, deck: result.remainingDeck })
         for (const { playerId, card } of result.draws) {
           const p = playerById.get(playerId)
           if (p) inform(`${p.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card.`)
@@ -3944,7 +3943,9 @@ function App() {
         inform(`${playerById.get(playerId)?.name ?? 'A player'}'s Defender of Catan draw timed out — a card was drawn automatically.`)
         if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
       }
-      setProgressCardDecks(decks)
+      for (const t of IMPROVEMENT_TRACK_ORDER) {
+        dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: t, deck: decks[t] })
+      }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the two timeout effects above: progressCardDecks/playerById/onlineInfo/inform/applyBarbarianWinnerDraw/broadcastBarbarianWinnerDrawResolved are read fresh via closure; only winnerDrawQueue/isEffectiveHost identity should restart the timer.
@@ -4580,8 +4581,8 @@ function App() {
       return
     }
 
-    const [card, ...remaining] = devDeck
-    setDevDeck(remaining)
+    const card = devDeck[0]
+    dispatch({ type: 'DEV_CARD_DRAWN' })
     applyDevCardBought(player.id, card)
     inform(`${player.name} bought a development card.`)
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
@@ -6419,12 +6420,10 @@ function App() {
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
     setBanner(null)
-    setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
-    setProgressCardDecks({
-      science: buildProgressCardDeck('science'),
-      trade: buildProgressCardDeck('trade'),
-      politics: buildProgressCardDeck('politics'),
-    })
+    dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)) })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: buildProgressCardDeck('science') })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: buildProgressCardDeck('trade') })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
     setProgressCardOverLimitPlayerIds([])
     setWinner(null)
     setPendingTrade(null)
@@ -6438,16 +6437,17 @@ function App() {
     setScienceFreeResourcePlayerIds([])
     setGoldFieldResourcePlayerIds([])
     setBoardInstance((n) => n + 1)
-    setLongestRoadHolderId(null)
-    setLargestArmyHolderId(null)
+    dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: null })
+    dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: null })
     // Shared by Start Game, New Game, Return to Menu AND the remote onNewGame
     // apply — so leaving these out let a PREVIOUS match's Metropolis keep
     // scoring +2 VP for the rest of the session on every client. A leftover
     // pendingMetropolisClaim was worse still: buildSettlementRaw's Metropolis
     // branch runs ahead of the setup-placement checks, so the new game's
     // opening settlement clicks would silently resolve as Metropolis picks.
-    setMetropolisHolders({ science: null, trade: null, politics: null })
-    setMetropolisVertexIds({ science: null, trade: null, politics: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'science', playerId: null, vertexId: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'trade', playerId: null, vertexId: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'politics', playerId: null, vertexId: null })
     setPendingMetropolisClaim(null)
     // Same reasoning as pendingMetropolisClaim just above — these are all
     // player-id-keyed flags, and a fresh game reuses the same 1..N player
@@ -6631,14 +6631,30 @@ function App() {
     dispatch({ type: 'SETUP_STAGE_SET', stage: snapshot.setupStage })
     dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: snapshot.setupSettlementVertexId })
     setLastRoll(snapshot.lastRoll)
-    setDevDeck(snapshot.devDeck)
+    dispatch({ type: 'DEV_DECK_SET', deck: snapshot.devDeck })
     setWinner(snapshot.winner)
-    setLongestRoadHolderId(snapshot.longestRoadHolderId)
-    setLargestArmyHolderId(snapshot.largestArmyHolderId)
+    dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: snapshot.longestRoadHolderId })
+    dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: snapshot.largestArmyHolderId })
     const restoredMetropolisHolders = snapshot.metropolisHolders ?? { science: null, trade: null, politics: null }
     const restoredMetropolisVertexIds = snapshot.metropolisVertexIds ?? { science: null, trade: null, politics: null }
-    setMetropolisHolders(restoredMetropolisHolders)
-    setMetropolisVertexIds(restoredMetropolisVertexIds)
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'science',
+      playerId: restoredMetropolisHolders.science,
+      vertexId: restoredMetropolisVertexIds.science,
+    })
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'trade',
+      playerId: restoredMetropolisHolders.trade,
+      vertexId: restoredMetropolisVertexIds.trade,
+    })
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'politics',
+      playerId: restoredMetropolisHolders.politics,
+      vertexId: restoredMetropolisVertexIds.politics,
+    })
     // Cities & Knights Merchant (Task 13) — merchantTileId/merchantHolderId
     // are now restored by the widened RESTORE_BOARD dispatch above (see
     // board.ts's RESTORE_BOARD case), same optional/backward-compatible
@@ -6735,13 +6751,14 @@ function App() {
     // before this field was wired in, which falls back to a freshly built
     // set of per-track decks (correct composition, just not this match's
     // exact remaining draw order).
-    setProgressCardDecks(
-      snapshot.progressCardDecks ?? {
-        science: buildProgressCardDeck('science'),
-        trade: buildProgressCardDeck('trade'),
-        politics: buildProgressCardDeck('politics'),
-      },
-    )
+    const restoredProgressCardDecks = snapshot.progressCardDecks ?? {
+      science: buildProgressCardDeck('science'),
+      trade: buildProgressCardDeck('trade'),
+      politics: buildProgressCardDeck('politics'),
+    }
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: restoredProgressCardDecks.science })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: restoredProgressCardDecks.trade })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: restoredProgressCardDecks.politics })
     setProgressDiscardSelection([])
     // Unlike discardPlayerIds (recomputed below from restored resource
     // counts), Science level 3's queue isn't derivable after the fact — it

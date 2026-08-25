@@ -67,6 +67,18 @@ describe('reduceGame', () => {
     expect(result.board.shipsBuiltThisTurn).toEqual([])
   })
 
+  it('routes a decks action through reduceDecks', () => {
+    const result = reduceGame(initialGameState, { type: 'DEV_CARD_DRAWN' })
+    expect(result.decks.devDeck).toEqual(initialGameState.decks.devDeck.slice(1))
+    expect(result.board).toBe(initialGameState.board)
+  })
+
+  it('routes a trophies action through reduceTrophies', () => {
+    const result = reduceGame(initialGameState, { type: 'LONGEST_ROAD_HOLDER_SET', playerId: 2 })
+    expect(result.trophies.longestRoadHolderId).toBe(2)
+    expect(result.board).toBe(initialGameState.board)
+  })
+
   it('does not mutate the input state', () => {
     const before = initialGameState
     const settlementsRemainingBefore = before.players[0].settlementsRemaining

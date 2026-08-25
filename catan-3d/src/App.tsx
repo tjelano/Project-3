@@ -391,7 +391,7 @@ function App() {
   // Reset by the effect near resolvePlayerTrade whenever pendingTrade
   // itself changes, so it never blocks a genuinely NEW trade.
   const isResolvingTradeRef = useRef(false)
-  const [freeRoadsRemaining, setFreeRoadsRemaining] = useState(0)
+  const freeRoadsRemaining = gameState.turn.freeRoadsRemaining
   // Cities & Knights Alchemy — set by playAlchemy (before rolling), consumed
   // once by handlePhysicsSettled to override the GAME-LOGIC d1/d2 for that
   // one roll (physics still tumbles and visually shows its own real result —
@@ -873,7 +873,13 @@ function App() {
       console.error('[Catan] Ignoring TURN_PASSED with an out-of-range player index:', nextIndex)
       return
     }
-    setFreeRoadsRemaining(0)
+    // Road Building's free-road/ship counter is "for this turn only" — now
+    // cleared by reduceTurn's own TURN_ADVANCED case
+    // (game/reducers/turn.ts) on the SAME dispatch below, exactly like
+    // knightsPromotedThisTurn's reset described further down, so both the
+    // local end-turn action and the remote TURN_PASSED receiver apply the
+    // identical reset. The explicit setFreeRoadsRemaining(0) that used to
+    // sit here was pure redundancy once the reducer owned the field.
     // Cities & Knights Merchant Fleet — "for the rest of this turn," so any
     // active rate expires the instant the turn actually passes, regardless
     // of who it passes to.
@@ -978,7 +984,7 @@ function App() {
 
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId, isSetup, isFreeRoad }, isDeciding)
-    if (isFreeRoad) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+    if (isFreeRoad) dispatch({ type: 'FREE_ROADS_DECREMENTED' })
 
     if (isSetup) {
       const nextStepIndex = setupStepIndex + 1
@@ -1003,7 +1009,7 @@ function App() {
 
   const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
-    if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+    if (isFreeShip) dispatch({ type: 'FREE_ROADS_DECREMENTED' })
 
     // Deliberately a verbatim duplicate of applyRoadPlacement's own isSetup
     // block above, not a shared helper — same "near-verbatim copy for a
@@ -1192,7 +1198,7 @@ function App() {
 
   const applyRoadBuildingPlay = (playerId: number) => {
     spendDevCard(playerId, 'roadBuilding')
-    setFreeRoadsRemaining(2)
+    dispatch({ type: 'FREE_ROADS_SET', count: 2 })
     const player = playerById.get(playerId)
     if (player) inform(`${player.name} played Road Building — place 2 free roads.`)
   }
@@ -1892,7 +1898,7 @@ function App() {
       else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
       else if (payload.card === 'crane') applyCraneEffect(payload.playerId)
       else if (payload.card === 'medicine') applyMedicineEffect(payload.playerId)
-      else if (payload.card === 'progressRoadBuilding') setFreeRoadsRemaining((prev) => prev + 2)
+      else if (payload.card === 'progressRoadBuilding') dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 2 })
       // Sabotage/Wedding are also fully deterministic from public state (VP
       // comparison) plus each affected player's OWN hand contents — see
       // applySabotageEffect/applyWeddingEffect's own comments — so, same as
@@ -2976,7 +2982,7 @@ function App() {
     // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
     // counter Road Building/setup free roads already use (buildRoadRaw
     // checks it directly) — not a second, parallel "free road" concept.
-    if (ownerId === playerId) setFreeRoadsRemaining((prev) => prev + 1)
+    if (ownerId === playerId) dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 1 })
     if (actor) {
       inform(
         ownerId === playerId
@@ -5015,7 +5021,7 @@ function App() {
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('progressRoadBuilding')) return
     dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'progressRoadBuilding' })
-    setFreeRoadsRemaining((prev) => prev + 2)
+    dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 2 })
     inform(`${player.name} played (progress card) Road Building — place 2 free roads.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'progressRoadBuilding' })
   }
@@ -6423,7 +6429,7 @@ function App() {
     dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
     setPendingTrade(null)
-    setFreeRoadsRemaining(0)
+    dispatch({ type: 'FREE_ROADS_SET', count: 0 })
     setDevCardPicker(null)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
@@ -6661,7 +6667,7 @@ function App() {
     // backward-compatible treatment as merchantTileId/merchantHolderId above.
     dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: snapshot.barbarianTrackPosition ?? 0 })
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
-    setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
+    dispatch({ type: 'FREE_ROADS_SET', count: snapshot.freeRoadsRemaining })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
     setBanner(null)
     setPendingTrade(null)

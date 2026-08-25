@@ -587,7 +587,7 @@ function App() {
   // moves and nothing is stolen — CN3087 p.7: "The robber does not
   // activate until after it has been placed on the desert following the
   // first barbarian attack."
-  const [robberActive, setRobberActive] = useState(false)
+  const robberActive = gameState.board.robberActive
 
   // Cities & Knights barbarian ship position on its 7-space track (0-6).
   // Advances on each 'ship' event-die face; resets to 0 after every attack.
@@ -607,8 +607,8 @@ function App() {
   // piece sits on one tile and is controlled by at most one player at a
   // time, independent of createInitialPlayers/Player. null until the card is
   // first played and placed.
-  const [merchantTileId, setMerchantTileId] = useState<string | null>(null)
-  const [merchantHolderId, setMerchantHolderId] = useState<number | null>(null)
+  const merchantTileId = gameState.board.merchantTileId
+  const merchantHolderId = gameState.board.merchantHolderId
   // Non-null only on the acting client's own screen while a placement is in
   // progress — local-only, never broadcast, same treatment
   // pendingInventionSwap/pendingDiplomacyRemoval already get. Carries the
@@ -1663,7 +1663,7 @@ function App() {
     onBarbarianAttackResolved: (payload) => {
       setBarbarianTrackPosition(0)
       if (payload.robberActivated) {
-        setRobberActive(true)
+        dispatch({ type: 'ROBBER_ACTIVATED' })
         inform('The barbarians have landed — the robber is now active.')
       }
       applyBarbarianAttackResult(payload.result)
@@ -2096,8 +2096,7 @@ function App() {
     // sending client already validated land+adjacency locally, so every
     // other client just applies tileId/holderId directly.
     onMerchantMoved: (payload) => {
-      setMerchantTileId(payload.tileId)
-      setMerchantHolderId(payload.holderId)
+      dispatch({ type: 'MERCHANT_MOVED', tileId: payload.tileId, holderId: payload.holderId })
     },
     // Cities & Knights knight recruit (Task 7) — trusted-apply, same
     // reasoning KnightRecruitedPayload's own comment (useRoomChannel.ts)
@@ -3480,7 +3479,7 @@ function App() {
         const isFirstActivation = !robberActive
         setBarbarianTrackPosition(0)
         if (isFirstActivation) {
-          setRobberActive(true)
+          dispatch({ type: 'ROBBER_ACTIVATED' })
           // CN3087 p.7: the robber does not activate until after the first
           // barbarian attack — a one-time state transition, announced the
           // same way this project already announces others (e.g. Chase Away
@@ -5182,8 +5181,7 @@ function App() {
     }
     if (pendingMerchantPlacement == null) return
     const playerId = pendingMerchantPlacement
-    setMerchantTileId(tileId)
-    setMerchantHolderId(playerId)
+    dispatch({ type: 'MERCHANT_MOVED', tileId, holderId: playerId })
     setPendingMerchantPlacement(null)
     if (onlineInfo) broadcastMerchantMoved({ tileId, holderId: playerId })
   }
@@ -6373,7 +6371,8 @@ function App() {
     // leftover `true` from a PREVIOUS match's resolved barbarian attack would
     // let the robber move on the very first 7 of a brand-new match, even
     // with a from-scratch barbarian track that hasn't had a first attack yet.
-    setRobberActive(false)
+    // (robberActive itself is reset by the RESET_BOARD dispatch below, whose
+    // reducer case now covers it — see board.ts.)
     setBarbarianTrackPosition(0)
     setPlayerCount(count)
     // Who goes first, randomized instead of always seat 0 (the host).
@@ -6484,11 +6483,11 @@ function App() {
     // metropolisHolders/metropolisVertexIds above: a leftover holder/tile
     // from a PREVIOUS match would silently keep granting 2:1 trades and +1
     // VP to whoever last controlled it, on every client, for the rest of
-    // this session. pendingMerchantPlacement is local-only pending state,
-    // same "always reset on a fresh game" treatment pendingInventionSwap
-    // gets just above.
-    setMerchantTileId(null)
-    setMerchantHolderId(null)
+    // this session. (merchantTileId/merchantHolderId themselves are reset
+    // by the RESET_BOARD dispatch below, whose reducer case now covers
+    // them — see board.ts.) pendingMerchantPlacement is local-only pending
+    // state, same "always reset on a fresh game" treatment
+    // pendingInventionSwap gets just above.
     setPendingMerchantPlacement(null)
     // Cities & Knights Engineering (Task 13) — same "always reset on a fresh
     // game" treatment pendingMerchantPlacement just above gets; local-only
@@ -6624,17 +6623,13 @@ function App() {
       hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
       robberTileId: snapshot.robberTileId,
       pirateTileId: snapshot.pirateTileId ?? null,
-      // Placeholder pass-through — Task 2 of this sub-plan replaces this
-      // with real snapshot-sourced values (snapshot.robberActive ?? false,
-      // etc.) once robberActive/merchantTileId/merchantHolderId themselves
-      // move out of local useState. Sourcing from the still-live local
-      // state here keeps this pre-existing RESTORE_BOARD call site
-      // type-safe against the widened action without changing behavior:
-      // nothing reads gameState.board.robberActive/merchantTileId/
-      // merchantHolderId yet.
-      robberActive,
-      merchantTileId,
-      merchantHolderId,
+      // Cities & Knights Barbarians/Merchant — same optional/backward-
+      // compatible `?? default` treatment robberTileId/pirateTileId above
+      // already get: absent on any snapshot saved before these fields
+      // existed.
+      robberActive: snapshot.robberActive ?? false,
+      merchantTileId: snapshot.merchantTileId ?? null,
+      merchantHolderId: snapshot.merchantHolderId ?? null,
     })
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
     dispatch({ type: 'GAME_PHASE_SET', phase: snapshot.gamePhase })
@@ -6650,15 +6645,13 @@ function App() {
     const restoredMetropolisVertexIds = snapshot.metropolisVertexIds ?? { science: null, trade: null, politics: null }
     setMetropolisHolders(restoredMetropolisHolders)
     setMetropolisVertexIds(restoredMetropolisVertexIds)
-    // Cities & Knights Merchant (Task 13) — same optional/backward-compatible
-    // `?? null` treatment as metropolisHolders/metropolisVertexIds above:
-    // absent on any snapshot saved before this feature existed.
-    setMerchantTileId(snapshot.merchantTileId ?? null)
-    setMerchantHolderId(snapshot.merchantHolderId ?? null)
+    // Cities & Knights Merchant (Task 13) — merchantTileId/merchantHolderId
+    // are now restored by the widened RESTORE_BOARD dispatch above (see
+    // board.ts's RESTORE_BOARD case), same optional/backward-compatible
+    // `?? default` treatment robberTileId/pirateTileId already get there.
     // Cities & Knights Barbarians (Tasks 3/4) — same optional/backward-
     // compatible treatment as merchantTileId/merchantHolderId above.
     setBarbarianTrackPosition(snapshot.barbarianTrackPosition ?? 0)
-    setRobberActive(snapshot.robberActive ?? false)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })

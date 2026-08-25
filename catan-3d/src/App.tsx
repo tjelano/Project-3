@@ -6624,6 +6624,17 @@ function App() {
       hasMovedShipThisTurn: snapshot.hasMovedShipThisTurn ?? false,
       robberTileId: snapshot.robberTileId,
       pirateTileId: snapshot.pirateTileId ?? null,
+      // Placeholder pass-through — Task 2 of this sub-plan replaces this
+      // with real snapshot-sourced values (snapshot.robberActive ?? false,
+      // etc.) once robberActive/merchantTileId/merchantHolderId themselves
+      // move out of local useState. Sourcing from the still-live local
+      // state here keeps this pre-existing RESTORE_BOARD call site
+      // type-safe against the widened action without changing behavior:
+      // nothing reads gameState.board.robberActive/merchantTileId/
+      // merchantHolderId yet.
+      robberActive,
+      merchantTileId,
+      merchantHolderId,
     })
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: snapshot.currentPlayerIndex })
     dispatch({ type: 'GAME_PHASE_SET', phase: snapshot.gamePhase })

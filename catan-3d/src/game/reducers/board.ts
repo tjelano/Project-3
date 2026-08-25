@@ -16,6 +16,21 @@ export interface BoardState {
   // never has (CN3083). Set once the pirate first activates; there is no
   // meaningful "initial" tile for it the way the robber starts on desert.
   pirateTileId: string | null
+  // Cities & Knights robber activation — starts inert (robber behaves as
+  // base-game: always movable on a rolled 7). Permanently flips true the
+  // first time a barbarian attack resolves, regardless of outcome — CN3087
+  // p.7: "The robber does not activate until after it has been placed on
+  // the desert following the first barbarian attack." Never reset back to
+  // false except by a full game reset (RESET_BOARD).
+  robberActive: boolean
+  // Cities & Knights Merchant board piece — same category as
+  // robberTileId/pirateTileId just above, not a per-player field: the piece
+  // sits on one tile and is controlled by at most one player at a time.
+  // null until the card is first played and placed. Always set together,
+  // via the single MERCHANT_MOVED action below — there is no case where
+  // one changes without the other.
+  merchantTileId: string | null
+  merchantHolderId: number | null
 }
 
 export const initialBoardState: BoardState = {
@@ -26,6 +41,9 @@ export const initialBoardState: BoardState = {
   hasMovedShipThisTurn: false,
   robberTileId: '',
   pirateTileId: null,
+  robberActive: false,
+  merchantTileId: null,
+  merchantHolderId: null,
 }
 
 export type BoardAction =
@@ -37,6 +55,8 @@ export type BoardAction =
   | { type: 'REMOVE_ROAD'; edgeId: string }
   | { type: 'MOVE_SHIP'; fromEdgeId: string; toEdgeId: string; playerId: number }
   | { type: 'PIRATE_MOVED'; tileId: string | null; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
+  | { type: 'ROBBER_ACTIVATED' }
+  | { type: 'MERCHANT_MOVED'; tileId: string; holderId: number }
   | { type: 'RESET_BOARD'; robberTileId: string }
   | {
       type: 'RESTORE_BOARD'
@@ -47,6 +67,9 @@ export type BoardAction =
       hasMovedShipThisTurn: boolean
       robberTileId: string
       pirateTileId: string | null
+      robberActive: boolean
+      merchantTileId: string | null
+      merchantHolderId: number | null
     }
 
 export function reduceBoard(state: BoardState, action: GameAction, _fullState: GameState): BoardState {
@@ -102,6 +125,10 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       return { ...state, robberTileId: action.tileId }
     case 'PIRATE_MOVED':
       return { ...state, pirateTileId: action.tileId }
+    case 'ROBBER_ACTIVATED':
+      return { ...state, robberActive: true }
+    case 'MERCHANT_MOVED':
+      return { ...state, merchantTileId: action.tileId, merchantHolderId: action.holderId }
     case 'TURN_ADVANCED':
       return { ...state, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false }
     case 'RESET_BOARD':
@@ -109,7 +136,7 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
       // singleton — nothing mutates settlements/roads in place today, but
       // aliasing the module-level object into live state costs nothing to
       // avoid.
-      return { settlements: {}, roads: {}, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: action.robberTileId, pirateTileId: null }
+      return { settlements: {}, roads: {}, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: action.robberTileId, pirateTileId: null, robberActive: false, merchantTileId: null, merchantHolderId: null }
     case 'RESTORE_BOARD':
       return {
         settlements: action.settlements,
@@ -119,6 +146,9 @@ export function reduceBoard(state: BoardState, action: GameAction, _fullState: G
         hasMovedShipThisTurn: action.hasMovedShipThisTurn,
         robberTileId: action.robberTileId,
         pirateTileId: action.pirateTileId,
+        robberActive: action.robberActive,
+        merchantTileId: action.merchantTileId,
+        merchantHolderId: action.merchantHolderId,
       }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full

@@ -100,14 +100,55 @@ describe('reduceTurn — CONSECUTIVE_DOUBLES_SET', () => {
   })
 })
 
+describe('reduceTurn — FREE_ROADS_SET', () => {
+  it('sets freeRoadsRemaining to the given count, leaves every other field untouched', () => {
+    const result = reduceTurn(initialTurnState, { type: 'FREE_ROADS_SET', count: 2 }, initialGameState)
+    expect(result).toEqual({ ...initialTurnState, freeRoadsRemaining: 2 })
+  })
+
+  it('overwrites an existing count rather than adding to it (the dev-card Road Building path)', () => {
+    const dirty = { ...initialTurnState, freeRoadsRemaining: 1 }
+    const result = reduceTurn(dirty, { type: 'FREE_ROADS_SET', count: 2 }, initialGameState)
+    expect(result.freeRoadsRemaining).toBe(2)
+  })
+})
+
+describe('reduceTurn — FREE_ROADS_DECREMENTED', () => {
+  it('decrements by 1, leaves every other field untouched', () => {
+    const dirty = { ...initialTurnState, freeRoadsRemaining: 2 }
+    const result = reduceTurn(dirty, { type: 'FREE_ROADS_DECREMENTED' }, initialGameState)
+    expect(result).toEqual({ ...initialTurnState, freeRoadsRemaining: 1 })
+  })
+
+  it('clamps at 0 instead of going negative', () => {
+    const result = reduceTurn(initialTurnState, { type: 'FREE_ROADS_DECREMENTED' }, initialGameState)
+    expect(result.freeRoadsRemaining).toBe(0)
+  })
+})
+
+describe('reduceTurn — FREE_ROADS_INCREMENTED', () => {
+  it('adds the given amount to the current count', () => {
+    const dirty = { ...initialTurnState, freeRoadsRemaining: 1 }
+    const result = reduceTurn(dirty, { type: 'FREE_ROADS_INCREMENTED', amount: 2 }, initialGameState)
+    expect(result).toEqual({ ...initialTurnState, freeRoadsRemaining: 3 })
+  })
+
+  it('compounds across two dispatches instead of overwriting (the progress-card + Diplomacy paths)', () => {
+    const once = reduceTurn(initialTurnState, { type: 'FREE_ROADS_INCREMENTED', amount: 2 }, initialGameState)
+    const twice = reduceTurn(once, { type: 'FREE_ROADS_INCREMENTED', amount: 1 }, initialGameState)
+    expect(twice.freeRoadsRemaining).toBe(3)
+  })
+})
+
 describe('reduceTurn — TURN_ADVANCED', () => {
-  it('sets currentPlayerIndex and resets hasRolledThisTurn/devCardPlayedThisTurn/consecutiveDoublesThisTurn in one dispatch, leaves setup fields untouched', () => {
+  it('sets currentPlayerIndex and resets hasRolledThisTurn/devCardPlayedThisTurn/consecutiveDoublesThisTurn/freeRoadsRemaining in one dispatch, leaves setup fields untouched', () => {
     const dirty = {
       ...initialTurnState,
       currentPlayerIndex: 0,
       hasRolledThisTurn: true,
       devCardPlayedThisTurn: true,
       consecutiveDoublesThisTurn: 2,
+      freeRoadsRemaining: 2,
       setupStepIndex: 3,
       totalRollsThisGame: 5,
     }
@@ -118,6 +159,7 @@ describe('reduceTurn — TURN_ADVANCED', () => {
       hasRolledThisTurn: false,
       devCardPlayedThisTurn: false,
       consecutiveDoublesThisTurn: 0,
+      freeRoadsRemaining: 0,
     })
   })
 })

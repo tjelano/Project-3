@@ -383,7 +383,7 @@ function App() {
   // from the same trusted-applied hand contents.
   const progressCardOverLimitPlayerIds = gameState.pendingQueues.progressCardOverLimitPlayerIds
   const [winner, setWinner] = useState<Player | null>(null)
-  const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
+  const pendingTrade = gameState.trade.pendingTrade
   // Guards resolvePlayerTrade against a rapid double-click on Accept — a
   // ref rather than state specifically because it has to block a SECOND
   // click that lands before React has re-rendered from the first one (a
@@ -391,7 +391,7 @@ function App() {
   // Reset by the effect near resolvePlayerTrade whenever pendingTrade
   // itself changes, so it never blocks a genuinely NEW trade.
   const isResolvingTradeRef = useRef(false)
-  const [freeRoadsRemaining, setFreeRoadsRemaining] = useState(0)
+  const freeRoadsRemaining = gameState.turn.freeRoadsRemaining
   // Cities & Knights Alchemy — set by playAlchemy (before rolling), consumed
   // once by handlePhysicsSettled to override the GAME-LOGIC d1/d2 for that
   // one roll (physics still tumbles and visually shows its own real result —
@@ -873,7 +873,13 @@ function App() {
       console.error('[Catan] Ignoring TURN_PASSED with an out-of-range player index:', nextIndex)
       return
     }
-    setFreeRoadsRemaining(0)
+    // Road Building's free-road/ship counter is "for this turn only" — now
+    // cleared by reduceTurn's own TURN_ADVANCED case
+    // (game/reducers/turn.ts) on the SAME dispatch below, exactly like
+    // knightsPromotedThisTurn's reset described further down, so both the
+    // local end-turn action and the remote TURN_PASSED receiver apply the
+    // identical reset. The explicit setFreeRoadsRemaining(0) that used to
+    // sit here was pure redundancy once the reducer owned the field.
     // Cities & Knights Merchant Fleet — "for the rest of this turn," so any
     // active rate expires the instant the turn actually passes, regardless
     // of who it passes to.
@@ -978,7 +984,7 @@ function App() {
 
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_ROAD', edgeId, playerId, isSetup, isFreeRoad }, isDeciding)
-    if (isFreeRoad) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+    if (isFreeRoad) dispatch({ type: 'FREE_ROADS_DECREMENTED' })
 
     if (isSetup) {
       const nextStepIndex = setupStepIndex + 1
@@ -1003,7 +1009,7 @@ function App() {
 
   const applyShipPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeShip: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SHIP', edgeId, playerId, isSetup, isFreeShip }, isDeciding)
-    if (isFreeShip) setFreeRoadsRemaining((prev) => Math.max(0, prev - 1))
+    if (isFreeShip) dispatch({ type: 'FREE_ROADS_DECREMENTED' })
 
     // Deliberately a verbatim duplicate of applyRoadPlacement's own isSetup
     // block above, not a shared helper — same "near-verbatim copy for a
@@ -1192,7 +1198,7 @@ function App() {
 
   const applyRoadBuildingPlay = (playerId: number) => {
     spendDevCard(playerId, 'roadBuilding')
-    setFreeRoadsRemaining(2)
+    dispatch({ type: 'FREE_ROADS_SET', count: 2 })
     const player = playerById.get(playerId)
     if (player) inform(`${player.name} played Road Building — place 2 free roads.`)
   }
@@ -1750,7 +1756,7 @@ function App() {
       applyTradeMonopolyEffect(payload.playerId, payload.commodity)
     },
     onTradeOffered: (payload) => {
-      setPendingTrade(payload)
+      dispatch({ type: 'PENDING_TRADE_SET', trade: payload })
       playSfx('tradeRequest')
     },
     // Every client hears this, but only the (effective) host acts on it —
@@ -1761,10 +1767,10 @@ function App() {
     },
     onTradeResolved: (payload) => {
       applyTradeResolution(payload)
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
     },
     onTradeCancelled: (payload) => {
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(payload.reason)
     },
     onDiscardConfirmed: (payload) => applyDiscard(payload.playerId, payload.counts),
@@ -1892,7 +1898,7 @@ function App() {
       else if (payload.card === 'mining') applyMiningEffect(payload.playerId)
       else if (payload.card === 'crane') applyCraneEffect(payload.playerId)
       else if (payload.card === 'medicine') applyMedicineEffect(payload.playerId)
-      else if (payload.card === 'progressRoadBuilding') setFreeRoadsRemaining((prev) => prev + 2)
+      else if (payload.card === 'progressRoadBuilding') dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 2 })
       // Sabotage/Wedding are also fully deterministic from public state (VP
       // comparison) plus each affected player's OWN hand contents — see
       // applySabotageEffect/applyWeddingEffect's own comments — so, same as
@@ -2976,7 +2982,7 @@ function App() {
     // Own road removed -> 1 free rebuild, via the SAME freeRoadsRemaining
     // counter Road Building/setup free roads already use (buildRoadRaw
     // checks it directly) — not a second, parallel "free road" concept.
-    if (ownerId === playerId) setFreeRoadsRemaining((prev) => prev + 1)
+    if (ownerId === playerId) dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 1 })
     if (actor) {
       inform(
         ownerId === playerId
@@ -4409,7 +4415,7 @@ function App() {
     }
 
     const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerResource, wantResource }
-    setPendingTrade(trade)
+    dispatch({ type: 'PENDING_TRADE_SET', trade })
     playSfx('tradeRequest')
     if (onlineInfo) {
       broadcastTradeOffered(trade)
@@ -4430,18 +4436,18 @@ function App() {
     const fromPlayer = playerById.get(trade.fromPlayerId)
     const toPlayer = playerById.get(trade.toPlayerId)
     if (!fromPlayer || !toPlayer) {
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       return
     }
     if (toPlayer.resources[trade.wantResource] < 1 || fromPlayer.resources[trade.offerResource] < 1) {
       const reason = `The trade between ${fromPlayer.name} and ${toPlayer.name} fell through — resources changed.`
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       broadcastTradeCancelled({ reason })
       return
     }
     applyTradeResolution(trade)
-    setPendingTrade(null)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
     broadcastTradeResolved(trade)
   }
 
@@ -4459,7 +4465,7 @@ function App() {
     if (!accept) {
       const toPlayer = playerById.get(pendingTrade.toPlayerId)
       const reason = `${toPlayer?.name ?? 'The player'} declined the trade.`
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       if (onlineInfo) broadcastTradeCancelled({ reason })
       return
@@ -4485,12 +4491,12 @@ function App() {
         fromPlayer.resources[pendingTrade.offerResource] < 1
       ) {
         const reason = `The trade between ${fromPlayer?.name ?? 'a player'} and ${toPlayer?.name ?? 'a player'} fell through — resources changed.`
-        setPendingTrade(null)
+        dispatch({ type: 'PENDING_TRADE_CLEARED' })
         inform(reason)
         return
       }
       applyTradeResolution(pendingTrade)
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       return
     }
 
@@ -4525,7 +4531,7 @@ function App() {
     if (!pendingTrade) return
     const timer = setTimeout(() => {
       const reason = 'The trade offer expired with no response.'
-      setPendingTrade(null)
+      dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
       if (onlineInfo) broadcastTradeCancelled({ reason })
     }, TRADE_OFFER_TIMEOUT_MS)
@@ -5015,7 +5021,7 @@ function App() {
     const player = players[currentPlayerIndex]
     if (!player.progressCards.includes('progressRoadBuilding')) return
     dispatch({ type: 'PROGRESS_CARD_SPENT', playerId: player.id, card: 'progressRoadBuilding' })
-    setFreeRoadsRemaining((prev) => prev + 2)
+    dispatch({ type: 'FREE_ROADS_INCREMENTED', amount: 2 })
     inform(`${player.name} played (progress card) Road Building — place 2 free roads.`)
     if (onlineInfo) broadcastProgressCardPlayed({ playerId: player.id, card: 'progressRoadBuilding' })
   }
@@ -6422,8 +6428,8 @@ function App() {
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
     dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
-    setPendingTrade(null)
-    setFreeRoadsRemaining(0)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
+    dispatch({ type: 'FREE_ROADS_SET', count: 0 })
     setDevCardPicker(null)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
@@ -6661,10 +6667,10 @@ function App() {
     // backward-compatible treatment as merchantTileId/merchantHolderId above.
     dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: snapshot.barbarianTrackPosition ?? 0 })
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
-    setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
+    dispatch({ type: 'FREE_ROADS_SET', count: snapshot.freeRoadsRemaining })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
     setBanner(null)
-    setPendingTrade(null)
+    dispatch({ type: 'PENDING_TRADE_CLEARED' })
     setDevCardPicker(null)
     // Not part of MatchSnapshot — RE-DERIVED instead. Simply clearing it
     // (the original behavior) was fine at level 4, where the player can just

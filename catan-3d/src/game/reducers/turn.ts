@@ -13,6 +13,7 @@ export interface TurnState {
   hasRolledThisTurn: boolean
   totalRollsThisGame: number
   consecutiveDoublesThisTurn: number
+  freeRoadsRemaining: number
 }
 
 export const initialTurnState: TurnState = {
@@ -25,6 +26,7 @@ export const initialTurnState: TurnState = {
   hasRolledThisTurn: false,
   totalRollsThisGame: 0,
   consecutiveDoublesThisTurn: 0,
+  freeRoadsRemaining: 0,
 }
 
 export type TurnAction =
@@ -39,6 +41,9 @@ export type TurnAction =
   | { type: 'TOTAL_ROLLS_RESET' }
   | { type: 'TOTAL_ROLLS_SET'; count: number }
   | { type: 'CONSECUTIVE_DOUBLES_SET'; count: number }
+  | { type: 'FREE_ROADS_SET'; count: number }
+  | { type: 'FREE_ROADS_DECREMENTED' }
+  | { type: 'FREE_ROADS_INCREMENTED'; amount: number }
 
 export function reduceTurn(state: TurnState, action: GameAction, _fullState: GameState): TurnState {
   switch (action.type) {
@@ -64,6 +69,16 @@ export function reduceTurn(state: TurnState, action: GameAction, _fullState: Gam
       return { ...state, totalRollsThisGame: action.count }
     case 'CONSECUTIVE_DOUBLES_SET':
       return { ...state, consecutiveDoublesThisTurn: action.count }
+    case 'FREE_ROADS_SET':
+      return { ...state, freeRoadsRemaining: action.count }
+    case 'FREE_ROADS_DECREMENTED':
+      // Clamped, matching the old setFreeRoadsRemaining((prev) =>
+      // Math.max(0, prev - 1)) exactly: a road/ship placement that somehow
+      // ran with the counter already at 0 must not drive it negative, since
+      // every gate downstream is a `freeRoadsRemaining > 0` truth test.
+      return { ...state, freeRoadsRemaining: Math.max(0, state.freeRoadsRemaining - 1) }
+    case 'FREE_ROADS_INCREMENTED':
+      return { ...state, freeRoadsRemaining: state.freeRoadsRemaining + action.amount }
     case 'TURN_ADVANCED':
       return {
         ...state,
@@ -71,12 +86,13 @@ export function reduceTurn(state: TurnState, action: GameAction, _fullState: Gam
         hasRolledThisTurn: false,
         devCardPlayedThisTurn: false,
         consecutiveDoublesThisTurn: 0,
+        freeRoadsRemaining: 0,
       }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full
       // GameAction union (every slice's actions), not just TurnAction, so
       // most of that union — including every board-only and players-only
-      // action — is legitimately unhandled here. reduceTurn only owns the 11
+      // action — is legitimately unhandled here. reduceTurn only owns the 14
       // dedicated cases above, plus TURN_ADVANCED (declared as a
       // PlayersAction member — see players.ts — and already handled by
       // reduceBoard and reducePlayers too; each slice applies its own share

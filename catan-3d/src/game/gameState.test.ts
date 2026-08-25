@@ -85,6 +85,20 @@ describe('reduceGame', () => {
     expect(result.board).toBe(initialGameState.board)
   })
 
+  it('routes a trade action through reduceTrade', () => {
+    const result = reduceGame(initialGameState, {
+      type: 'PENDING_TRADE_SET',
+      trade: { fromPlayerId: 1, toPlayerId: 2, offerResource: 'brick', wantResource: 'grain' },
+    })
+    expect(result.trade.pendingTrade).toEqual({
+      fromPlayerId: 1,
+      toPlayerId: 2,
+      offerResource: 'brick',
+      wantResource: 'grain',
+    })
+    expect(result.board).toBe(initialGameState.board)
+  })
+
   it('does not mutate the input state', () => {
     const before = initialGameState
     const settlementsRemainingBefore = before.players[0].settlementsRemaining

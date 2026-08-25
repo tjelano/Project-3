@@ -5,6 +5,7 @@ import { reduceProgress, initialProgressState, type ProgressState, type Progress
 import { reduceDecks, initialDecksState, type DecksState, type DecksAction } from './reducers/decks'
 import { reduceTrophies, initialTrophiesState, type TrophiesState, type TrophiesAction } from './reducers/trophies'
 import { reducePendingQueues, initialPendingQueuesState, type PendingQueuesState, type PendingQueuesAction } from './reducers/pendingQueues'
+import { reduceTrade, initialTradeState, type TradeState, type TradeAction } from './reducers/trade'
 import { createInitialPlayers, type Player } from './types'
 
 export interface GameState {
@@ -15,6 +16,7 @@ export interface GameState {
   decks: DecksState
   trophies: TrophiesState
   pendingQueues: PendingQueuesState
+  trade: TradeState
 }
 
 export const initialGameState: GameState = {
@@ -27,9 +29,10 @@ export const initialGameState: GameState = {
   decks: initialDecksState,
   trophies: initialTrophiesState,
   pendingQueues: initialPendingQueuesState,
+  trade: initialTradeState,
 }
 
-export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction | PendingQueuesAction
+export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction | PendingQueuesAction | TradeAction
 
 export function reduceGame(state: GameState, action: GameAction): GameState {
   return {
@@ -40,5 +43,6 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
     decks: reduceDecks(state.decks, action, state),
     trophies: reduceTrophies(state.trophies, action, state),
     pendingQueues: reducePendingQueues(state.pendingQueues, action, state),
+    trade: reduceTrade(state.trade, action, state),
   }
 }

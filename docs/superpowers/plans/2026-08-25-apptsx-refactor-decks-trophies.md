@@ -166,6 +166,7 @@ export type DecksAction =
   | { type: 'DEV_CARD_DRAWN' }
   | { type: 'DEV_DECK_SET'; deck: DevCardType[] }
   | { type: 'PROGRESS_CARD_DECK_SET'; track: ImprovementTrack; deck: ProgressCardType[] }
+  | { type: 'PROGRESS_CARD_DECK_POPPED'; track: ImprovementTrack; count: number }
 
 export function reduceDecks(state: DecksState, action: GameAction, _fullState: GameState): DecksState {
   switch (action.type) {
@@ -175,16 +176,26 @@ export function reduceDecks(state: DecksState, action: GameAction, _fullState: G
       return { ...state, devDeck: action.deck }
     case 'PROGRESS_CARD_DECK_SET':
       return { ...state, progressCardDecks: { ...state.progressCardDecks, [action.track]: action.deck } }
+    case 'PROGRESS_CARD_DECK_POPPED':
+      return {
+        ...state,
+        progressCardDecks: {
+          ...state.progressCardDecks,
+          [action.track]: state.progressCardDecks[action.track].slice(action.count),
+        },
+      }
     default:
       // Not a `never`-exhaustiveness default: `action` is the full GameAction
       // union (every slice's actions), not just DecksAction, so most of that
       // union — including every board-only/players-only/turn-only/progress-
       // only action — is legitimately unhandled here. reduceDecks only owns
-      // the 3 dedicated cases above.
+      // the 4 dedicated cases above.
       return state
   }
 }
 ```
+
+**Post-merge correction (added after this sub-plan's final whole-branch review):** the original version of this section specified only 3 `DecksAction` members. The final review found that `onBarbarianWinnerDrawResolved` and `onProgressCardsDrawn` (Task 2, Steps 4 and 8 below) — as originally specified using `PROGRESS_CARD_DECK_SET` with a value computed from the closed-over `progressCardDecks` alias — reintroduced a stale-closure bug: React's OLD functional-updater form (`setProgressCardDecks((prev) => ({ ...prev, [track]: prev[track].slice(N) }))`) was safe regardless of closure staleness, but the migrated absolute-dispatch form was not, since two rapid-fire broadcasts for the same track (reachable via the host's winner-draw timeout sweep) could both read the same stale value and the second would silently overwrite instead of compound with the first. `PROGRESS_CARD_DECK_POPPED` fixes this by computing the slice against LIVE reducer state (`state.progressCardDecks[action.track]`), never a value threaded in from a component closure — mirroring `DEV_CARD_DRAWN`'s own "reducer computes against live state" design. Steps 4 and 8 below already show the corrected, final form (`PROGRESS_CARD_DECK_POPPED`, not `PROGRESS_CARD_DECK_SET`) — this note exists so a future reader of this plan understands why 4 actions exist instead of the 3 originally designed, and does not "simplify" back to 3 by re-deriving the vulnerable form. The other 6 `PROGRESS_CARD_DECK_SET` call sites (Steps 5, 6, 7, 9's 3 dispatches, 11's 3 dispatches) are unaffected and correctly keep using `PROGRESS_CARD_DECK_SET` — they are either local user-triggered handlers, not rapid-fire broadcast receivers, or already compute from a fresh local snapshot.
 
 - [ ] **Step 4: Run the test file to verify it passes**
 
@@ -541,13 +552,11 @@ Find:
       setProgressCardDecks((prev) => ({ ...prev, [payload.track]: prev[payload.track].slice(1) }))
 ```
 
+**Post-merge correction:** the version below is the CORRECTED final form (`PROGRESS_CARD_DECK_POPPED`), not this plan's original draft (which specified `PROGRESS_CARD_DECK_SET` with `deck: progressCardDecks[payload.track].slice(1)`, computed from the closed-over alias). That original form reintroduced a stale-closure bug the final whole-branch review found — see the "Post-merge correction" note under `decks.ts`'s own definition above. Use `PROGRESS_CARD_DECK_POPPED` here, not `PROGRESS_CARD_DECK_SET`.
+
 Replace:
 ```tsx
-      dispatch({
-        type: 'PROGRESS_CARD_DECK_SET',
-        track: payload.track,
-        deck: progressCardDecks[payload.track].slice(1),
-      })
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: 1 })
 ```
 
 - [ ] **Step 5: `handleBarbarianWinnerDraw` — pop 1 card off `progressCardDecks[track]`**
@@ -698,17 +707,15 @@ Find:
       }))
 ```
 
+**Post-merge correction:** the version below is the CORRECTED final form (`PROGRESS_CARD_DECK_POPPED`), not this plan's original draft (which specified `PROGRESS_CARD_DECK_SET` with `deck: progressCardDecks[payload.track].slice(payload.draws.length)`, computed from the closed-over alias). That original form reintroduced the same stale-closure bug described in Step 4's own note above. Use `PROGRESS_CARD_DECK_POPPED` here, not `PROGRESS_CARD_DECK_SET`.
+
 Replace:
 ```tsx
       applyProgressCardDraws(payload.draws)
       // Pop the SAME COUNT off this client's own local deck copy — contents
       // never shown to anyone, so which specific cards remain doesn't need to
       // match the roller's; only the remaining length does.
-      dispatch({
-        type: 'PROGRESS_CARD_DECK_SET',
-        track: payload.track,
-        deck: progressCardDecks[payload.track].slice(payload.draws.length),
-      })
+      dispatch({ type: 'PROGRESS_CARD_DECK_POPPED', track: payload.track, count: payload.draws.length })
 ```
 
 - [ ] **Step 9: `resetGame` — `devDeck`/`progressCardDecks`**

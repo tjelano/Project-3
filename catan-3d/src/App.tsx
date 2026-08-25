@@ -117,7 +117,6 @@ import {
   selectSmithingPromotions,
   BARBARIAN_TRACK_LENGTH,
   type BarbarianAttackResult,
-  type BarbarianPillageTarget,
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
@@ -590,8 +589,8 @@ function App() {
   // front-ordered — see activePillageTarget/activeWinnerDrawPlayerId below
   // for why).
   const activeBarbarianAttack = gameState.progress.activeBarbarianAttack
-  const [pillageQueue, setPillageQueue] = useState<BarbarianPillageTarget[]>([])
-  const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
+  const pillageQueue = gameState.pendingQueues.pillageQueue
+  const winnerDrawQueue = gameState.pendingQueues.winnerDrawQueue // player ids, tied winners only
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
   // category as gameState.board.robberTileId, not a per-player field: the
@@ -1399,7 +1398,7 @@ function App() {
   // can't do this, since `dispatch` is async and the reducer's own state
   // doesn't update until the next render, so two same-tick calls would both
   // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
-  // alongside setPillageQueue([]).
+  // alongside dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] }).
   const resolvedPillageVertexIdsRef = useRef(new Set<string>())
   const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
     // City-ownership guard — rejects a vertex that was never a pillageable
@@ -1420,7 +1419,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
-    setPillageQueue((prev) => dequeueOne(prev, (t) => t.playerId, playerId))
+    dispatch({ type: 'PILLAGE_QUEUE_ENTRY_REMOVED', playerId })
   }
 
   // Trusted state mutation for one tied Defender-of-Catan winner's
@@ -1441,7 +1440,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
-    setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'WINNER_DRAW_QUEUE_ENTRY_REMOVED', playerId })
   }
 
   // Trusted state mutation for a city improvement purchase — shared by the
@@ -3307,7 +3306,7 @@ function App() {
   // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result })
-    setPillageQueue(result.pillageTargets)
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: result.pillageTargets })
     if (result.defendersWin) {
       const soleWinner = result.winners.find((w) => !w.tied)
       if (soleWinner) {
@@ -3315,7 +3314,7 @@ function App() {
         const winnerPlayer = playerById.get(soleWinner.playerId)
         if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
       } else if (gameRules.citiesAndKnightsProgressCards) {
-        setWinnerDrawQueue(result.winners.map((w) => w.playerId))
+        dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: result.winners.map((w) => w.playerId) })
       }
       // else: Knights ON + Barbarians ON + Progress Cards OFF is a
       // supported configuration (Barbarians hard-depends on Knights only —
@@ -3934,7 +3933,7 @@ function App() {
       for (const playerId of winnerDrawQueue) {
         const track = IMPROVEMENT_TRACK_ORDER.find((t) => decks[t].length > 0)
         if (!track) {
-          setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
+          dispatch({ type: 'WINNER_DRAW_QUEUE_ENTRY_REMOVED', playerId })
           continue
         }
         const [card, ...rest] = decks[track]
@@ -6522,9 +6521,9 @@ function App() {
     // match would otherwise pop the attack modal (or strand a queue entry
     // no current player can ever clear) the instant the new game starts.
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
-    setPillageQueue([])
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] })
     resolvedPillageVertexIdsRef.current.clear()
-    setWinnerDrawQueue([])
+    dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: [] })
     dispatch({ type: 'GAME_PHASE_SET', phase: 'setup' })
     dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
     dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
@@ -6723,9 +6722,9 @@ function App() {
     // re-open the modal over state it no longer describes. Matches
     // resetGame's own clearing of these same three.
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
-    setPillageQueue([])
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] })
     resolvedPillageVertexIdsRef.current.clear()
-    setWinnerDrawQueue([])
+    dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: [] })
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
     // would hijack handleKnightVertexSelect's leading branch (intercepting

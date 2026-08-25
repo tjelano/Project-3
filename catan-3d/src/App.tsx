@@ -376,12 +376,8 @@ function App() {
   // considering. Always null in local Pass & Play — there's only one
   // shared screen, which already shows the hover directly.
   const [remoteHover, setRemoteHover] = useState<HoverChangedPayload>({ playerId: -1, vertexId: null, edgeId: null })
-  const [devDeck, setDevDeck] = useState<DevCardType[]>(() => shuffle(buildDevCardDeck()))
-  const [progressCardDecks, setProgressCardDecks] = useState<Record<ImprovementTrack, ProgressCardType[]>>(() => ({
-    science: buildProgressCardDeck('science'),
-    trade: buildProgressCardDeck('trade'),
-    politics: buildProgressCardDeck('politics'),
-  }))
+  const devDeck = gameState.decks.devDeck
+  const progressCardDecks = gameState.decks.progressCardDecks
   // Queue of players currently over the 4-card progress-card hand limit,
   // same per-player-queue shape as discardPlayerIds/scienceFreeResourcePlayerIds
   // below — deterministic (computed from each client's own now-updated
@@ -1716,7 +1712,11 @@ function App() {
       // copy — same reasoning as onProgressCardsDrawn: contents are never
       // shown to anyone, so which specific card remains doesn't need to
       // match the acting client's; only the remaining length does.
-      setProgressCardDecks((prev) => ({ ...prev, [payload.track]: prev[payload.track].slice(1) }))
+      dispatch({
+        type: 'PROGRESS_CARD_DECK_SET',
+        track: payload.track,
+        deck: progressCardDecks[payload.track].slice(1),
+      })
     },
     onKnightPlayed: (payload) => applyKnightPlay(payload.playerId),
     onRoadBuildingPlayed: (payload) => applyRoadBuildingPlay(payload.playerId),
@@ -1828,7 +1828,7 @@ function App() {
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
       applyDevCardBought(payload.playerId, payload.card)
-      setDevDeck((prev) => prev.slice(1))
+      dispatch({ type: 'DEV_CARD_DRAWN' })
     },
     // Same reasoning as onDevCardBought above — a city improvement purchase
     // only touches the buyer's own commodities/cityImprovements, so every
@@ -1877,10 +1877,11 @@ function App() {
       // Pop the SAME COUNT off this client's own local deck copy — contents
       // never shown to anyone, so which specific cards remain doesn't need to
       // match the roller's; only the remaining length does.
-      setProgressCardDecks((prev) => ({
-        ...prev,
-        [payload.track]: prev[payload.track].slice(payload.draws.length),
-      }))
+      dispatch({
+        type: 'PROGRESS_CARD_DECK_SET',
+        track: payload.track,
+        deck: progressCardDecks[payload.track].slice(payload.draws.length),
+      })
     },
     // Generic receiver for every self-only, no-picker progress card play
     // (Irrigation/Mining here; Task 14's Merchant Fleet reuses this same
@@ -2382,7 +2383,7 @@ function App() {
       return
     }
     applyBarbarianWinnerDraw(playerId, card)
-    setProgressCardDecks((prev) => ({ ...prev, [track]: rest }))
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track, deck: rest })
     const player = playerById.get(playerId)
     if (player) inform(`${player.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card for tying as Defender of Catan.`)
     if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
@@ -3443,7 +3444,7 @@ function App() {
       const result = resolveEventDieDraws(players, track, d1, progressCardDecks[track], turnOrderIds)
       if (result.draws.length > 0) {
         applyProgressCardDraws(result.draws)
-        setProgressCardDecks((prev) => ({ ...prev, [track]: result.remainingDeck }))
+        dispatch({ type: 'PROGRESS_CARD_DECK_SET', track, deck: result.remainingDeck })
         for (const { playerId, card } of result.draws) {
           const p = playerById.get(playerId)
           if (p) inform(`${p.name} drew a ${PROGRESS_CARD_LABELS[card]} progress card.`)
@@ -3944,7 +3945,9 @@ function App() {
         inform(`${playerById.get(playerId)?.name ?? 'A player'}'s Defender of Catan draw timed out — a card was drawn automatically.`)
         if (onlineInfo) broadcastBarbarianWinnerDrawResolved({ playerId, track, card })
       }
-      setProgressCardDecks(decks)
+      for (const t of IMPROVEMENT_TRACK_ORDER) {
+        dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: t, deck: decks[t] })
+      }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the two timeout effects above: progressCardDecks/playerById/onlineInfo/inform/applyBarbarianWinnerDraw/broadcastBarbarianWinnerDrawResolved are read fresh via closure; only winnerDrawQueue/isEffectiveHost identity should restart the timer.
@@ -4580,8 +4583,8 @@ function App() {
       return
     }
 
-    const [card, ...remaining] = devDeck
-    setDevDeck(remaining)
+    const card = devDeck[0]
+    dispatch({ type: 'DEV_CARD_DRAWN' })
     applyDevCardBought(player.id, card)
     inform(`${player.name} bought a development card.`)
     if (onlineInfo) broadcastDevCardBought({ playerId: player.id, card })
@@ -6419,12 +6422,10 @@ function App() {
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     setRevealedTileIds(new Set())
     setBanner(null)
-    setDevDeck(shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)))
-    setProgressCardDecks({
-      science: buildProgressCardDeck('science'),
-      trade: buildProgressCardDeck('trade'),
-      politics: buildProgressCardDeck('politics'),
-    })
+    dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)) })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: buildProgressCardDeck('science') })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: buildProgressCardDeck('trade') })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
     setProgressCardOverLimitPlayerIds([])
     setWinner(null)
     setPendingTrade(null)
@@ -6631,7 +6632,7 @@ function App() {
     dispatch({ type: 'SETUP_STAGE_SET', stage: snapshot.setupStage })
     dispatch({ type: 'SETUP_SETTLEMENT_VERTEX_SET', vertexId: snapshot.setupSettlementVertexId })
     setLastRoll(snapshot.lastRoll)
-    setDevDeck(snapshot.devDeck)
+    dispatch({ type: 'DEV_DECK_SET', deck: snapshot.devDeck })
     setWinner(snapshot.winner)
     setLongestRoadHolderId(snapshot.longestRoadHolderId)
     setLargestArmyHolderId(snapshot.largestArmyHolderId)
@@ -6735,13 +6736,14 @@ function App() {
     // before this field was wired in, which falls back to a freshly built
     // set of per-track decks (correct composition, just not this match's
     // exact remaining draw order).
-    setProgressCardDecks(
-      snapshot.progressCardDecks ?? {
-        science: buildProgressCardDeck('science'),
-        trade: buildProgressCardDeck('trade'),
-        politics: buildProgressCardDeck('politics'),
-      },
-    )
+    const restoredProgressCardDecks = snapshot.progressCardDecks ?? {
+      science: buildProgressCardDeck('science'),
+      trade: buildProgressCardDeck('trade'),
+      politics: buildProgressCardDeck('politics'),
+    }
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: restoredProgressCardDecks.science })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: restoredProgressCardDecks.trade })
+    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: restoredProgressCardDecks.politics })
     setProgressDiscardSelection([])
     // Unlike discardPlayerIds (recomputed below from restored resource
     // counts), Science level 3's queue isn't derivable after the fact — it

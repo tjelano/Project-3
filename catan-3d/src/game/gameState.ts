@@ -4,6 +4,7 @@ import { reduceTurn, initialTurnState, type TurnState, type TurnAction } from '.
 import { reduceProgress, initialProgressState, type ProgressState, type ProgressAction } from './reducers/progress'
 import { reduceDecks, initialDecksState, type DecksState, type DecksAction } from './reducers/decks'
 import { reduceTrophies, initialTrophiesState, type TrophiesState, type TrophiesAction } from './reducers/trophies'
+import { reducePendingQueues, initialPendingQueuesState, type PendingQueuesState, type PendingQueuesAction } from './reducers/pendingQueues'
 import { createInitialPlayers, type Player } from './types'
 
 export interface GameState {
@@ -13,6 +14,7 @@ export interface GameState {
   progress: ProgressState
   decks: DecksState
   trophies: TrophiesState
+  pendingQueues: PendingQueuesState
 }
 
 export const initialGameState: GameState = {
@@ -24,9 +26,10 @@ export const initialGameState: GameState = {
   progress: initialProgressState,
   decks: initialDecksState,
   trophies: initialTrophiesState,
+  pendingQueues: initialPendingQueuesState,
 }
 
-export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction
+export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction | PendingQueuesAction
 
 export function reduceGame(state: GameState, action: GameAction): GameState {
   return {
@@ -36,5 +39,6 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
     progress: reduceProgress(state.progress, action, state),
     decks: reduceDecks(state.decks, action, state),
     trophies: reduceTrophies(state.trophies, action, state),
+    pendingQueues: reducePendingQueues(state.pendingQueues, action, state),
   }
 }

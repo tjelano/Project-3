@@ -79,6 +79,12 @@ describe('reduceGame', () => {
     expect(result.board).toBe(initialGameState.board)
   })
 
+  it('routes a pendingQueues action through reducePendingQueues', () => {
+    const result = reduceGame(initialGameState, { type: 'DISCARD_PLAYERS_SET', playerIds: [1, 2] })
+    expect(result.pendingQueues.discardPlayerIds).toEqual([1, 2])
+    expect(result.board).toBe(initialGameState.board)
+  })
+
   it('does not mutate the input state', () => {
     const before = initialGameState
     const settlementsRemainingBefore = before.players[0].settlementsRemaining

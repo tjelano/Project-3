@@ -36,7 +36,6 @@ import { buildHexBoard, type BoardCell, type BoardShapeId, type Biome } from './
 import { createSeededRandom, shuffle } from './utils/seededRandom'
 import { playSfx } from './audio/sfx'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency } from './data/boardGraph'
-import { revealTilesForVertex } from './game/hiddenTiles'
 import { autoDiscardCounts, discardHandSize, discardThreshold } from './game/discard'
 import { buildProgressCardDeck, progressCardHandExcess, resolveEventDieDraws, rollEventDie } from './game/progressCards'
 import {
@@ -117,7 +116,6 @@ import {
   selectSmithingPromotions,
   BARBARIAN_TRACK_LENGTH,
   type BarbarianAttackResult,
-  type BarbarianPillageTarget,
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
@@ -335,7 +333,7 @@ function App() {
   // start regardless of hiddenTiles mode; 'off' mode just means CatanBoard
   // never checks this set. Never re-hides a tile once added — see
   // game/hiddenTiles.ts.
-  const [revealedTileIds, setRevealedTileIds] = useState<Set<string>>(new Set())
+  const revealedTileIds = gameState.pendingQueues.revealedTileIds
   const [banner, setBanner] = useState<BannerMessage | null>(null)
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([])
   // Online-only — chat has no meaning in local Pass & Play (one shared
@@ -383,7 +381,7 @@ function App() {
   // players state inside applyProgressCardDraws below), so no broadcast is
   // needed to populate it; every client reaches the same queue independently
   // from the same trusted-applied hand contents.
-  const [progressCardOverLimitPlayerIds, setProgressCardOverLimitPlayerIds] = useState<number[]>([])
+  const progressCardOverLimitPlayerIds = gameState.pendingQueues.progressCardOverLimitPlayerIds
   const [winner, setWinner] = useState<Player | null>(null)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
   // Guards resolvePlayerTrade against a rapid double-click on Accept — a
@@ -517,7 +515,7 @@ function App() {
   // once every over-limit player has confirmed. Fully derivable from
   // `players`' resource counts, so it's never persisted in a match snapshot
   // — restoreFromSnapshot just recomputes it if a reconnect lands mid-discard.
-  const [discardPlayerIds, setDiscardPlayerIds] = useState<number[]>([])
+  const discardPlayerIds = gameState.pendingQueues.discardPlayerIds
   // Card-instance ids (see PlayerHand3D's buildCardSlots) the CURRENTLY
   // discarding player has flagged in their 3D hand. Local UI state, reset
   // whenever the active discarder changes.
@@ -536,7 +534,7 @@ function App() {
   // discardPlayerIds' shape (see applyRollResult and
   // activeScienceFreeResourcePlayerId below). The two queues never overlap:
   // discard only triggers on a 7, this explicitly excludes a 7.
-  const [scienceFreeResourcePlayerIds, setScienceFreeResourcePlayerIds] = useState<number[]>([])
+  const scienceFreeResourcePlayerIds = gameState.pendingQueues.scienceFreeResourcePlayerIds
   // Player IDs owed a Gold Field resource pick after the most recent roll —
   // unlike scienceFreeResourcePlayerIds (at most one entry per player per
   // roll), the same player id can appear more than once here: a city on a
@@ -545,7 +543,7 @@ function App() {
   // Field buildings in the same roll. Resolved one entry at a time (see
   // applyGoldFieldResourcePick below), never deduped via Set the way
   // scienceFreeResourcePlayerIds is.
-  const [goldFieldResourcePlayerIds, setGoldFieldResourcePlayerIds] = useState<number[]>([])
+  const goldFieldResourcePlayerIds = gameState.pendingQueues.goldFieldResourcePlayerIds
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -590,8 +588,8 @@ function App() {
   // front-ordered — see activePillageTarget/activeWinnerDrawPlayerId below
   // for why).
   const activeBarbarianAttack = gameState.progress.activeBarbarianAttack
-  const [pillageQueue, setPillageQueue] = useState<BarbarianPillageTarget[]>([])
-  const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
+  const pillageQueue = gameState.pendingQueues.pillageQueue
+  const winnerDrawQueue = gameState.pendingQueues.winnerDrawQueue // player ids, tied winners only
 
   // Cities & Knights Merchant (Task 13) — App-level board-piece state, same
   // category as gameState.board.robberTileId, not a per-player field: the
@@ -960,7 +958,8 @@ function App() {
   // in the same scope doesn't affect when they're safe to CALL.
   const applySettlementPlacement = (vertexId: string, playerId: number, isSetup: boolean, isDeciding: boolean) => {
     dispatchGameAction({ type: 'BUILD_SETTLEMENT', vertexId, playerId, isSetup }, isDeciding)
-    setRevealedTileIds((prev) => revealTilesForVertex(prev, vertexId, graph.vertexTileIds))
+    const tileIds = graph.vertexTileIds.get(vertexId) ?? []
+    dispatch({ type: 'TILES_REVEALED', tileIds })
     if (isSetup) {
       const isSecondRound = setupStepIndex >= setupOrder.length / 2
       if (isSecondRound) grantResourcesForVertex(vertexId, playerId)
@@ -1333,7 +1332,7 @@ function App() {
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
     dispatch({ type: 'DISCARD_CONFIRMED', playerId, counts })
     const remaining = dequeueOne(discardPlayerIds, (id) => id, playerId)
-    setDiscardPlayerIds(remaining)
+    dispatch({ type: 'DISCARD_PLAYER_REMOVED', playerId })
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
     // Cities & Knights barbarian-track gate (Task 3) — before the first
     // barbarian attack resolves, the robber stays inert: discard still
@@ -1360,7 +1359,7 @@ function App() {
   // splicing is safe: it can't skip/misalign entries.
   const applyProgressDiscard = (playerId: number, indices: number[]) => {
     dispatch({ type: 'PROGRESS_DISCARD_CONFIRMED', playerId, indices })
-    setProgressCardOverLimitPlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's Science level 3 free-resource
@@ -1369,7 +1368,7 @@ function App() {
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
-    setScienceFreeResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's Gold Field resource pick —
@@ -1382,7 +1381,7 @@ function App() {
   // the first.
   const applyGoldFieldResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'GOLD_FIELD_RESOURCE_PICKED', playerId, resource })
-    setGoldFieldResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's barbarian-pillage resolution —
@@ -1399,7 +1398,7 @@ function App() {
   // can't do this, since `dispatch` is async and the reducer's own state
   // doesn't update until the next render, so two same-tick calls would both
   // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
-  // alongside setPillageQueue([]).
+  // alongside dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] }).
   const resolvedPillageVertexIdsRef = useRef(new Set<string>())
   const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
     // City-ownership guard — rejects a vertex that was never a pillageable
@@ -1420,7 +1419,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — activePillageTarget
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
-    setPillageQueue((prev) => dequeueOne(prev, (t) => t.playerId, playerId))
+    dispatch({ type: 'PILLAGE_QUEUE_ENTRY_REMOVED', playerId })
   }
 
   // Trusted state mutation for one tied Defender-of-Catan winner's
@@ -1441,7 +1440,7 @@ function App() {
     // Filtered by playerId, not sliced off the front — same reasoning as
     // applyPillage above: online, tied winners resolve independently in
     // whatever order they each act, not queue order.
-    setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'WINNER_DRAW_QUEUE_ENTRY_REMOVED', playerId })
   }
 
   // Trusted state mutation for a city improvement purchase — shared by the
@@ -1504,10 +1503,7 @@ function App() {
     // fresh (still empty) array every roll would restart that timer for no
     // reason.
     if (overLimitIds.length === 0) return
-    setProgressCardOverLimitPlayerIds((prev) => {
-      const next = [...new Set([...prev, ...overLimitIds])]
-      return next
-    })
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_ADDED', playerIds: overLimitIds })
   }
 
   // Trusted state mutation for Trade level 3's 2:1 commodity trade — shared
@@ -2424,7 +2420,7 @@ function App() {
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
-      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/setPillageQueue
+      // Cascades into applyPillage's dispatch(PILLAGE_CITY)/dispatch(PILLAGE_QUEUE_ENTRY_REMOVED)
       // calls, same deliberate "self-heal" shape as the discard-queue effect
       // above (dispatch(GAME_PHASE_SET, 'moveRobber')) — there's no user gesture to hang
       // this resolution off of when there's only one legal target, so the
@@ -3307,7 +3303,7 @@ function App() {
   // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result })
-    setPillageQueue(result.pillageTargets)
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: result.pillageTargets })
     if (result.defendersWin) {
       const soleWinner = result.winners.find((w) => !w.tied)
       if (soleWinner) {
@@ -3315,7 +3311,7 @@ function App() {
         const winnerPlayer = playerById.get(soleWinner.playerId)
         if (winnerPlayer) inform(`${winnerPlayer.name} is the Defender of Catan! +1 VP.`)
       } else if (gameRules.citiesAndKnightsProgressCards) {
-        setWinnerDrawQueue(result.winners.map((w) => w.playerId))
+        dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: result.winners.map((w) => w.playerId) })
       }
       // else: Knights ON + Barbarians ON + Progress Cards OFF is a
       // supported configuration (Barbarians hard-depends on Knights only —
@@ -3574,7 +3570,7 @@ function App() {
           onlineLocalPlayerId: onlineInfo?.localPlayerId,
         })
         if (overLimitIds.length > 0) {
-          setDiscardPlayerIds(overLimitIds)
+          dispatch({ type: 'DISCARD_PLAYERS_SET', playerIds: overLimitIds })
           setDiscardSelection([])
           dispatch({ type: 'GAME_PHASE_SET', phase: 'discard' })
           inform('Rolled 7 — players over their card limit must discard half.')
@@ -3654,7 +3650,7 @@ function App() {
       graph.tileVertexIds,
     )
     if (goldFieldPicks.length > 0) {
-      setGoldFieldResourcePlayerIds((prev) => [...prev, ...goldFieldPicks.map((pick) => pick.playerId)])
+      dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_ADDED', playerIds: goldFieldPicks.map((pick) => pick.playerId) })
       const pickCountByPlayer = new Map<number, number>()
       for (const pick of goldFieldPicks) {
         pickCountByPlayer.set(pick.playerId, (pickCountByPlayer.get(pick.playerId) ?? 0) + 1)
@@ -3687,7 +3683,7 @@ function App() {
       // queued even if a later roll's eligible set doesn't include them —
       // otherwise their still-unclaimed bonus is silently dropped.
       if (eligiblePlayerIds.length > 0) {
-        setScienceFreeResourcePlayerIds((prev) => [...new Set([...prev, ...eligiblePlayerIds])])
+        dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_ADDED', playerIds: eligiblePlayerIds })
       }
     }
 
@@ -3934,7 +3930,7 @@ function App() {
       for (const playerId of winnerDrawQueue) {
         const track = IMPROVEMENT_TRACK_ORDER.find((t) => decks[t].length > 0)
         if (!track) {
-          setWinnerDrawQueue((prev) => dequeueOne(prev, (id) => id, playerId))
+          dispatch({ type: 'WINNER_DRAW_QUEUE_ENTRY_REMOVED', playerId })
           continue
         }
         const [card, ...rest] = decks[track]
@@ -6418,24 +6414,24 @@ function App() {
     dispatch({ type: 'CURRENT_PLAYER_SET', playerIndex: freshStartingPlayerIndex })
     setLastRoll(null)
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
-    setRevealedTileIds(new Set())
+    dispatch({ type: 'REVEALED_TILES_SET', tileIds: [] })
     setBanner(null)
     dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)) })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: buildProgressCardDeck('science') })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: buildProgressCardDeck('trade') })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
-    setProgressCardOverLimitPlayerIds([])
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
     setPendingTrade(null)
     setFreeRoadsRemaining(0)
     setDevCardPicker(null)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
-    setDiscardPlayerIds([])
+    dispatch({ type: 'DISCARD_PLAYERS_SET', playerIds: [] })
     setDiscardSelection([])
     setProgressDiscardSelection([])
-    setScienceFreeResourcePlayerIds([])
-    setGoldFieldResourcePlayerIds([])
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_CLEARED' })
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_CLEARED' })
     setBoardInstance((n) => n + 1)
     dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: null })
     dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: null })
@@ -6522,9 +6518,9 @@ function App() {
     // match would otherwise pop the attack modal (or strand a queue entry
     // no current player can ever clear) the instant the new game starts.
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
-    setPillageQueue([])
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] })
     resolvedPillageVertexIdsRef.current.clear()
-    setWinnerDrawQueue([])
+    dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: [] })
     dispatch({ type: 'GAME_PHASE_SET', phase: 'setup' })
     dispatch({ type: 'SETUP_STEP_SET', stepIndex: 0 })
     dispatch({ type: 'SETUP_STAGE_SET', stage: 'settlement' })
@@ -6550,7 +6546,7 @@ function App() {
     // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
     // default to standard behavior.
     setGameRules(snapshot.gameRules ?? DEFAULT_GAME_RULES)
-    setRevealedTileIds(new Set(snapshot.revealedTileIds ?? []))
+    dispatch({ type: 'REVEALED_TILES_SET', tileIds: snapshot.revealedTileIds ?? [] })
     dispatch({ type: 'TOTAL_ROLLS_SET', count: snapshot.totalRollsThisGame ?? 0 })
     dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: snapshot.consecutiveDoublesThisTurn ?? 0 })
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
@@ -6723,9 +6719,9 @@ function App() {
     // re-open the modal over state it no longer describes. Matches
     // resetGame's own clearing of these same three.
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
-    setPillageQueue([])
+    dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] })
     resolvedPillageVertexIdsRef.current.clear()
-    setWinnerDrawQueue([])
+    dispatch({ type: 'WINNER_DRAW_QUEUE_SET', playerIds: [] })
     // Cities & Knights Intrigue/Treason — same "always reset on restore"
     // treatment, same resetGame reasoning: a stranded pendingTreasonPlacement
     // would hijack handleKnightVertexSelect's leading branch (intercepting
@@ -6744,7 +6740,7 @@ function App() {
     // restore" treatment as discardSelection just above — a stale set of
     // indices could otherwise point at the wrong cards in a freshly
     // restored progressCards array.
-    setProgressCardOverLimitPlayerIds(snapshot.progressCardOverLimitPlayerIds ?? [])
+    dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: snapshot.progressCardOverLimitPlayerIds ?? [] })
     // Cities & Knights progress-card draw decks (Task 3, snapshot wiring
     // deferred to this task) — same `?? fallback` treatment as every other
     // optional MatchSnapshot field above: absent on any snapshot saved
@@ -6765,10 +6761,10 @@ function App() {
     // depends on THIS PARTICULAR roll's production, not any persistent
     // condition of current state. A pending free-resource pick from before
     // a disconnect is simply dropped on reconnect rather than reconstructed.
-    setScienceFreeResourcePlayerIds([])
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_CLEARED' })
     // Same treatment as scienceFreeResourcePlayerIds above — not persisted,
     // not derivable from restored state, simply dropped on reconnect.
-    setGoldFieldResourcePlayerIds([])
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_CLEARED' })
     // discardPlayerIds isn't persisted (fully derivable from resource
     // counts) — if the snapshot was saved mid-discard, recompute who still
     // owes one from the restored players rather than trusting a stale list.
@@ -6776,17 +6772,19 @@ function App() {
     // setGameRules just above hasn't taken effect yet within this same
     // function call.
     const restoredRules = snapshot.gameRules ?? DEFAULT_GAME_RULES
-    setDiscardPlayerIds(
-      snapshot.gamePhase === 'discard'
-        ? normalizedPlayers
-            .filter(
-              (p) =>
-                discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) >
-                discardThreshold(restoredRules.citiesAndKnightsKnights ? p.cityWalls.length : 0),
-            )
-            .map((p) => p.id)
-        : [],
-    )
+    dispatch({
+      type: 'DISCARD_PLAYERS_SET',
+      playerIds:
+        snapshot.gamePhase === 'discard'
+          ? normalizedPlayers
+              .filter(
+                (p) =>
+                  discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) >
+                  discardThreshold(restoredRules.citiesAndKnightsKnights ? p.cityWalls.length : 0),
+              )
+              .map((p) => p.id)
+          : [],
+    })
     setBoardInstance((n) => n + 1)
   }
 

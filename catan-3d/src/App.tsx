@@ -7297,40 +7297,41 @@ function App() {
 
       <GameHud
         players={players}
-        currentPlayerIndex={currentPlayerIndex}
-        isMyTurn={isMyTurn}
-        lastRoll={lastRoll}
-        lastEventDie={lastEventDie}
-        onRollDice={rollDice}
-        hasRolledThisTurn={hasRolledThisTurn}
-        onEndTurn={handleEndTurn}
-        gamePhase={gamePhase}
-        setupStage={setupStage}
+        turn={{
+          currentPlayerIndex,
+          isMyTurn,
+          gamePhase,
+          setupStage,
+          hasRolledThisTurn,
+          devCardPlayedThisTurn,
+          onEndTurn: handleEndTurn,
+        }}
+        dice={{ lastRoll, lastEventDie, isRolling, onRollDice: rollDice }}
         banner={banner}
         onRestart={restartGame}
         canRestart={onlineInfo == null || isEffectiveHost}
-        portRates={currentPlayerPortRates}
-        onTrade={bankTrade}
-        onTradeCommodity={tradeCommodity}
-        isRolling={isRolling}
-        devDeckCount={devDeck.length}
-        onBuyDevCard={buyDevCard}
+        trade={{
+          portRates: currentPlayerPortRates,
+          onTrade: bankTrade,
+          onTradeCommodity: tradeCommodity,
+          pendingTrade,
+          localPlayerId: onlineInfo?.localPlayerId ?? null,
+          onProposeTrade: proposePlayerTrade,
+          onResolveTrade: resolvePlayerTrade,
+        }}
+        devCards={{ devDeckCount: devDeck.length, onBuyDevCard: buyDevCard, onPlayDevCard: playDevCard }}
         winner={winner}
         settlements={gameState.board.settlements}
         onReturnToMenu={returnToMenu}
-        pendingTrade={pendingTrade}
-        localPlayerId={onlineInfo?.localPlayerId ?? null}
-        onProposeTrade={proposePlayerTrade}
-        onResolveTrade={resolvePlayerTrade}
-        onPlayDevCard={playDevCard}
-        devCardPicker={devCardPicker}
-        onResolveDevCardPicker={resolveDevCardPicker}
-        onResolveDevCardCommodityPicker={resolveDevCardCommodityPicker}
-        scienceFreeResourceActive={activeScienceFreeResourcePlayerId != null}
-        onResolveScienceFreeResource={resolveScienceFreeResource}
-        goldFieldResourceActive={activeGoldFieldResourcePlayerId != null}
-        onResolveGoldFieldResource={resolveGoldFieldResourcePick}
-        devCardPlayedThisTurn={devCardPlayedThisTurn}
+        picker={{
+          devCardPicker,
+          onResolveDevCardPicker: resolveDevCardPicker,
+          onResolveDevCardCommodityPicker: resolveDevCardCommodityPicker,
+          scienceFreeResourceActive: activeScienceFreeResourcePlayerId != null,
+          onResolveScienceFreeResource: resolveScienceFreeResource,
+          goldFieldResourceActive: activeGoldFieldResourcePlayerId != null,
+          onResolveGoldFieldResource: resolveGoldFieldResourcePick,
+        }}
         longestRoadHolderId={longestRoadHolderId}
         longestRoadLengths={longestRoadLengths}
         largestArmyHolderId={largestArmyHolderId}

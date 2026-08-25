@@ -82,26 +82,37 @@ const NO_METROPOLIS_PURCHASE_BLOCKED: Record<ImprovementTrack, boolean> = {
   politics: false,
 }
 
-interface GameHudProps {
-  players: Player[]
+// GameHud's props are grouped by mechanic rather than passed as one flat list
+// (it reached 102 top-level props before this grouping). Each interface below
+// is one cohesive mechanic; genuinely cross-cutting values (players,
+// settlements, viewerPlayerId, winner, banner, roomCode, eventLog, and the
+// two restart/return callbacks) stay flat on GameHudProps itself. Declaration
+// order matches the pre-grouping prop order, because several comments below
+// refer to their neighbours as "above"/"below".
+
+interface TurnHudState {
   currentPlayerIndex: number
   // Always true for local Pass & Play. For Online Multiplayer, true only on
   // the browser whose seat currently holds the turn — everyone else's
   // action buttons stay locked until they hear a TURN_PASSED broadcast.
   isMyTurn: boolean
-  lastRoll: number | null
-  lastEventDie: EventDieFace | null
-  onRollDice: () => void
   // Once true, the Roll Dice button morphs into End Turn (same slot) — the
   // ONLY way currentPlayerIndex ever advances is that explicit click.
   hasRolledThisTurn: boolean
   onEndTurn: () => void
   gamePhase: GamePhase
   setupStage: SetupStage
-  banner: BannerMessage | null
-  onRestart: () => void
-  // False only in an online match for a non-host player.
-  canRestart: boolean
+  devCardPlayedThisTurn: boolean
+}
+
+interface DiceHudState {
+  lastRoll: number | null
+  lastEventDie: EventDieFace | null
+  onRollDice: () => void
+  isRolling: boolean
+}
+
+interface TradeHudState {
   portRates: Record<ResourceType, number>
   onTrade: (give: ResourceType, receive: ResourceType) => void
   // Cities & Knights Trade level 3 — 2:1 commodity trading, any time on the
@@ -111,12 +122,6 @@ interface GameHudProps {
   // already has between "can the modal even be opened" (canTrade, below) and
   // "is this specific trade currently legal" (App.tsx's own guards).
   onTradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
-  isRolling: boolean
-  devDeckCount: number
-  onBuyDevCard: () => void
-  winner: Player | null
-  settlements: Record<string, Building>
-  onReturnToMenu: () => void
   pendingTrade: PendingTrade | null
   // null for local Pass & Play (everyone shares one screen, so the trade
   // prompt always shows there). Online, only the browser whose player ID
@@ -126,7 +131,15 @@ interface GameHudProps {
   localPlayerId: number | null
   onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
   onResolveTrade: (accept: boolean) => void
+}
+
+interface DevCardHudState {
+  devDeckCount: number
+  onBuyDevCard: () => void
   onPlayDevCard: (type: DevCardType) => void
+}
+
+interface PickerHudState {
   devCardPicker: DevCardPickerMode | null
   onResolveDevCardPicker: (picks: ResourceType[]) => void
   // Cities & Knights Trade Monopoly's picker — a separate resolver rather
@@ -152,7 +165,22 @@ interface GameHudProps {
   // player on the same roll).
   goldFieldResourceActive: boolean
   onResolveGoldFieldResource: (resource: ResourceType) => void
-  devCardPlayedThisTurn: boolean
+}
+
+interface GameHudProps {
+  players: Player[]
+  turn: TurnHudState
+  dice: DiceHudState
+  banner: BannerMessage | null
+  onRestart: () => void
+  // False only in an online match for a non-host player.
+  canRestart: boolean
+  trade: TradeHudState
+  devCards: DevCardHudState
+  winner: Player | null
+  settlements: Record<string, Building>
+  onReturnToMenu: () => void
+  picker: PickerHudState
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
@@ -418,40 +446,17 @@ interface GameHudProps {
 
 export function GameHud({
   players,
-  currentPlayerIndex,
-  isMyTurn,
-  lastRoll,
-  lastEventDie,
-  onRollDice,
-  hasRolledThisTurn,
-  onEndTurn,
-  gamePhase,
-  setupStage,
+  turn,
+  dice,
   banner,
   onRestart,
   canRestart,
-  portRates,
-  onTrade,
-  onTradeCommodity,
-  isRolling,
-  devDeckCount,
-  onBuyDevCard,
+  trade,
+  devCards,
   winner,
   settlements,
   onReturnToMenu,
-  pendingTrade,
-  localPlayerId,
-  onProposeTrade,
-  onResolveTrade,
-  onPlayDevCard,
-  devCardPicker,
-  onResolveDevCardPicker,
-  onResolveDevCardCommodityPicker,
-  scienceFreeResourceActive,
-  onResolveScienceFreeResource,
-  goldFieldResourceActive,
-  onResolveGoldFieldResource,
-  devCardPlayedThisTurn,
+  picker,
   longestRoadHolderId,
   longestRoadLengths,
   largestArmyHolderId,
@@ -520,6 +525,26 @@ export function GameHud({
   chatMessages,
   onSendChatMessage,
 }: GameHudProps) {
+  // Groups whose fields feed this file's own derivations (the canX gates,
+  // activePickerMode, statusLabel, the hand-limit arithmetic) are destructured
+  // straight back into locals under their existing names, so those dense
+  // boolean expressions below stay readable. Every OTHER prop group is read by
+  // dot access at the single panel it's threaded to (knights.armedKnightId,
+  // discard.discardingPlayerName, …), where the group name reads as useful
+  // provenance rather than noise.
+  const { currentPlayerIndex, isMyTurn, hasRolledThisTurn, onEndTurn, gamePhase, setupStage, devCardPlayedThisTurn } = turn
+  const { lastRoll, lastEventDie, onRollDice, isRolling } = dice
+  const { portRates, onTrade, onTradeCommodity, pendingTrade, localPlayerId, onProposeTrade, onResolveTrade } = trade
+  const { devDeckCount, onBuyDevCard, onPlayDevCard } = devCards
+  const {
+    devCardPicker,
+    onResolveDevCardPicker,
+    onResolveDevCardCommodityPicker,
+    scienceFreeResourceActive,
+    onResolveScienceFreeResource,
+    goldFieldResourceActive,
+    onResolveGoldFieldResource,
+  } = picker
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   // Cities & Knights Alchemy's own 2-number picker (Set Dice button near
   // Roll Dice, below) — plain local UI state, never broadcast, same

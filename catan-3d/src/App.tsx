@@ -517,7 +517,7 @@ function App() {
   // once every over-limit player has confirmed. Fully derivable from
   // `players`' resource counts, so it's never persisted in a match snapshot
   // — restoreFromSnapshot just recomputes it if a reconnect lands mid-discard.
-  const [discardPlayerIds, setDiscardPlayerIds] = useState<number[]>([])
+  const discardPlayerIds = gameState.pendingQueues.discardPlayerIds
   // Card-instance ids (see PlayerHand3D's buildCardSlots) the CURRENTLY
   // discarding player has flagged in their 3D hand. Local UI state, reset
   // whenever the active discarder changes.
@@ -536,7 +536,7 @@ function App() {
   // discardPlayerIds' shape (see applyRollResult and
   // activeScienceFreeResourcePlayerId below). The two queues never overlap:
   // discard only triggers on a 7, this explicitly excludes a 7.
-  const [scienceFreeResourcePlayerIds, setScienceFreeResourcePlayerIds] = useState<number[]>([])
+  const scienceFreeResourcePlayerIds = gameState.pendingQueues.scienceFreeResourcePlayerIds
   // Player IDs owed a Gold Field resource pick after the most recent roll —
   // unlike scienceFreeResourcePlayerIds (at most one entry per player per
   // roll), the same player id can appear more than once here: a city on a
@@ -545,7 +545,7 @@ function App() {
   // Field buildings in the same roll. Resolved one entry at a time (see
   // applyGoldFieldResourcePick below), never deduped via Set the way
   // scienceFreeResourcePlayerIds is.
-  const [goldFieldResourcePlayerIds, setGoldFieldResourcePlayerIds] = useState<number[]>([])
+  const goldFieldResourcePlayerIds = gameState.pendingQueues.goldFieldResourcePlayerIds
   /**
    * Bumped by every reset. Used as a React key on the interaction layer.
    *
@@ -1333,7 +1333,7 @@ function App() {
   const applyDiscard = (playerId: number, counts: Partial<Record<ResourceType | CommodityType, number>>) => {
     dispatch({ type: 'DISCARD_CONFIRMED', playerId, counts })
     const remaining = dequeueOne(discardPlayerIds, (id) => id, playerId)
-    setDiscardPlayerIds(remaining)
+    dispatch({ type: 'DISCARD_PLAYER_REMOVED', playerId })
     debugLog('applyDiscard', { playerId, counts, discardPlayerIdsBefore: discardPlayerIds, remaining })
     // Cities & Knights barbarian-track gate (Task 3) — before the first
     // barbarian attack resolves, the robber stays inert: discard still
@@ -1369,7 +1369,7 @@ function App() {
   // same trusted-apply split as applyDiscard above.
   const applyScienceFreeResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'SCIENCE_FREE_RESOURCE_PICKED', playerId, resource })
-    setScienceFreeResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's Gold Field resource pick —
@@ -1382,7 +1382,7 @@ function App() {
   // the first.
   const applyGoldFieldResourcePick = (playerId: number, resource: ResourceType) => {
     dispatch({ type: 'GOLD_FIELD_RESOURCE_PICKED', playerId, resource })
-    setGoldFieldResourcePlayerIds((prev) => dequeueOne(prev, (id) => id, playerId))
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYER_REMOVED', playerId })
   }
 
   // Trusted state mutation for one player's barbarian-pillage resolution —
@@ -3574,7 +3574,7 @@ function App() {
           onlineLocalPlayerId: onlineInfo?.localPlayerId,
         })
         if (overLimitIds.length > 0) {
-          setDiscardPlayerIds(overLimitIds)
+          dispatch({ type: 'DISCARD_PLAYERS_SET', playerIds: overLimitIds })
           setDiscardSelection([])
           dispatch({ type: 'GAME_PHASE_SET', phase: 'discard' })
           inform('Rolled 7 — players over their card limit must discard half.')
@@ -3654,7 +3654,7 @@ function App() {
       graph.tileVertexIds,
     )
     if (goldFieldPicks.length > 0) {
-      setGoldFieldResourcePlayerIds((prev) => [...prev, ...goldFieldPicks.map((pick) => pick.playerId)])
+      dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_ADDED', playerIds: goldFieldPicks.map((pick) => pick.playerId) })
       const pickCountByPlayer = new Map<number, number>()
       for (const pick of goldFieldPicks) {
         pickCountByPlayer.set(pick.playerId, (pickCountByPlayer.get(pick.playerId) ?? 0) + 1)
@@ -3687,7 +3687,7 @@ function App() {
       // queued even if a later roll's eligible set doesn't include them —
       // otherwise their still-unclaimed bonus is silently dropped.
       if (eligiblePlayerIds.length > 0) {
-        setScienceFreeResourcePlayerIds((prev) => [...new Set([...prev, ...eligiblePlayerIds])])
+        dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_ADDED', playerIds: eligiblePlayerIds })
       }
     }
 
@@ -6431,11 +6431,11 @@ function App() {
     setDevCardPicker(null)
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: false })
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: false })
-    setDiscardPlayerIds([])
+    dispatch({ type: 'DISCARD_PLAYERS_SET', playerIds: [] })
     setDiscardSelection([])
     setProgressDiscardSelection([])
-    setScienceFreeResourcePlayerIds([])
-    setGoldFieldResourcePlayerIds([])
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_CLEARED' })
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_CLEARED' })
     setBoardInstance((n) => n + 1)
     dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: null })
     dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: null })
@@ -6765,10 +6765,10 @@ function App() {
     // depends on THIS PARTICULAR roll's production, not any persistent
     // condition of current state. A pending free-resource pick from before
     // a disconnect is simply dropped on reconnect rather than reconstructed.
-    setScienceFreeResourcePlayerIds([])
+    dispatch({ type: 'SCIENCE_FREE_RESOURCE_PLAYERS_CLEARED' })
     // Same treatment as scienceFreeResourcePlayerIds above — not persisted,
     // not derivable from restored state, simply dropped on reconnect.
-    setGoldFieldResourcePlayerIds([])
+    dispatch({ type: 'GOLD_FIELD_RESOURCE_PLAYERS_CLEARED' })
     // discardPlayerIds isn't persisted (fully derivable from resource
     // counts) — if the snapshot was saved mid-discard, recompute who still
     // owes one from the restored players rather than trusting a stale list.
@@ -6776,17 +6776,19 @@ function App() {
     // setGameRules just above hasn't taken effect yet within this same
     // function call.
     const restoredRules = snapshot.gameRules ?? DEFAULT_GAME_RULES
-    setDiscardPlayerIds(
-      snapshot.gamePhase === 'discard'
-        ? normalizedPlayers
-            .filter(
-              (p) =>
-                discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) >
-                discardThreshold(restoredRules.citiesAndKnightsKnights ? p.cityWalls.length : 0),
-            )
-            .map((p) => p.id)
-        : [],
-    )
+    dispatch({
+      type: 'DISCARD_PLAYERS_SET',
+      playerIds:
+        snapshot.gamePhase === 'discard'
+          ? normalizedPlayers
+              .filter(
+                (p) =>
+                  discardHandSize(p.resources, p.commodities, restoredRules.citiesAndKnightsCommodities) >
+                  discardThreshold(restoredRules.citiesAndKnightsKnights ? p.cityWalls.length : 0),
+              )
+              .map((p) => p.id)
+          : [],
+    })
     setBoardInstance((n) => n + 1)
   }
 

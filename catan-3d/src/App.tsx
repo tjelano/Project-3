@@ -91,7 +91,6 @@ import {
   type ImprovementTrack,
   type KnightPiece,
   type KnightStrength,
-  type MetropolisHolders,
   type Player,
   type PlayerColorToken,
   type ProgressCardType,
@@ -453,20 +452,16 @@ function App() {
   // above — only ever non-null on the acting client's own screen.
   const [pendingDiplomacyRemoval, setPendingDiplomacyRemoval] = useState<{ playerId: number } | null>(null)
   const [devCardPicker, setDevCardPicker] = useState<DevCardPickerMode | null>(null)
-  const [longestRoadHolderId, setLongestRoadHolderId] = useState<number | null>(null)
-  const [largestArmyHolderId, setLargestArmyHolderId] = useState<number | null>(null)
+  const longestRoadHolderId = gameState.trophies.longestRoadHolderId
+  const largestArmyHolderId = gameState.trophies.largestArmyHolderId
   // Cities & Knights Metropolis — per-track control (who currently holds
   // each track's Metropolis, for scoring) and per-track placement (which of
   // that player's own city vertices carries the marker, for the 3D board —
   // Task 7). Kept as two separate records rather than one, since control is
   // per-player but the marker itself sits on one specific city (see the
   // design note on Task 6's own plan entry).
-  const [metropolisHolders, setMetropolisHolders] = useState<MetropolisHolders>({ science: null, trade: null, politics: null })
-  const [metropolisVertexIds, setMetropolisVertexIds] = useState<Record<ImprovementTrack, string | null>>({
-    science: null,
-    trade: null,
-    politics: null,
-  })
+  const metropolisHolders = gameState.trophies.metropolisHolders
+  const metropolisVertexIds = gameState.trophies.metropolisVertexIds
   // Set the instant a purchase actually claims a track's Metropolis, cleared
   // the instant the resulting city-selection click resolves
   // (buildSettlementRaw's early branch, below).
@@ -1811,8 +1806,8 @@ function App() {
     // !onlineInfo || isEffectiveHost. Every other client just takes
     // whatever the host says here.
     onTrophyUpdated: (payload) => {
-      setLongestRoadHolderId(payload.longestRoadHolderId)
-      setLargestArmyHolderId(payload.largestArmyHolderId)
+      dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: payload.longestRoadHolderId })
+      dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: payload.largestArmyHolderId })
     },
     // Host-only action (see restartGame), but every client applies it the
     // same way it applies any other trusted broadcast — no re-validation.
@@ -1990,8 +1985,12 @@ function App() {
         console.error('[Catan] Ignoring malformed metropolis-claim payload:', payload)
         return
       }
-      setMetropolisVertexIds((prev) => ({ ...prev, [payload.track]: payload.vertexId }))
-      setMetropolisHolders((prev) => ({ ...prev, [payload.track]: payload.playerId }))
+      dispatch({
+        type: 'METROPOLIS_CLAIMED',
+        track: payload.track,
+        playerId: payload.playerId,
+        vertexId: payload.vertexId,
+      })
     },
     onBankTrade: (payload) => {
       // Broadcast-sourced — validated before ever being used as resources[]
@@ -2523,12 +2522,12 @@ function App() {
   if (!onlineInfo || isEffectiveHost) {
     const nextLongestRoadHolderId = pickTrophyHolder(longestRoadHolderId, longestRoadLengths, LONGEST_ROAD_MIN_LENGTH)
     if (nextLongestRoadHolderId !== longestRoadHolderId) {
-      setLongestRoadHolderId(nextLongestRoadHolderId)
+      dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: nextLongestRoadHolderId })
     }
 
     const nextLargestArmyHolderId = pickTrophyHolder(largestArmyHolderId, knightCounts, LARGEST_ARMY_MIN_KNIGHTS)
     if (nextLargestArmyHolderId !== largestArmyHolderId) {
-      setLargestArmyHolderId(nextLargestArmyHolderId)
+      dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: nextLargestArmyHolderId })
     }
   }
 
@@ -2774,8 +2773,7 @@ function App() {
         setPendingMetropolisClaim(null)
         return
       }
-      setMetropolisVertexIds((prev) => ({ ...prev, [track]: vertexId }))
-      setMetropolisHolders((prev) => ({ ...prev, [track]: nextHolderId }))
+      dispatch({ type: 'METROPOLIS_CLAIMED', track, playerId: nextHolderId, vertexId })
       setPendingMetropolisClaim(null)
       if (onlineInfo) broadcastMetropolisClaimed({ track, playerId: nextHolderId, vertexId })
       return
@@ -6439,16 +6437,17 @@ function App() {
     setScienceFreeResourcePlayerIds([])
     setGoldFieldResourcePlayerIds([])
     setBoardInstance((n) => n + 1)
-    setLongestRoadHolderId(null)
-    setLargestArmyHolderId(null)
+    dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: null })
+    dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: null })
     // Shared by Start Game, New Game, Return to Menu AND the remote onNewGame
     // apply — so leaving these out let a PREVIOUS match's Metropolis keep
     // scoring +2 VP for the rest of the session on every client. A leftover
     // pendingMetropolisClaim was worse still: buildSettlementRaw's Metropolis
     // branch runs ahead of the setup-placement checks, so the new game's
     // opening settlement clicks would silently resolve as Metropolis picks.
-    setMetropolisHolders({ science: null, trade: null, politics: null })
-    setMetropolisVertexIds({ science: null, trade: null, politics: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'science', playerId: null, vertexId: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'trade', playerId: null, vertexId: null })
+    dispatch({ type: 'METROPOLIS_CLAIMED', track: 'politics', playerId: null, vertexId: null })
     setPendingMetropolisClaim(null)
     // Same reasoning as pendingMetropolisClaim just above — these are all
     // player-id-keyed flags, and a fresh game reuses the same 1..N player
@@ -6634,12 +6633,28 @@ function App() {
     setLastRoll(snapshot.lastRoll)
     dispatch({ type: 'DEV_DECK_SET', deck: snapshot.devDeck })
     setWinner(snapshot.winner)
-    setLongestRoadHolderId(snapshot.longestRoadHolderId)
-    setLargestArmyHolderId(snapshot.largestArmyHolderId)
+    dispatch({ type: 'LONGEST_ROAD_HOLDER_SET', playerId: snapshot.longestRoadHolderId })
+    dispatch({ type: 'LARGEST_ARMY_HOLDER_SET', playerId: snapshot.largestArmyHolderId })
     const restoredMetropolisHolders = snapshot.metropolisHolders ?? { science: null, trade: null, politics: null }
     const restoredMetropolisVertexIds = snapshot.metropolisVertexIds ?? { science: null, trade: null, politics: null }
-    setMetropolisHolders(restoredMetropolisHolders)
-    setMetropolisVertexIds(restoredMetropolisVertexIds)
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'science',
+      playerId: restoredMetropolisHolders.science,
+      vertexId: restoredMetropolisVertexIds.science,
+    })
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'trade',
+      playerId: restoredMetropolisHolders.trade,
+      vertexId: restoredMetropolisVertexIds.trade,
+    })
+    dispatch({
+      type: 'METROPOLIS_CLAIMED',
+      track: 'politics',
+      playerId: restoredMetropolisHolders.politics,
+      vertexId: restoredMetropolisVertexIds.politics,
+    })
     // Cities & Knights Merchant (Task 13) — merchantTileId/merchantHolderId
     // are now restored by the widened RESTORE_BOARD dispatch above (see
     // board.ts's RESTORE_BOARD case), same optional/backward-compatible

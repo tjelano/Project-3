@@ -243,7 +243,7 @@ describe('reduceBoard — RESTORE_BOARD', () => {
     const roads = { E1: 2 }
     const result = reduceBoard(
       initialBoardState,
-      { type: 'RESTORE_BOARD', settlements, roads, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: 'D1', pirateTileId: null },
+      { type: 'RESTORE_BOARD', settlements, roads, ships: {}, shipsBuiltThisTurn: [], hasMovedShipThisTurn: false, robberTileId: 'D1', pirateTileId: null, robberActive: false, merchantTileId: null, merchantHolderId: null },
       initialGameState,
     )
     expect(result.settlements).toEqual(settlements)
@@ -267,6 +267,9 @@ describe('reduceBoard — ships data model', () => {
       hasMovedShipThisTurn: true,
       robberTileId: 'D1',
       pirateTileId: null,
+      robberActive: false,
+      merchantTileId: null,
+      merchantHolderId: null,
     }
     const result = reduceBoard(dirty, { type: 'RESET_BOARD', robberTileId: 'D2' }, initialGameState)
     expect(result.ships).toEqual({})
@@ -286,6 +289,9 @@ describe('reduceBoard — ships data model', () => {
         hasMovedShipThisTurn: true,
         robberTileId: 'D1',
         pirateTileId: null,
+        robberActive: false,
+        merchantTileId: null,
+        merchantHolderId: null,
       },
       initialGameState,
     )
@@ -315,6 +321,9 @@ describe('reduceBoard — robber/pirate data model', () => {
         hasMovedShipThisTurn: false,
         robberTileId: 'D1',
         pirateTileId: 'S1',
+        robberActive: false,
+        merchantTileId: null,
+        merchantHolderId: null,
       },
       initialGameState,
     )
@@ -334,6 +343,9 @@ describe('reduceBoard — robber/pirate data model', () => {
         hasMovedShipThisTurn: false,
         robberTileId: 'D1',
         pirateTileId: null,
+        robberActive: false,
+        merchantTileId: null,
+        merchantHolderId: null,
       },
       initialGameState,
     )
@@ -404,6 +416,74 @@ describe('reduceBoard — PIRATE_MOVED', () => {
       initialGameState,
     )
     expect(result.robberTileId).toBe('D1')
+  })
+})
+
+describe('reduceBoard — ROBBER_ACTIVATED', () => {
+  it('sets robberActive to true', () => {
+    const result = reduceBoard(initialBoardState, { type: 'ROBBER_ACTIVATED' }, initialGameState)
+    expect(result.robberActive).toBe(true)
+  })
+
+  it('leaves every other field untouched', () => {
+    const result = reduceBoard(initialBoardState, { type: 'ROBBER_ACTIVATED' }, initialGameState)
+    expect(result).toEqual({ ...initialBoardState, robberActive: true })
+  })
+})
+
+describe('reduceBoard — MERCHANT_MOVED', () => {
+  it('sets merchantTileId and merchantHolderId together', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'MERCHANT_MOVED', tileId: 'F3', holderId: 2 },
+      initialGameState,
+    )
+    expect(result.merchantTileId).toBe('F3')
+    expect(result.merchantHolderId).toBe(2)
+  })
+
+  it('leaves every other field untouched', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      { type: 'MERCHANT_MOVED', tileId: 'F3', holderId: 2 },
+      initialGameState,
+    )
+    expect(result).toEqual({ ...initialBoardState, merchantTileId: 'F3', merchantHolderId: 2 })
+  })
+})
+
+describe('reduceBoard — RESET_BOARD (Cities & Knights fields)', () => {
+  it('resets robberActive to false and merchantTileId/merchantHolderId to null', () => {
+    const dirty = { ...initialBoardState, robberActive: true, merchantTileId: 'F3', merchantHolderId: 2 }
+    const result = reduceBoard(dirty, { type: 'RESET_BOARD', robberTileId: 'D1' }, initialGameState)
+    expect(result.robberActive).toBe(false)
+    expect(result.merchantTileId).toBeNull()
+    expect(result.merchantHolderId).toBeNull()
+  })
+})
+
+describe('reduceBoard — RESTORE_BOARD (Cities & Knights fields)', () => {
+  it('restores robberActive/merchantTileId/merchantHolderId verbatim', () => {
+    const result = reduceBoard(
+      initialBoardState,
+      {
+        type: 'RESTORE_BOARD',
+        settlements: {},
+        roads: {},
+        ships: {},
+        shipsBuiltThisTurn: [],
+        hasMovedShipThisTurn: false,
+        robberTileId: 'D1',
+        pirateTileId: null,
+        robberActive: true,
+        merchantTileId: 'F3',
+        merchantHolderId: 2,
+      },
+      initialGameState,
+    )
+    expect(result.robberActive).toBe(true)
+    expect(result.merchantTileId).toBe('F3')
+    expect(result.merchantHolderId).toBe(2)
   })
 })
 

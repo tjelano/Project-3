@@ -50,6 +50,23 @@ describe('reduceGame', () => {
     expect(result.board).toBe(initialGameState.board)
   })
 
+  it('routes a progress action through reduceProgress', () => {
+    const result = reduceGame(initialGameState, { type: 'BARBARIAN_TRACK_POSITION_SET', position: 4 })
+    expect(result.progress.barbarianTrackPosition).toBe(4)
+    expect(result.board).toBe(initialGameState.board)
+  })
+
+  it('fans TURN_ADVANCED out to every slice that owns a share of it', () => {
+    const dirty = {
+      ...initialGameState,
+      progress: { ...initialGameState.progress, knightsPromotedThisTurn: new Set(['knight-1-1']) },
+    }
+    const result = reduceGame(dirty, { type: 'TURN_ADVANCED', nextPlayerIndex: 1 })
+    expect(result.progress.knightsPromotedThisTurn).toEqual(new Set())
+    expect(result.turn.currentPlayerIndex).toBe(1)
+    expect(result.board.shipsBuiltThisTurn).toEqual([])
+  })
+
   it('does not mutate the input state', () => {
     const before = initialGameState
     const settlementsRemainingBefore = before.players[0].settlementsRemaining

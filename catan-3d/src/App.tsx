@@ -591,14 +591,14 @@ function App() {
 
   // Cities & Knights barbarian ship position on its 7-space track (0-6).
   // Advances on each 'ship' event-die face; resets to 0 after every attack.
-  const [barbarianTrackPosition, setBarbarianTrackPosition] = useState(0)
+  const barbarianTrackPosition = gameState.progress.barbarianTrackPosition
 
   // Cities & Knights barbarian attack (Task 5) — the CURRENT result being
   // walked through (for the modal's headline/strength-comparison display),
   // plus the full pending lists for both post-attack choices (NOT assumed
   // front-ordered — see activePillageTarget/activeWinnerDrawPlayerId below
   // for why).
-  const [activeBarbarianAttack, setActiveBarbarianAttack] = useState<BarbarianAttackResult | null>(null)
+  const activeBarbarianAttack = gameState.progress.activeBarbarianAttack
   const [pillageQueue, setPillageQueue] = useState<BarbarianPillageTarget[]>([])
   const [winnerDrawQueue, setWinnerDrawQueue] = useState<number[]>([]) // player ids, tied winners only
 
@@ -641,12 +641,12 @@ function App() {
   // Cities & Knights knight promote (Task 8) — once per turn, per knight
   // INSTANCE (a future Smithing card promotes 2 different knights for free
   // in one play, which must stay legal, so this is a Set of knight ids, not
-  // a single flag or count). Cleared in applyTurnAdvance alongside
-  // pendingKnightRecruit/armedKnightAction just above — same "shared
-  // choke point for both the local end-turn action AND the remote
-  // TURN_PASSED receiver" reasoning, not handleEndTurn, which only guards
-  // and delegates to endTurn -> applyTurnAdvance.
-  const [knightsPromotedThisTurn, setKnightsPromotedThisTurn] = useState<Set<string>>(new Set())
+  // a single flag or count). Cleared by reduceProgress's own TURN_ADVANCED
+  // case (game/reducers/progress.ts) — same "shared choke point for both
+  // the local end-turn action AND the remote TURN_PASSED receiver"
+  // reasoning applyTurnAdvance's existing dispatch of TURN_ADVANCED already
+  // gives every other slice that resets on turn-advance.
+  const knightsPromotedThisTurn = gameState.progress.knightsPromotedThisTurn
   // Cities & Knights "Chase Away the Robber" (Task 11) — which knight is
   // mid-action while gamePhase is 'moveRobber' via THIS entry point (as
   // opposed to a rolled 7). Local-only, cleared once moveRobber resolves —
@@ -917,11 +917,11 @@ function App() {
     // stale knightsPromotedThisTurn entry from the OUTGOING player would
     // wrongly block the incoming player from promoting a same-id-coincident
     // knight, or (more importantly) simply never get cleared for the
-    // outgoing player's own next turn. Cleared here — not in
-    // handleEndTurn, which only guards and delegates to endTurn, which
-    // calls this — so both the local end-turn action and the remote
-    // TURN_PASSED receiver apply the identical reset.
-    setKnightsPromotedThisTurn(new Set())
+    // outgoing player's own next turn. Cleared by reduceProgress's own
+    // TURN_ADVANCED case (game/reducers/progress.ts) on the SAME dispatch
+    // just below — not in handleEndTurn, which only guards and delegates to
+    // endTurn, which calls this — so both the local end-turn action and the
+    // remote TURN_PASSED receiver apply the identical reset.
     dispatch({ type: 'TURN_ADVANCED', nextPlayerIndex: nextIndex })
     // Otherwise the outgoing player's last hovered spot lingers highlighted
     // on every spectator's screen until the new active player happens to
@@ -1658,10 +1658,10 @@ function App() {
     // BarbarianShipAdvancedPayload/BarbarianAttackResolvedPayload's own
     // comments in useRoomChannel.ts.
     onBarbarianShipAdvanced: (payload) => {
-      setBarbarianTrackPosition(payload.position)
+      dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: payload.position })
     },
     onBarbarianAttackResolved: (payload) => {
-      setBarbarianTrackPosition(0)
+      dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: 0 })
       if (payload.robberActivated) {
         dispatch({ type: 'ROBBER_ACTIVATED' })
         inform('The barbarians have landed — the robber is now active.')
@@ -2119,7 +2119,7 @@ function App() {
     },
     onKnightPromoted: (payload) => {
       dispatch({ type: 'KNIGHT_PROMOTED', playerId: payload.playerId, knightId: payload.knightId, newStrength: payload.newStrength })
-      setKnightsPromotedThisTurn((prev) => new Set(prev).add(payload.knightId))
+      dispatch({ type: 'KNIGHTS_PROMOTED_THIS_TURN_ADDED', knightIds: [payload.knightId] })
     },
     // Cities & Knights knight move (Task 9) — same trusted-apply reasoning
     // as onKnightRecruited/onKnightActivated/onKnightPromoted above: the
@@ -2170,11 +2170,7 @@ function App() {
     // go negative as long as the sender validated correctly.
     onSmithingPlayed: (payload) => {
       dispatch({ type: 'SMITHING_PLAYED', playerId: payload.playerId, knightIds: payload.knightIds })
-      setKnightsPromotedThisTurn((prev) => {
-        const next = new Set(prev)
-        for (const knightId of payload.knightIds) next.add(knightId)
-        return next
-      })
+      dispatch({ type: 'KNIGHTS_PROMOTED_THIS_TURN_ADDED', knightIds: payload.knightIds })
     },
     // Cities & Knights Encouragement (Task 13) — same trusted-apply reasoning
     // as onSmithingPlayed above: the sending client already validated the
@@ -3311,7 +3307,7 @@ function App() {
   // for Task 7's per-player progress-card draw UI; on a barbarian win,
   // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
-    setActiveBarbarianAttack(result)
+    dispatch({ type: 'BARBARIAN_ATTACK_SET', result })
     setPillageQueue(result.pillageTargets)
     if (result.defendersWin) {
       const soleWinner = result.winners.find((w) => !w.tied)
@@ -3477,7 +3473,7 @@ function App() {
         )
         const attackResult = resolveBarbarianAttack(players, gameState.board.settlements, currentMetropolisVertexIds)
         const isFirstActivation = !robberActive
-        setBarbarianTrackPosition(0)
+        dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: 0 })
         if (isFirstActivation) {
           dispatch({ type: 'ROBBER_ACTIVATED' })
           // CN3087 p.7: the robber does not activate until after the first
@@ -3489,7 +3485,7 @@ function App() {
         applyBarbarianAttackResult(attackResult) // Task 5 defines this
         if (onlineInfo) broadcastBarbarianAttackResolved({ result: attackResult, robberActivated: isFirstActivation })
       } else {
-        setBarbarianTrackPosition(nextPosition)
+        dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: nextPosition })
         if (onlineInfo) broadcastBarbarianShipAdvanced({ position: nextPosition })
       }
     }
@@ -5565,7 +5561,7 @@ function App() {
     }
     const next = nextKnightStrength(knight.strength)!
     dispatch({ type: 'KNIGHT_PROMOTED', playerId: player.id, knightId, newStrength: next })
-    setKnightsPromotedThisTurn((prev) => new Set(prev).add(knightId))
+    dispatch({ type: 'KNIGHTS_PROMOTED_THIS_TURN_ADDED', knightIds: [knightId] })
     if (onlineInfo) broadcastKnightPromoted({ playerId: player.id, knightId, newStrength: next })
   }
 
@@ -5718,11 +5714,7 @@ function App() {
       return
     }
     dispatch({ type: 'SMITHING_PLAYED', playerId: player.id, knightIds: toPromote.map((k) => k.id) })
-    setKnightsPromotedThisTurn((prev) => {
-      const next = new Set(prev)
-      for (const k of toPromote) next.add(k.id)
-      return next
-    })
+    dispatch({ type: 'KNIGHTS_PROMOTED_THIS_TURN_ADDED', knightIds: toPromote.map((k) => k.id) })
     inform(`${player.name} played Smithing — promoted ${toPromote.length} knight(s).`)
     if (onlineInfo) broadcastSmithingPlayed({ playerId: player.id, knightIds: toPromote.map((k) => k.id) })
   }
@@ -6372,8 +6364,10 @@ function App() {
     // let the robber move on the very first 7 of a brand-new match, even
     // with a from-scratch barbarian track that hasn't had a first attack yet.
     // (robberActive itself is reset by the RESET_BOARD dispatch below, whose
-    // reducer case now covers it — see board.ts.)
-    setBarbarianTrackPosition(0)
+    // reducer case now covers it — see board.ts. barbarianTrackPosition has
+    // no such combined reset action — ProgressState deliberately has none,
+    // see progress.ts — so it's reset here explicitly.)
+    dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: 0 })
     setPlayerCount(count)
     // Who goes first, randomized instead of always seat 0 (the host).
     // Online reuses the SAME seed the board itself was just built from —
@@ -6527,7 +6521,7 @@ function App() {
     // leftover attack result or pending pillage/draw queue from a PREVIOUS
     // match would otherwise pop the attack modal (or strand a queue entry
     // no current player can ever clear) the instant the new game starts.
-    setActiveBarbarianAttack(null)
+    dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
     setPillageQueue([])
     resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
@@ -6649,9 +6643,11 @@ function App() {
     // are now restored by the widened RESTORE_BOARD dispatch above (see
     // board.ts's RESTORE_BOARD case), same optional/backward-compatible
     // `?? default` treatment robberTileId/pirateTileId already get there.
-    // Cities & Knights Barbarians (Tasks 3/4) — same optional/backward-
-    // compatible treatment as merchantTileId/merchantHolderId above.
-    setBarbarianTrackPosition(snapshot.barbarianTrackPosition ?? 0)
+    // Cities & Knights Barbarians (Tasks 3/4) — barbarianTrackPosition has
+    // no combined restore action (ProgressState deliberately has none, see
+    // progress.ts), so it's restored here explicitly; same optional/
+    // backward-compatible treatment as merchantTileId/merchantHolderId above.
+    dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: snapshot.barbarianTrackPosition ?? 0 })
     dispatch({ type: 'DEV_CARD_PLAYED_THIS_TURN_SET', played: snapshot.devCardPlayedThisTurn })
     setFreeRoadsRemaining(snapshot.freeRoadsRemaining)
     dispatch({ type: 'HAS_ROLLED_THIS_TURN_SET', rolled: snapshot.hasRolledThisTurn })
@@ -6710,7 +6706,7 @@ function App() {
     // effect could act on it), and a stranded activeBarbarianAttack would
     // re-open the modal over state it no longer describes. Matches
     // resetGame's own clearing of these same three.
-    setActiveBarbarianAttack(null)
+    dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })
     setPillageQueue([])
     resolvedPillageVertexIdsRef.current.clear()
     setWinnerDrawQueue([])
@@ -7485,7 +7481,7 @@ function App() {
             <div className="pointer-events-none absolute inset-x-0 bottom-20 z-50 flex justify-center">
               <button
                 type="button"
-                onClick={() => setActiveBarbarianAttack(null)}
+                onClick={() => dispatch({ type: 'BARBARIAN_ATTACK_SET', result: null })}
                 className="pointer-events-auto rounded-lg bg-gradient-to-b from-gold to-gold-deep px-6 py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
               >
                 Close

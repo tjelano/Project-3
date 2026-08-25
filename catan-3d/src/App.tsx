@@ -6478,7 +6478,7 @@ function App() {
     // from a PREVIOUS match would silently keep granting 2:1 trades and +1
     // VP to whoever last controlled it, on every client, for the rest of
     // this session. (merchantTileId/merchantHolderId themselves are reset
-    // by the RESET_BOARD dispatch below, whose reducer case now covers
+    // by the RESET_BOARD dispatch above, whose reducer case now covers
     // them — see board.ts.) pendingMerchantPlacement is local-only pending
     // state, same "always reset on a fresh game" treatment
     // pendingInventionSwap gets just above.

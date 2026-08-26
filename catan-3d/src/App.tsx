@@ -7395,31 +7395,38 @@ function App() {
           diplomacyPickerActive: pendingDiplomacyRemoval?.playerId === localPlayer.id,
           onCancelDiplomacy: cancelDiplomacy,
         }}
-        pendingGuildDues={pendingGuildDues}
-        guildDuesEligibleTargets={guildDuesEligibleTargets}
-        onSelectGuildDuesTarget={selectGuildDuesTarget}
-        onConfirmGuildDues={confirmGuildDues}
-        onCancelGuildDues={cancelGuildDues}
-        pendingEspionage={pendingEspionage}
-        onSelectEspionageTarget={selectEspionageTarget}
-        onConfirmEspionage={confirmEspionage}
-        onCancelEspionage={cancelEspionage}
-        activeProgressDiscarderId={activeProgressDiscarderId}
-        progressDiscardSelection={progressDiscardSelection}
-        onToggleProgressDiscard={toggleProgressDiscardSelection}
-        progressDiscardRequiredCount={progressDiscardRequiredCount}
-        onConfirmProgressDiscard={confirmProgressDiscard}
-        progressDiscardingPlayerName={progressDiscardingPlayer?.name ?? ''}
-        isMyDiscardTurn={isMyDiscardTurn}
-        discardingPlayerName={discardingPlayer?.name ?? ''}
-        discardRequiredCount={discardRequiredCount}
-        discardSelectedCount={discardSelection.length}
-        onConfirmDiscard={confirmDiscard}
+        guildDues={{
+          pendingGuildDues,
+          guildDuesEligibleTargets,
+          onSelectGuildDuesTarget: selectGuildDuesTarget,
+          onConfirmGuildDues: confirmGuildDues,
+          onCancelGuildDues: cancelGuildDues,
+        }}
+        espionage={{
+          pendingEspionage,
+          onSelectEspionageTarget: selectEspionageTarget,
+          onConfirmEspionage: confirmEspionage,
+          onCancelEspionage: cancelEspionage,
+        }}
+        progressDiscard={{
+          activeProgressDiscarderId,
+          progressDiscardSelection,
+          onToggleProgressDiscard: toggleProgressDiscardSelection,
+          progressDiscardRequiredCount,
+          onConfirmProgressDiscard: confirmProgressDiscard,
+          progressDiscardingPlayerName: progressDiscardingPlayer?.name ?? '',
+        }}
+        discard={{
+          isMyDiscardTurn,
+          discardingPlayerName: discardingPlayer?.name ?? '',
+          discardRequiredCount,
+          discardSelectedCount: discardSelection.length,
+          onConfirmDiscard: confirmDiscard,
+        }}
         roomCode={onlineInfo?.roomCode ?? null}
         viewerPlayerId={localPlayer.id}
         eventLog={eventLog}
-        chatMessages={chatMessages}
-        onSendChatMessage={sendChatMessage}
+        chat={{ chatMessages, onSendChatMessage: sendChatMessage }}
       />
 
       {/* Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a

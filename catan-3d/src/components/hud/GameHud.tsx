@@ -382,29 +382,7 @@ interface ProgressCardHudState {
   onCancelDiplomacy: () => void
 }
 
-interface GameHudProps {
-  players: Player[]
-  turn: TurnHudState
-  dice: DiceHudState
-  banner: BannerMessage | null
-  onRestart: () => void
-  // False only in an online match for a non-host player.
-  canRestart: boolean
-  trade: TradeHudState
-  devCards: DevCardHudState
-  winner: Player | null
-  settlements: Record<string, Building>
-  onReturnToMenu: () => void
-  picker: PickerHudState
-  trophies: TrophyHudState
-  houseRules: HouseRulesHudState
-  improvements: ImprovementHudState
-  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
-  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
-  barbarianTrackPosition: number
-  knights: KnightsHudState
-  cityWalls: CityWallHudState
-  progressCards: ProgressCardHudState
+interface GuildDuesHudState {
   // Cities & Knights Guild Dues — null until the viewer's own OWN play
   // spends the card (App.tsx's playGuildDues), local-only like
   // pendingInventionSwap/merchantFleetType above (only ever set on the
@@ -417,6 +395,9 @@ interface GameHudProps {
   onSelectGuildDuesTarget: (playerId: number) => void
   onConfirmGuildDues: (picks: (ResourceType | CommodityType)[]) => void
   onCancelGuildDues: () => void
+}
+
+interface EspionageHudState {
   // Cities & Knights Espionage — same shape as pendingGuildDues above, but
   // targets every OTHER player (no VP filter needed, so no separate
   // eligible-targets prop — this file's own `otherPlayers`, below, already
@@ -425,6 +406,9 @@ interface GameHudProps {
   onSelectEspionageTarget: (playerId: number) => void
   onConfirmEspionage: (indices: number[]) => void
   onCancelEspionage: () => void
+}
+
+interface ProgressDiscardHudState {
   // Cities & Knights progress-card hand limit (4 cards). Unlike
   // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
   // this is the raw front-of-queue player id — GameHud derives its OWN
@@ -449,6 +433,9 @@ interface GameHudProps {
   // Named for the small "waiting for X" indicator, same role as
   // discardingPlayerName below but for the progress-card queue.
   progressDiscardingPlayerName: string
+}
+
+interface DiscardHudState {
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -457,6 +444,41 @@ interface GameHudProps {
   discardRequiredCount: number
   discardSelectedCount: number
   onConfirmDiscard: () => void
+}
+
+interface ChatHudState {
+  // Online-only — ChatBoxPanel only renders when roomCode is set.
+  chatMessages: ChatMessagePayload[]
+  onSendChatMessage: (text: string) => void
+}
+
+interface GameHudProps {
+  players: Player[]
+  turn: TurnHudState
+  dice: DiceHudState
+  banner: BannerMessage | null
+  onRestart: () => void
+  // False only in an online match for a non-host player.
+  canRestart: boolean
+  trade: TradeHudState
+  devCards: DevCardHudState
+  winner: Player | null
+  settlements: Record<string, Building>
+  onReturnToMenu: () => void
+  picker: PickerHudState
+  trophies: TrophyHudState
+  houseRules: HouseRulesHudState
+  improvements: ImprovementHudState
+  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
+  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
+  barbarianTrackPosition: number
+  knights: KnightsHudState
+  cityWalls: CityWallHudState
+  progressCards: ProgressCardHudState
+  guildDues: GuildDuesHudState
+  espionage: EspionageHudState
+  progressDiscard: ProgressDiscardHudState
+  discard: DiscardHudState
   // null for local Pass & Play. Online, shown persistently so a player who
   // never noted the code down can still find it to reconnect.
   roomCode: string | null
@@ -468,9 +490,7 @@ interface GameHudProps {
   // hidden Victory Point hint) need this, not currentPlayerIndex.
   viewerPlayerId: number
   eventLog: EventLogEntry[]
-  // Online-only — ChatBoxPanel only renders when roomCode is set.
-  chatMessages: ChatMessagePayload[]
-  onSendChatMessage: (text: string) => void
+  chat: ChatHudState
 }
 
 export function GameHud({
@@ -493,31 +513,14 @@ export function GameHud({
   knights,
   cityWalls,
   progressCards,
-  pendingGuildDues,
-  guildDuesEligibleTargets,
-  onSelectGuildDuesTarget,
-  onConfirmGuildDues,
-  onCancelGuildDues,
-  pendingEspionage,
-  onSelectEspionageTarget,
-  onConfirmEspionage,
-  onCancelEspionage,
-  activeProgressDiscarderId,
-  progressDiscardSelection,
-  onToggleProgressDiscard,
-  progressDiscardRequiredCount,
-  onConfirmProgressDiscard,
-  progressDiscardingPlayerName,
-  isMyDiscardTurn,
-  discardingPlayerName,
-  discardRequiredCount,
-  discardSelectedCount,
-  onConfirmDiscard,
+  guildDues,
+  espionage,
+  progressDiscard,
+  discard,
   roomCode,
   viewerPlayerId,
   eventLog,
-  chatMessages,
-  onSendChatMessage,
+  chat,
 }: GameHudProps) {
   // Groups whose fields feed this file's own derivations (the canX gates,
   // activePickerMode, statusLabel, the hand-limit arithmetic) are destructured
@@ -547,6 +550,14 @@ export function GameHud({
   // and a local keeps that narrowing obvious instead of resting on TypeScript
   // narrowing a nested property path.
   const { merchantFleetRate } = progressCards
+  const {
+    activeProgressDiscarderId,
+    progressDiscardSelection,
+    onToggleProgressDiscard,
+    progressDiscardRequiredCount,
+    onConfirmProgressDiscard,
+    progressDiscardingPlayerName,
+  } = progressDiscard
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   // Cities & Knights Alchemy's own 2-number picker (Set Dice button near
   // Roll Dice, below) — plain local UI state, never broadcast, same
@@ -590,8 +601,8 @@ export function GameHud({
   // unconditionally (hooks can't be conditional) — harmless when the
   // matching pending* state is null, since the ref callback just never
   // attaches to a mounted node.
-  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelGuildDues)
-  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelEspionage)
+  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(guildDues.onCancelGuildDues)
+  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(espionage.onCancelEspionage)
   // Cities & Knights progress-card hand-limit discard — mirrors
   // isMyDiscardTurn's role, but computed HERE (not in App.tsx) since it
   // needs THIS screen's own viewer, which online is always this browser's
@@ -636,7 +647,7 @@ export function GameHud({
   // canPerformAction() re-checks pendingGuildDues/pendingEspionage
   // independently at handler time — this is the matching UI-level lock, not
   // the only one.
-  const pickerBlocked = !!activePickerMode || !!pendingGuildDues || !!pendingEspionage
+  const pickerBlocked = !!activePickerMode || !!guildDues.pendingGuildDues || !!espionage.pendingEspionage
   const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
     gamePhase === 'playing' &&
@@ -767,7 +778,7 @@ export function GameHud({
           ? 'Place your settlement'
           : 'Place your road'
         : gamePhase === 'discard'
-          ? `${discardingPlayerName} discarding…`
+          ? `${discard.discardingPlayerName} discarding…`
           : gamePhase === 'moveRobber'
             ? 'Move the Robber'
             : gamePhase === 'chooseRobberOrPirate'
@@ -919,7 +930,7 @@ export function GameHud({
         )}
       </div>
       <EventLogPanel events={eventLog} />
-      {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
+      {roomCode && <ChatBoxPanel messages={chat.chatMessages} players={players} onSend={chat.onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}
         commodities={viewer.commodities}
@@ -1232,7 +1243,7 @@ export function GameHud({
           sequential 2-screen flow. Only ever rendered on the acting
           client's own screen — pendingGuildDues is local-only state (see
           its own comment in App.tsx). */}
-      {pendingGuildDues && (
+      {guildDues.pendingGuildDues && (
         <div
           ref={guildDuesDialogRef}
           role="dialog"
@@ -1248,9 +1259,9 @@ export function GameHud({
             <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
             <div className="mb-4">
               <PlayerTargetPicker
-                players={guildDuesEligibleTargets}
-                selectedPlayerId={pendingGuildDues.targetId}
-                onSelect={onSelectGuildDuesTarget}
+                players={guildDues.guildDuesEligibleTargets}
+                selectedPlayerId={guildDues.pendingGuildDues.targetId}
+                onSelect={guildDues.onSelectGuildDuesTarget}
               />
             </div>
             <OpponentHandPicker
@@ -1260,12 +1271,16 @@ export function GameHud({
               // via PlayerTargetPicker above would carry stale selections
               // (picked against the OLD target) into a submit against the
               // NEW one instead of resetting them.
-              key={pendingGuildDues.targetId}
-              target={players.find((p) => p.id === pendingGuildDues.targetId) ?? guildDuesEligibleTargets[0] ?? viewer}
+              key={guildDues.pendingGuildDues.targetId}
+              target={
+                players.find((p) => p.id === guildDues.pendingGuildDues!.targetId) ??
+                guildDues.guildDuesEligibleTargets[0] ??
+                viewer
+              }
               mode="resourcesAndCommodities"
               maxPicks={2}
-              onConfirm={(picks) => onConfirmGuildDues(picks as (ResourceType | CommodityType)[])}
-              onCancel={onCancelGuildDues}
+              onConfirm={(picks) => guildDues.onConfirmGuildDues(picks as (ResourceType | CommodityType)[])}
+              onCancel={guildDues.onCancelGuildDues}
             />
           </div>
         </div>
@@ -1273,7 +1288,7 @@ export function GameHud({
       {/* Cities & Knights Espionage — same composition as Guild Dues above,
           but the target list is `otherPlayers` (unrestricted — "another
           player," no VP filter) rather than a VP-eligible subset. */}
-      {pendingEspionage && (
+      {espionage.pendingEspionage && (
         <div
           ref={espionageDialogRef}
           role="dialog"
@@ -1290,18 +1305,18 @@ export function GameHud({
             <div className="mb-4">
               <PlayerTargetPicker
                 players={otherPlayers}
-                selectedPlayerId={pendingEspionage.targetId}
-                onSelect={onSelectEspionageTarget}
+                selectedPlayerId={espionage.pendingEspionage.targetId}
+                onSelect={espionage.onSelectEspionageTarget}
               />
             </div>
             <OpponentHandPicker
               // Same reset-on-switch reasoning as Guild Dues' own key above.
-              key={pendingEspionage.targetId}
-              target={players.find((p) => p.id === pendingEspionage.targetId) ?? otherPlayers[0] ?? viewer}
+              key={espionage.pendingEspionage.targetId}
+              target={players.find((p) => p.id === espionage.pendingEspionage!.targetId) ?? otherPlayers[0] ?? viewer}
               mode="progressCards"
               maxPicks={1}
-              onConfirm={(picks) => onConfirmEspionage(picks as number[])}
-              onCancel={onCancelEspionage}
+              onConfirm={(picks) => espionage.onConfirmEspionage(picks as number[])}
+              onCancel={espionage.onCancelEspionage}
             />
           </div>
         </div>
@@ -1316,11 +1331,11 @@ export function GameHud({
       )}
       {gamePhase === 'discard' && (
         <DiscardPanel
-          isMyDiscardTurn={isMyDiscardTurn}
-          discardingPlayerName={discardingPlayerName}
-          requiredCount={discardRequiredCount}
-          selectedCount={discardSelectedCount}
-          onConfirm={onConfirmDiscard}
+          isMyDiscardTurn={discard.isMyDiscardTurn}
+          discardingPlayerName={discard.discardingPlayerName}
+          requiredCount={discard.discardRequiredCount}
+          selectedCount={discard.discardSelectedCount}
+          onConfirm={discard.onConfirmDiscard}
         />
       )}
       {winner && (

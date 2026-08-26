@@ -35,6 +35,16 @@
   --animate-gold-pulse: gold-pulse 2.2s ease-in-out infinite;
 }
 
+/* Not a --animate-* theme token like its siblings above — Tailwind's
+   @theme utility generation was dropping the steps(9) timing function from
+   the shorthand it built, animating background-position-x smoothly instead
+   of jumping between frames (looked like the background scrolling). A
+   plain class with the animation shorthand spelled out directly sidesteps
+   whatever Tailwind's generator was doing to it. */
+.menu-bg-flicker {
+  animation: menu-bg-flicker 1.5s steps(9) infinite;
+}
+
 @utility glow-gold-sm {
   box-shadow: 0 0 12px rgb(200 169 62 / 0.35);
 }
@@ -96,6 +106,26 @@
   }
   50% {
     box-shadow: 0 0 34px 8px rgb(200 169 62 / 0.75);
+  }
+}
+
+/* Steps through a 9-frame horizontal sprite sheet (torches flickering) —
+   background-size is 900% 100% on the element using this, so each frame is
+   exactly one element-width wide. The end value here is 112.5% (= 9/8 *
+   100%), NOT 100% — background-position percentages resolve as
+   (container_width - image_width) * (P / 100), and with image_width = 9 *
+   container_width that means each of steps(9)'s 9 evenly-spaced samples
+   only lands exactly on a frame boundary if the keyframe spans 9/(9-1) of
+   the naive 0-100% range. Using 100% instead (the naive version) puts every
+   sample midway between two frames, blending them — which is what looked
+   like the background scrolling instead of animating.
+*/
+@keyframes menu-bg-flicker {
+  from {
+    background-position-x: 0%;
+  }
+  to {
+    background-position-x: 112.5%;
   }
 }
 

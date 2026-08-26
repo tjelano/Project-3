@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import backgroundSpriteSheetUrl from '../../assets/menu/background-sprite-sheet.png'
 import { GameSetupMenu } from './GameSetupMenu'
 import { RegionSelectMenu } from './RegionSelectMenu'
 import { RoomLobby } from './RoomLobby'
@@ -102,13 +103,17 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center overflow-hidden">
-      <video
-        src="/branding/logo-loop.mp4"
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="absolute inset-0 h-full w-full object-cover"
+      {/* Animated 9-frame sprite sheet (throne room, torches flickering) —
+          background-size is 9 frames wide so each one exactly fills this
+          element; menu-bg-flicker (index.css) steps through them. pixelated
+          rendering keeps the art crisp rather than blurring on upscale. */}
+      <div
+        className="menu-bg-flicker absolute inset-0 h-full w-full bg-no-repeat"
+        style={{
+          backgroundImage: `url(${backgroundSpriteSheetUrl})`,
+          backgroundSize: '900% 100%',
+          imageRendering: 'pixelated',
+        }}
       />
       <div className="absolute inset-0 bg-board-navy/50" />
       <div className="relative z-10 w-full px-4">

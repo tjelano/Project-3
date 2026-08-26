@@ -116,7 +116,7 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
         }}
       />
       <div className="absolute inset-0 bg-board-navy/50" />
-      <div className="relative z-10 w-full px-4">
+      <div className="pregame-screen relative z-10 w-full px-4">
         {pendingRegionSelect ? (
           <RegionSelectMenu
             initialShape={pendingRegionSelect.kind === 'local' ? (pendingRegionSelect.info.boardShapeId ?? 'standard') : 'standard'}

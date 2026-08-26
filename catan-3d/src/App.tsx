@@ -5258,6 +5258,17 @@ function App() {
     setArmedKnightAction({ knightId, mode: 'displace' })
   }
 
+  // Escape hatch for armKnightRecruit/armKnightMove/armKnightDisplace's
+  // shared "Finish the current knight action first" guard — mirrors
+  // cancelDiplomacy/cancelGuildDues/cancelEspionage exactly: a plain local
+  // clear, since recruiting/moving/displacing spend nothing until the board
+  // click actually resolves (see armKnightRecruit's own comment), so there
+  // is nothing to strand by backing out mid-pick.
+  const cancelKnightAction = () => {
+    setPendingKnightRecruit(null)
+    setArmedKnightAction(null)
+  }
+
   // Cities & Knights "Chase Away the Robber" (Task 11) — an active knight
   // adjacent to the robber's hex triggers the SAME robber-move-and-steal
   // flow a rolled 7 already uses (gamePhase = 'moveRobber', resolved by
@@ -5577,6 +5588,11 @@ function App() {
   // re-deriving those checks inline.
   const applyCityWallBuilt = (playerId: number, vertexId: string, isFree: boolean) => {
     dispatch({ type: 'CITY_WALL_BUILT', playerId, vertexId, isFree })
+    // The wall's own board mesh is a low placeholder ring (BoardInteractions.tsx)
+    // easy to miss entirely — this banner is the only reliable confirmation
+    // a player gets that the build actually happened.
+    const player = playerById.get(playerId)
+    if (player) inform(`${player.name} built a city wall.`)
   }
 
   const buildCityWall = (vertexId: string) => {
@@ -7370,6 +7386,8 @@ function App() {
             new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId),
           armedKnightId: armedKnightAction?.knightId ?? null,
           knightsPromotedThisTurn,
+          recruitPending: pendingKnightRecruit != null,
+          onCancelKnightAction: cancelKnightAction,
         }}
         cityWalls={{
           onBuildWall: buildCityWall,

@@ -283,6 +283,17 @@ interface KnightsHudState {
   // because canPromote below needs to check membership per-knight, not
   // once for the whole panel.
   knightsPromotedThisTurn: Set<string>
+  // True while a Recruit click has armed the board's placement picker but
+  // hasn't resolved yet — distinct from armedKnightId, which only covers
+  // Move/Displace (Recruit has no knight id to key on until placement
+  // actually happens).
+  recruitPending: boolean
+  // Clears whichever knight action is currently armed (recruit/move/
+  // displace) without spending anything — the same escape hatch
+  // onCancelDiplomacy/onCancelGuildDues/onCancelEspionage already give
+  // their own pickers, so an armed-but-unplaceable knight action can't
+  // strand the player for the rest of their turn.
+  onCancelKnightAction: () => void
 }
 
 interface CityWallHudState {
@@ -926,6 +937,8 @@ export function GameHud({
             canChaseRobber={knights.canChaseRobber}
             canChasePirate={knights.canChasePirate}
             armedKnightId={knights.armedKnightId}
+            recruitPending={knights.recruitPending}
+            onCancelAction={knights.onCancelKnightAction}
           />
         )}
       </div>

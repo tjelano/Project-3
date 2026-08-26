@@ -52,12 +52,14 @@ const CARD_ART: Record<CardKey, string> = {
   coin: coinArt,
 }
 
-// The 3 commodity textures (see Cities & Knights Phase A) are a SEPARATE
-// art source from the eleven resource/dev-card images above, whose content
-// already fills the full 432x578 canvas edge-to-edge (verified alpha bbox
-// (0,0,432,578) on all three), unlike the resource art CARD_ART_CROP_X/Y
-// below were tuned for. Checked here rather than assumed, since
-// loadCardTexture's crop is otherwise unconditional on every call.
+// The 3 commodity textures (see Cities & Knights Phase A) are a SEPARATE art
+// source from the eleven resource/dev-card images above. They are NOT
+// edge-to-edge — re-measured directly off each image's own alpha channel
+// (thresholded to ignore anti-aliasing fringe, padded 5px further inward for
+// safety) and found to have real transparent margins, inconsistent both from
+// the resource images' margins and from each other (e.g. Paper's top margin
+// is ~4px vs Coin's ~26px) — so they need their own per-image crop rather
+// than either the shared resource crop below or no crop at all.
 const COMMODITY_CARD_KEYS: readonly CardKey[] = COMMODITY_ORDER
 
 // One loader and one cache for the whole app: eleven images shared across
@@ -81,21 +83,41 @@ const textureCache = new Map<string, THREE.Texture>()
 // margins aren't equal (and texture V=0 is the image's BOTTOM edge, so the
 // crop fractions below are swapped relative to the top/bottom pixel
 // margins they correspond to).
-const CARD_ART_CROP_X = 328 / 432 // 52px margin each side
-const CARD_ART_OFFSET_X = 52 / 432
-const CARD_ART_CROP_Y = 483 / 578 // 50px top margin, 45px bottom margin
-const CARD_ART_OFFSET_Y = 45 / 578
+interface CardArtCrop {
+  repeatX: number
+  repeatY: number
+  offsetX: number
+  offsetY: number
+}
 
-// applyLegacyCrop defaults to true so every existing call site (resource
+const RESOURCE_CARD_CROP: CardArtCrop = {
+  repeatX: 328 / 432, // 52px margin each side
+  offsetX: 52 / 432,
+  repeatY: 483 / 578, // 50px top margin, 45px bottom margin
+  offsetY: 45 / 578,
+}
+
+// Each commodity image's own margins, re-measured directly off its alpha
+// channel (see COMMODITY_CARD_KEYS's own comment above) — inconsistent
+// enough between the three (Paper's top margin is ~4px vs Coin's ~26px)
+// that a single shared crop would either leave a visible gap on some cards
+// or clip real content on others. Values below are the measured bbox padded
+// 5px further inward for safety, one crop rect per commodity.
+const COMMODITY_CARD_CROP: Record<CommodityType, CardArtCrop> = {
+  coin: { repeatX: 368 / 432, offsetX: 51 / 432, repeatY: 545 / 578, offsetY: 5 / 578 },
+  cloth: { repeatX: 350 / 432, offsetX: 47 / 432, repeatY: 549 / 578, offsetY: 5 / 578 },
+  paper: { repeatX: 351 / 432, offsetX: 46 / 432, repeatY: 564 / 578, offsetY: 5 / 578 },
+}
+
+// crop defaults to RESOURCE_CARD_CROP so every existing call site (resource
 // art, dev-card art, the card back) keeps its byte-for-byte current
-// behavior. Only the 3 commodity textures pass false: their art has zero
-// transparent margin (see COMMODITY_CARD_KEYS above), so the
-// resource-art-tuned crop below would cut real content off their edges
-// instead of trimming padding that isn't there. Safe to key the shared
-// cache on `url` alone (not `url` + this flag) because the two never
+// behavior. The 3 commodity textures pass their own crop from
+// COMMODITY_CARD_CROP instead — see that record's own comment for why they
+// can't share the resource crop or go uncropped. Safe to key the shared
+// cache on `url` alone (not `url` + this crop) because the two never
 // disagree for the same URL — which crop a given image needs is fixed by
 // which file it is, not by which call site happens to load it first.
-function loadCardTexture(url: string, applyLegacyCrop = true): THREE.Texture {
+function loadCardTexture(url: string, crop: CardArtCrop = RESOURCE_CARD_CROP): THREE.Texture {
   const cached = textureCache.get(url)
   if (cached) return cached
   // Statically imported (see the comment atop this file), so a missing/
@@ -110,10 +132,8 @@ function loadCardTexture(url: string, applyLegacyCrop = true): THREE.Texture {
   // cards render washed out and pale.
   texture.colorSpace = THREE.SRGBColorSpace
   texture.anisotropy = 8
-  if (applyLegacyCrop) {
-    texture.repeat.set(CARD_ART_CROP_X, CARD_ART_CROP_Y)
-    texture.offset.set(CARD_ART_OFFSET_X, CARD_ART_OFFSET_Y)
-  }
+  texture.repeat.set(crop.repeatX, crop.repeatY)
+  texture.offset.set(crop.offsetX, crop.offsetY)
   // premultiplyAlpha fixes a SEPARATE, smaller issue at the card's own
   // rounded-corner cutout edge (inside the crop above): background-removal
   // leaves a thin semi-transparent fringe there whose RGB still carries a
@@ -365,7 +385,10 @@ function HandCard({
       return [edge, edge, edge, edge, back, back]
     }
     const face = new THREE.MeshStandardMaterial({
-      map: loadCardTexture(CARD_ART[cardKey], !COMMODITY_CARD_KEYS.includes(cardKey)),
+      map: loadCardTexture(
+        CARD_ART[cardKey],
+        COMMODITY_CARD_KEYS.includes(cardKey) ? COMMODITY_CARD_CROP[cardKey as CommodityType] : undefined,
+      ),
       roughness: 0.42,
       metalness: 0.05,
       emissive: new THREE.Color('#c8a93e'),

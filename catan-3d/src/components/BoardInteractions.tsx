@@ -25,12 +25,15 @@ const EDGE_HITBOX_HEIGHT = 0.14
 // hitboxes at either end — keeps hover/click targets from overlapping.
 const EDGE_LENGTH_SCALE = 0.82
 
-// City wall placeholder — a low stone-colored ring sitting flush around the
-// city model's base, per this plan's Global Constraints (placeholder art
-// before commissioned art).
-const CITY_WALL_COLOR = '#8a7f6b'
-const CITY_WALL_RADIUS = 0.22
-const CITY_WALL_HEIGHT = 0.05
+// City wall placeholder — a stone-colored ring standing up around the city
+// model's base, per this plan's Global Constraints (placeholder art before
+// commissioned art). Bumped taller/bluer than the original placeholder,
+// which sat mostly buried below the base (offset -HEIGHT/2, so only a
+// ~2.5cm-equivalent sliver poked above ground) and read as invisible from
+// a normal camera angle — a real, reported bug, not a design choice.
+const CITY_WALL_COLOR = '#7d8fa3'
+const CITY_WALL_RADIUS = 0.26
+const CITY_WALL_HEIGHT = 0.16
 
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
@@ -139,7 +142,7 @@ const VertexSlot = memo(function VertexSlot({
           <SettlementModel colorToken={colorToken} />
         )}
         {hasWall && building.type === 'city' && (
-          <mesh position={[0, -CITY_WALL_HEIGHT / 2, 0]}>
+          <mesh position={[0, CITY_WALL_HEIGHT / 2, 0]}>
             <cylinderGeometry args={[CITY_WALL_RADIUS, CITY_WALL_RADIUS, CITY_WALL_HEIGHT, 8, 1, true]} />
             <meshStandardMaterial color={CITY_WALL_COLOR} side={2 /* THREE.DoubleSide */} />
           </mesh>

@@ -15,6 +15,18 @@ export interface KnightsPanelProps {
   canChaseRobber: (knight: KnightPiece) => boolean
   canChasePirate: (knight: KnightPiece) => boolean
   armedKnightId: string | null
+  // True while a Recruit click has armed the board's placement picker but
+  // hasn't resolved yet (App.tsx's pendingKnightRecruit). Distinct from
+  // armedKnightId, which only covers Move/Displace — Recruit has no knight
+  // id to key on until the placement actually happens.
+  recruitPending: boolean
+  // Clears whichever of the above is currently armed, without spending
+  // anything (recruiting/moving/displacing don't spend until the board
+  // click resolves) — the same escape hatch onCancelDiplomacy/
+  // onCancelGuildDues/onCancelEspionage already give their own pickers, so
+  // an armed-but-unplaceable action can't strand the player for the rest of
+  // their turn.
+  onCancelAction: () => void
 }
 
 export function KnightsPanel({
@@ -32,7 +44,10 @@ export function KnightsPanel({
   canChaseRobber,
   canChasePirate,
   armedKnightId,
+  recruitPending,
+  onCancelAction,
 }: KnightsPanelProps) {
+  const actionArmed = recruitPending || armedKnightId != null
   const slots: { strength: (typeof KNIGHT_STRENGTH_ORDER)[number]; knight: KnightPiece | undefined }[] = []
   for (const strength of KNIGHT_STRENGTH_ORDER) {
     const owned = player.knightPieces.filter((k) => k.strength === strength)
@@ -43,7 +58,18 @@ export function KnightsPanel({
 
   return (
     <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">Knights</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">Knights</span>
+        {actionArmed && (
+          <button
+            type="button"
+            onClick={onCancelAction}
+            className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-white/80 hover:bg-white/20"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
       <div className="flex flex-col gap-1.5">
         {slots.map((slot, index) => (
           <div

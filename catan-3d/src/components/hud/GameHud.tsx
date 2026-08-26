@@ -82,26 +82,37 @@ const NO_METROPOLIS_PURCHASE_BLOCKED: Record<ImprovementTrack, boolean> = {
   politics: false,
 }
 
-interface GameHudProps {
-  players: Player[]
+// GameHud's props are grouped by mechanic rather than passed as one flat list
+// (it reached 102 top-level props before this grouping). Each interface below
+// is one cohesive mechanic; genuinely cross-cutting values (players,
+// settlements, viewerPlayerId, winner, banner, roomCode, eventLog, and the
+// two restart/return callbacks) stay flat on GameHudProps itself. Declaration
+// order matches the pre-grouping prop order, because several comments below
+// refer to their neighbours as "above"/"below".
+
+interface TurnHudState {
   currentPlayerIndex: number
   // Always true for local Pass & Play. For Online Multiplayer, true only on
   // the browser whose seat currently holds the turn — everyone else's
   // action buttons stay locked until they hear a TURN_PASSED broadcast.
   isMyTurn: boolean
-  lastRoll: number | null
-  lastEventDie: EventDieFace | null
-  onRollDice: () => void
   // Once true, the Roll Dice button morphs into End Turn (same slot) — the
   // ONLY way currentPlayerIndex ever advances is that explicit click.
   hasRolledThisTurn: boolean
   onEndTurn: () => void
   gamePhase: GamePhase
   setupStage: SetupStage
-  banner: BannerMessage | null
-  onRestart: () => void
-  // False only in an online match for a non-host player.
-  canRestart: boolean
+  devCardPlayedThisTurn: boolean
+}
+
+interface DiceHudState {
+  lastRoll: number | null
+  lastEventDie: EventDieFace | null
+  onRollDice: () => void
+  isRolling: boolean
+}
+
+interface TradeHudState {
   portRates: Record<ResourceType, number>
   onTrade: (give: ResourceType, receive: ResourceType) => void
   // Cities & Knights Trade level 3 — 2:1 commodity trading, any time on the
@@ -111,12 +122,6 @@ interface GameHudProps {
   // already has between "can the modal even be opened" (canTrade, below) and
   // "is this specific trade currently legal" (App.tsx's own guards).
   onTradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
-  isRolling: boolean
-  devDeckCount: number
-  onBuyDevCard: () => void
-  winner: Player | null
-  settlements: Record<string, Building>
-  onReturnToMenu: () => void
   pendingTrade: PendingTrade | null
   // null for local Pass & Play (everyone shares one screen, so the trade
   // prompt always shows there). Online, only the browser whose player ID
@@ -126,7 +131,15 @@ interface GameHudProps {
   localPlayerId: number | null
   onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
   onResolveTrade: (accept: boolean) => void
+}
+
+interface DevCardHudState {
+  devDeckCount: number
+  onBuyDevCard: () => void
   onPlayDevCard: (type: DevCardType) => void
+}
+
+interface PickerHudState {
   devCardPicker: DevCardPickerMode | null
   onResolveDevCardPicker: (picks: ResourceType[]) => void
   // Cities & Knights Trade Monopoly's picker — a separate resolver rather
@@ -152,7 +165,9 @@ interface GameHudProps {
   // player on the same roll).
   goldFieldResourceActive: boolean
   onResolveGoldFieldResource: (resource: ResourceType) => void
-  devCardPlayedThisTurn: boolean
+}
+
+interface TrophyHudState {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
@@ -169,11 +184,9 @@ interface GameHudProps {
   // RankingsPanel/VictoryBanner for scoring, same "live in App.tsx, not on
   // Player" reasoning metropolisHolders' own comment above gives.
   merchantHolderId: number | null
-  // Set the instant the viewer's own purchase crosses into level 4/5 on a
-  // track — threaded straight down from App.tsx (not derivable from any
-  // prop GameHud already has) so CityImprovementsPanel can swap that row to
-  // a "select a city" prompt.
-  pendingMetropolisTrack: ImprovementTrack | null
+}
+
+interface HouseRulesHudState {
   // Cities & Knights house rule — whether commodity cards count toward the
   // "cards in hand" discard-risk total shown in ResourcePanel. Passed as a
   // plain boolean (not the whole GameRules object) since that's the only
@@ -181,7 +194,6 @@ interface GameHudProps {
   // CityImprovementsPanel renders at all — a match with this house rule off
   // never shows city improvement tracks.
   citiesAndKnightsCommodities: boolean
-  onBuyImprovement: (track: ImprovementTrack) => void
   // Cities & Knights progress cards — gates whether ProgressCardsPanel
   // renders at all, same "derived from GameRules, not folded into
   // citiesAndKnightsCommodities" split GameRules itself keeps (see that
@@ -198,9 +210,6 @@ interface GameHudProps {
   // comparison), unlike the pillage/draw pickers Tasks 6-7 add elsewhere —
   // no per-player gating, everyone on this house rule sees the same thing.
   citiesAndKnightsBarbarians: boolean
-  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
-  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
-  barbarianTrackPosition: number
   // Cities & Knights knights (Task 7) — gates whether KnightsPanel renders
   // at all, same "derived from GameRules, not folded into
   // citiesAndKnightsProgressCards" split GameRules itself keeps (see that
@@ -209,6 +218,28 @@ interface GameHudProps {
   // here either, matching the citiesAndKnightsCommodities/
   // citiesAndKnightsProgressCards precedent above).
   citiesAndKnightsKnights: boolean
+}
+
+interface ImprovementHudState {
+  onBuyImprovement: (track: ImprovementTrack) => void
+  // Set the instant the viewer's own purchase crosses into level 4/5 on a
+  // track — threaded straight down from App.tsx (not derivable from any
+  // prop GameHud already has) so CityImprovementsPanel can swap that row to
+  // a "select a city" prompt.
+  pendingMetropolisTrack: ImprovementTrack | null
+  // Grouped with the improvement track rather than with the other progress
+  // cards: Crane is a progress card by origin, but its only consumer is
+  // CityImprovementsPanel and its only meaning is "the viewer's next
+  // improvement costs 1 less." Grouped by what it does here, not by which
+  // rulebook chapter minted it.
+  // Cities & Knights Crane — true when the viewer holds an unused "next
+  // improvement costs 1 less" discount. Threaded straight through to
+  // CityImprovementsPanel — see that prop's own comment for why the button-
+  // enabled check needs it too, not just App.tsx's own purchase gate.
+  craneDiscountActive: boolean
+}
+
+interface KnightsHudState {
   // Recruit (Task 7), Activate/Promote (Task 8), and Move (Task 9) are
   // wired up so far — Task 10-11 add the remaining KnightsPanel props
   // (displace/chase-robber) the same way onPlayAlchemy etc. were added
@@ -252,6 +283,9 @@ interface GameHudProps {
   // because canPromote below needs to check membership per-knight, not
   // once for the whole panel.
   knightsPromotedThisTurn: Set<string>
+}
+
+interface CityWallHudState {
   // Cities & Knights city walls (Task 12) — no board picker: the target is
   // one of the viewer's own cities, chosen via ResourcePanel's own "City
   // Walls" button row (ownCities/canBuildWallAt below are derived right
@@ -271,6 +305,9 @@ interface GameHudProps {
   // pendingGuildDues etc. get elsewhere in this file's own props.
   pendingFreeCityWall: number | null
   onResolveFreeWall: (vertexId: string) => void
+}
+
+interface ProgressCardHudState {
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -284,11 +321,6 @@ interface GameHudProps {
   // Dice button below, only reachable pre-roll on the current player's own
   // turn.
   onPlayAlchemy: (d1: number, d2: number) => void
-  // Cities & Knights Crane — true when the viewer holds an unused "next
-  // improvement costs 1 less" discount. Threaded straight through to
-  // CityImprovementsPanel — see that prop's own comment for why the button-
-  // enabled check needs it too, not just App.tsx's own purchase gate.
-  craneDiscountActive: boolean
   // Cities & Knights Invention — deliberately NOT part of
   // progressCardPlayHandlers (same exception as Alchemy above): fires from
   // its own small "Play" button near Roll Dice, which only spends the card
@@ -348,6 +380,9 @@ interface GameHudProps {
   // deadlock — and the flag survived into the next match before this fix
   // round, taking the deadlock with it.
   onCancelDiplomacy: () => void
+}
+
+interface GuildDuesHudState {
   // Cities & Knights Guild Dues — null until the viewer's own OWN play
   // spends the card (App.tsx's playGuildDues), local-only like
   // pendingInventionSwap/merchantFleetType above (only ever set on the
@@ -360,6 +395,9 @@ interface GameHudProps {
   onSelectGuildDuesTarget: (playerId: number) => void
   onConfirmGuildDues: (picks: (ResourceType | CommodityType)[]) => void
   onCancelGuildDues: () => void
+}
+
+interface EspionageHudState {
   // Cities & Knights Espionage — same shape as pendingGuildDues above, but
   // targets every OTHER player (no VP filter needed, so no separate
   // eligible-targets prop — this file's own `otherPlayers`, below, already
@@ -368,6 +406,9 @@ interface GameHudProps {
   onSelectEspionageTarget: (playerId: number) => void
   onConfirmEspionage: (indices: number[]) => void
   onCancelEspionage: () => void
+}
+
+interface ProgressDiscardHudState {
   // Cities & Knights progress-card hand limit (4 cards). Unlike
   // isMyDiscardTurn below (a plain boolean App.tsx already resolved),
   // this is the raw front-of-queue player id — GameHud derives its OWN
@@ -392,6 +433,9 @@ interface GameHudProps {
   // Named for the small "waiting for X" indicator, same role as
   // discardingPlayerName below but for the progress-card queue.
   progressDiscardingPlayerName: string
+}
+
+interface DiscardHudState {
   // Discard (7-roll, over 7 cards). isMyDiscardTurn gates whether THIS
   // screen sees the counter/Confirm button vs. a "waiting" message —
   // discardingPlayerName still names whoever's actually discarding either way.
@@ -400,6 +444,41 @@ interface GameHudProps {
   discardRequiredCount: number
   discardSelectedCount: number
   onConfirmDiscard: () => void
+}
+
+interface ChatHudState {
+  // Online-only — ChatBoxPanel only renders when roomCode is set.
+  chatMessages: ChatMessagePayload[]
+  onSendChatMessage: (text: string) => void
+}
+
+interface GameHudProps {
+  players: Player[]
+  turn: TurnHudState
+  dice: DiceHudState
+  banner: BannerMessage | null
+  onRestart: () => void
+  // False only in an online match for a non-host player.
+  canRestart: boolean
+  trade: TradeHudState
+  devCards: DevCardHudState
+  winner: Player | null
+  settlements: Record<string, Building>
+  onReturnToMenu: () => void
+  picker: PickerHudState
+  trophies: TrophyHudState
+  houseRules: HouseRulesHudState
+  improvements: ImprovementHudState
+  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
+  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
+  barbarianTrackPosition: number
+  knights: KnightsHudState
+  cityWalls: CityWallHudState
+  progressCards: ProgressCardHudState
+  guildDues: GuildDuesHudState
+  espionage: EspionageHudState
+  progressDiscard: ProgressDiscardHudState
+  discard: DiscardHudState
   // null for local Pass & Play. Online, shown persistently so a player who
   // never noted the code down can still find it to reconnect.
   roomCode: string | null
@@ -411,115 +490,74 @@ interface GameHudProps {
   // hidden Victory Point hint) need this, not currentPlayerIndex.
   viewerPlayerId: number
   eventLog: EventLogEntry[]
-  // Online-only — ChatBoxPanel only renders when roomCode is set.
-  chatMessages: ChatMessagePayload[]
-  onSendChatMessage: (text: string) => void
+  chat: ChatHudState
 }
 
 export function GameHud({
   players,
-  currentPlayerIndex,
-  isMyTurn,
-  lastRoll,
-  lastEventDie,
-  onRollDice,
-  hasRolledThisTurn,
-  onEndTurn,
-  gamePhase,
-  setupStage,
+  turn,
+  dice,
   banner,
   onRestart,
   canRestart,
-  portRates,
-  onTrade,
-  onTradeCommodity,
-  isRolling,
-  devDeckCount,
-  onBuyDevCard,
+  trade,
+  devCards,
   winner,
   settlements,
   onReturnToMenu,
-  pendingTrade,
-  localPlayerId,
-  onProposeTrade,
-  onResolveTrade,
-  onPlayDevCard,
-  devCardPicker,
-  onResolveDevCardPicker,
-  onResolveDevCardCommodityPicker,
-  scienceFreeResourceActive,
-  onResolveScienceFreeResource,
-  goldFieldResourceActive,
-  onResolveGoldFieldResource,
-  devCardPlayedThisTurn,
-  longestRoadHolderId,
-  longestRoadLengths,
-  largestArmyHolderId,
-  metropolisHolders,
-  metropolisVertexIds,
-  merchantHolderId,
-  pendingMetropolisTrack,
-  citiesAndKnightsCommodities,
-  onBuyImprovement,
-  citiesAndKnightsProgressCards,
-  citiesAndKnightsBarbarians,
+  picker,
+  trophies,
+  houseRules,
+  improvements,
   barbarianTrackPosition,
-  citiesAndKnightsKnights,
-  onRecruitKnight,
-  canRecruitKnight,
-  onActivateKnight,
-  onPromoteKnight,
-  onArmKnightMove,
-  onArmKnightDisplace,
-  onArmChaseRobber,
-  canChaseRobber,
-  onArmChasePirate,
-  canChasePirate,
-  armedKnightId,
-  knightsPromotedThisTurn,
-  onBuildWall,
-  pendingFreeCityWall,
-  onResolveFreeWall,
-  progressCardDeckCounts,
-  progressCardPlayHandlers,
-  onPlayAlchemy,
-  craneDiscountActive,
-  onPlayInvention,
-  inventionSwapActive,
-  onPlayMerchantFleet,
-  merchantFleetRate,
-  onPlayCommercialHarbor,
-  onPlayTreason,
-  treasonPlacementActive,
-  onPlayDiplomacy,
-  diplomacyPickerActive,
-  onCancelDiplomacy,
-  pendingGuildDues,
-  guildDuesEligibleTargets,
-  onSelectGuildDuesTarget,
-  onConfirmGuildDues,
-  onCancelGuildDues,
-  pendingEspionage,
-  onSelectEspionageTarget,
-  onConfirmEspionage,
-  onCancelEspionage,
-  activeProgressDiscarderId,
-  progressDiscardSelection,
-  onToggleProgressDiscard,
-  progressDiscardRequiredCount,
-  onConfirmProgressDiscard,
-  progressDiscardingPlayerName,
-  isMyDiscardTurn,
-  discardingPlayerName,
-  discardRequiredCount,
-  discardSelectedCount,
-  onConfirmDiscard,
+  knights,
+  cityWalls,
+  progressCards,
+  guildDues,
+  espionage,
+  progressDiscard,
+  discard,
   roomCode,
   viewerPlayerId,
   eventLog,
-  chatMessages,
-  onSendChatMessage,
+  chat,
 }: GameHudProps) {
+  // Groups whose fields feed this file's own derivations (the canX gates,
+  // activePickerMode, statusLabel, the hand-limit arithmetic) are destructured
+  // straight back into locals under their existing names, so those dense
+  // boolean expressions below stay readable. Every OTHER prop group is read by
+  // dot access at the single panel it's threaded to (knights.armedKnightId,
+  // discard.discardingPlayerName, …), where the group name reads as useful
+  // provenance rather than noise.
+  const { currentPlayerIndex, isMyTurn, hasRolledThisTurn, onEndTurn, gamePhase, setupStage, devCardPlayedThisTurn } = turn
+  const { lastRoll, lastEventDie, onRollDice, isRolling } = dice
+  const { portRates, onTrade, onTradeCommodity, pendingTrade, localPlayerId, onProposeTrade, onResolveTrade } = trade
+  const { devDeckCount, onBuyDevCard, onPlayDevCard } = devCards
+  const {
+    devCardPicker,
+    onResolveDevCardPicker,
+    onResolveDevCardCommodityPicker,
+    scienceFreeResourceActive,
+    onResolveScienceFreeResource,
+    goldFieldResourceActive,
+    onResolveGoldFieldResource,
+  } = picker
+  const { citiesAndKnightsCommodities, citiesAndKnightsProgressCards, citiesAndKnightsBarbarians, citiesAndKnightsKnights } =
+    houseRules
+  // The one field pulled out of an otherwise dot-accessed group: merchantFleetRate
+  // is null-narrowed across an && chain in two places below (TradeModal's
+  // canTradeCommodities gate and the Merchant Fleet widget's "Active: 2:1" line),
+  // and a local keeps that narrowing obvious instead of resting on TypeScript
+  // narrowing a nested property path.
+  const { merchantFleetRate } = progressCards
+  const {
+    activeProgressDiscarderId,
+    progressDiscardSelection,
+    onToggleProgressDiscard,
+    progressDiscardRequiredCount,
+    onConfirmProgressDiscard,
+    progressDiscardingPlayerName,
+  } = progressDiscard
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   // Cities & Knights Alchemy's own 2-number picker (Set Dice button near
   // Roll Dice, below) — plain local UI state, never broadcast, same
@@ -563,8 +601,8 @@ export function GameHud({
   // unconditionally (hooks can't be conditional) — harmless when the
   // matching pending* state is null, since the ref callback just never
   // attaches to a mounted node.
-  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelGuildDues)
-  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(onCancelEspionage)
+  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(guildDues.onCancelGuildDues)
+  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(espionage.onCancelEspionage)
   // Cities & Knights progress-card hand-limit discard — mirrors
   // isMyDiscardTurn's role, but computed HERE (not in App.tsx) since it
   // needs THIS screen's own viewer, which online is always this browser's
@@ -588,8 +626,14 @@ export function GameHud({
     ? (Object.fromEntries(
         IMPROVEMENT_TRACK_ORDER.map((track) => [
           track,
-          evaluateMetropolisPurchase(players, settlements, metropolisHolders, metropolisVertexIds, track, viewer.id)
-            .blocked,
+          evaluateMetropolisPurchase(
+            players,
+            settlements,
+            trophies.metropolisHolders,
+            trophies.metropolisVertexIds,
+            track,
+            viewer.id,
+          ).blocked,
         ]),
       ) as Record<ImprovementTrack, boolean>)
     : NO_METROPOLIS_PURCHASE_BLOCKED
@@ -603,7 +647,7 @@ export function GameHud({
   // canPerformAction() re-checks pendingGuildDues/pendingEspionage
   // independently at handler time — this is the matching UI-level lock, not
   // the only one.
-  const pickerBlocked = !!activePickerMode || !!pendingGuildDues || !!pendingEspionage
+  const pickerBlocked = !!activePickerMode || !!guildDues.pendingGuildDues || !!espionage.pendingEspionage
   const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
     gamePhase === 'playing' &&
@@ -645,7 +689,7 @@ export function GameHud({
   // path — see that gate's own comment just below for why that must not
   // drift) and by the button row's onClick branch, threaded straight to
   // ResourcePanel.
-  const freeWallActive = pendingFreeCityWall === viewer.id
+  const freeWallActive = cityWalls.pendingFreeCityWall === viewer.id
   // Folds in the SAME action-gate set every sibling derivation in this file
   // applies (canTrade/canBuyDevCard/canPlayDevCards/canBuyImprovement all
   // nearby) before ever calling canBuildCityWall — CodeRabbit already
@@ -734,7 +778,7 @@ export function GameHud({
           ? 'Place your settlement'
           : 'Place your road'
         : gamePhase === 'discard'
-          ? `${discardingPlayerName} discarding…`
+          ? `${discard.discardingPlayerName} discarding…`
           : gamePhase === 'moveRobber'
             ? 'Move the Robber'
             : gamePhase === 'chooseRobberOrPirate'
@@ -791,11 +835,11 @@ export function GameHud({
           players={players}
           settlements={settlements}
           viewerPlayerId={viewer.id}
-          longestRoadHolderId={longestRoadHolderId}
-          longestRoadLengths={longestRoadLengths}
-          largestArmyHolderId={largestArmyHolderId}
-          metropolisHolders={metropolisHolders}
-          merchantHolderId={merchantHolderId}
+          longestRoadHolderId={trophies.longestRoadHolderId}
+          longestRoadLengths={trophies.longestRoadLengths}
+          largestArmyHolderId={trophies.largestArmyHolderId}
+          metropolisHolders={trophies.metropolisHolders}
+          merchantHolderId={trophies.merchantHolderId}
         />
         {/* Placement is a first-pass call, not yet confirmed live in the
             browser (see this task's report) — stacked here alongside
@@ -806,18 +850,18 @@ export function GameHud({
             commodities={viewer.commodities}
             cityImprovements={viewer.cityImprovements}
             canBuy={canBuyImprovement}
-            onBuy={onBuyImprovement}
-            pendingMetropolisTrack={pendingMetropolisTrack}
+            onBuy={improvements.onBuyImprovement}
+            pendingMetropolisTrack={improvements.pendingMetropolisTrack}
             metropolisPurchaseBlocked={metropolisPurchaseBlocked}
-            craneDiscountActive={craneDiscountActive}
+            craneDiscountActive={improvements.craneDiscountActive}
           />
         )}
         {citiesAndKnightsProgressCards && (
           <>
             <ProgressCardsPanel
               progressCards={viewer.progressCards}
-              deckCounts={progressCardDeckCounts}
-              playHandlers={progressCardPlayHandlers}
+              deckCounts={progressCards.progressCardDeckCounts}
+              playHandlers={progressCards.progressCardPlayHandlers}
               isMyTurn={canPlayProgressCards}
               discardActive={isMyProgressDiscardTurn}
               discardSelection={progressDiscardSelection}
@@ -870,23 +914,23 @@ export function GameHud({
           <KnightsPanel
             player={viewer}
             isMyTurn={canPlayKnightActions}
-            onRecruit={onRecruitKnight}
-            onActivate={onActivateKnight}
-            onPromote={onPromoteKnight}
-            onArmMove={onArmKnightMove}
-            onArmDisplace={onArmKnightDisplace}
-            onArmChaseRobber={onArmChaseRobber}
-            onArmChasePirate={onArmChasePirate}
-            canRecruit={canRecruitKnight}
-            canPromote={(knight) => canPromoteKnight(viewer, knight) && !knightsPromotedThisTurn.has(knight.id)}
-            canChaseRobber={canChaseRobber}
-            canChasePirate={canChasePirate}
-            armedKnightId={armedKnightId}
+            onRecruit={knights.onRecruitKnight}
+            onActivate={knights.onActivateKnight}
+            onPromote={knights.onPromoteKnight}
+            onArmMove={knights.onArmKnightMove}
+            onArmDisplace={knights.onArmKnightDisplace}
+            onArmChaseRobber={knights.onArmChaseRobber}
+            onArmChasePirate={knights.onArmChasePirate}
+            canRecruit={knights.canRecruitKnight}
+            canPromote={(knight) => canPromoteKnight(viewer, knight) && !knights.knightsPromotedThisTurn.has(knight.id)}
+            canChaseRobber={knights.canChaseRobber}
+            canChasePirate={knights.canChasePirate}
+            armedKnightId={knights.armedKnightId}
           />
         )}
       </div>
       <EventLogPanel events={eventLog} />
-      {roomCode && <ChatBoxPanel messages={chatMessages} players={players} onSend={onSendChatMessage} />}
+      {roomCode && <ChatBoxPanel messages={chat.chatMessages} players={players} onSend={chat.onSendChatMessage} />}
       <ResourcePanel
         resources={viewer.resources}
         commodities={viewer.commodities}
@@ -904,9 +948,9 @@ export function GameHud({
         cityWallCount={viewer.cityWalls.length}
         ownCities={ownCities}
         canBuildWallAt={canBuildWallAt}
-        onBuildWall={onBuildWall}
+        onBuildWall={cityWalls.onBuildWall}
         freeWallActive={freeWallActive}
-        onResolveFreeWall={onResolveFreeWall}
+        onResolveFreeWall={cityWalls.onResolveFreeWall}
       />
       {isTradeOpen && (
         <TradeModal
@@ -994,7 +1038,7 @@ export function GameHud({
             </div>
             <button
               type="button"
-              onClick={() => onPlayAlchemy(alchemyD1, alchemyD2)}
+              onClick={() => progressCards.onPlayAlchemy(alchemyD1, alchemyD2)}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
@@ -1008,19 +1052,19 @@ export function GameHud({
             mid-pick from here (App.tsx's playInvention guards this too); a
             "pick tiles" hint takes its place instead. No pre-roll
             restriction, unlike Alchemy — Invention has no such rule. */}
-        {canPlayProgressCards && !inventionSwapActive && viewer.progressCards.includes('invention') && (
+        {canPlayProgressCards && !progressCards.inventionSwapActive && viewer.progressCards.includes('invention') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
             <button
               type="button"
-              onClick={onPlayInvention}
+              onClick={progressCards.onPlayInvention}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
             </button>
           </div>
         )}
-        {citiesAndKnightsProgressCards && isMyTurn && inventionSwapActive && (
+        {citiesAndKnightsProgressCards && isMyTurn && progressCards.inventionSwapActive && (
           <div className="pointer-events-auto animate-gold-pulse rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-center font-body text-[10px] text-gold uppercase">
             Pick 2 number tiles on the board
           </div>
@@ -1049,7 +1093,7 @@ export function GameHud({
             </select>
             <button
               type="button"
-              onClick={() => onPlayMerchantFleet(merchantFleetType)}
+              onClick={() => progressCards.onPlayMerchantFleet(merchantFleetType)}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
@@ -1084,7 +1128,7 @@ export function GameHud({
             </select>
             <button
               type="button"
-              onClick={() => onPlayCommercialHarbor(commercialHarborResource)}
+              onClick={() => progressCards.onPlayCommercialHarbor(commercialHarborResource)}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
@@ -1098,12 +1142,12 @@ export function GameHud({
             Diplomacy can't be spent mid-pick from here (App.tsx's
             activateDiplomacy guards this too), a "pick a road" hint taking
             its place instead. */}
-        {canPlayProgressCards && !diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && (
+        {canPlayProgressCards && !progressCards.diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
             <button
               type="button"
-              onClick={onPlayDiplomacy}
+              onClick={progressCards.onPlayDiplomacy}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
@@ -1118,12 +1162,12 @@ export function GameHud({
             App.tsx's activateDiplomacy now also refuses to arm when no open
             road exists, which is the root fix; this is the escape hatch for
             the case where the board changes underneath an armed picker. */}
-        {citiesAndKnightsProgressCards && isMyTurn && diplomacyPickerActive && (
+        {citiesAndKnightsProgressCards && isMyTurn && progressCards.diplomacyPickerActive && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-gold/60 bg-gold/10 p-2.5 text-center">
             <span className="animate-gold-pulse font-body text-[10px] text-gold uppercase">Pick an open road on the board</span>
             <button
               type="button"
-              onClick={onCancelDiplomacy}
+              onClick={progressCards.onCancelDiplomacy}
               className="w-full rounded-lg border border-glass-border bg-white/5 px-3 py-1.5 font-display text-xs font-semibold text-white/80 transition-colors hover:bg-white/10"
             >
               Cancel
@@ -1139,13 +1183,16 @@ export function GameHud({
             Treason can't be spent mid-placement from here (App.tsx's
             playTreason guards this too, same reasoning Invention's own
             !inventionSwapActive guard gives). */}
-        {canPlayProgressCards && !treasonPlacementActive && resolvedTreasonTargetId != null && viewer.progressCards.includes('treason') && (
+        {canPlayProgressCards &&
+          !progressCards.treasonPlacementActive &&
+          resolvedTreasonTargetId != null &&
+          viewer.progressCards.includes('treason') && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Treason: Choose a Target</span>
             <PlayerTargetPicker players={otherPlayers} selectedPlayerId={resolvedTreasonTargetId} onSelect={setTreasonTargetId} />
             <button
               type="button"
-              onClick={() => onPlayTreason(resolvedTreasonTargetId)}
+              onClick={() => progressCards.onPlayTreason(resolvedTreasonTargetId)}
               className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
             >
               Play
@@ -1196,7 +1243,7 @@ export function GameHud({
           sequential 2-screen flow. Only ever rendered on the acting
           client's own screen — pendingGuildDues is local-only state (see
           its own comment in App.tsx). */}
-      {pendingGuildDues && (
+      {guildDues.pendingGuildDues && (
         <div
           ref={guildDuesDialogRef}
           role="dialog"
@@ -1212,9 +1259,9 @@ export function GameHud({
             <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
             <div className="mb-4">
               <PlayerTargetPicker
-                players={guildDuesEligibleTargets}
-                selectedPlayerId={pendingGuildDues.targetId}
-                onSelect={onSelectGuildDuesTarget}
+                players={guildDues.guildDuesEligibleTargets}
+                selectedPlayerId={guildDues.pendingGuildDues.targetId}
+                onSelect={guildDues.onSelectGuildDuesTarget}
               />
             </div>
             <OpponentHandPicker
@@ -1224,12 +1271,16 @@ export function GameHud({
               // via PlayerTargetPicker above would carry stale selections
               // (picked against the OLD target) into a submit against the
               // NEW one instead of resetting them.
-              key={pendingGuildDues.targetId}
-              target={players.find((p) => p.id === pendingGuildDues.targetId) ?? guildDuesEligibleTargets[0] ?? viewer}
+              key={guildDues.pendingGuildDues.targetId}
+              target={
+                players.find((p) => p.id === guildDues.pendingGuildDues!.targetId) ??
+                guildDues.guildDuesEligibleTargets[0] ??
+                viewer
+              }
               mode="resourcesAndCommodities"
               maxPicks={2}
-              onConfirm={(picks) => onConfirmGuildDues(picks as (ResourceType | CommodityType)[])}
-              onCancel={onCancelGuildDues}
+              onConfirm={(picks) => guildDues.onConfirmGuildDues(picks as (ResourceType | CommodityType)[])}
+              onCancel={guildDues.onCancelGuildDues}
             />
           </div>
         </div>
@@ -1237,7 +1288,7 @@ export function GameHud({
       {/* Cities & Knights Espionage — same composition as Guild Dues above,
           but the target list is `otherPlayers` (unrestricted — "another
           player," no VP filter) rather than a VP-eligible subset. */}
-      {pendingEspionage && (
+      {espionage.pendingEspionage && (
         <div
           ref={espionageDialogRef}
           role="dialog"
@@ -1254,18 +1305,18 @@ export function GameHud({
             <div className="mb-4">
               <PlayerTargetPicker
                 players={otherPlayers}
-                selectedPlayerId={pendingEspionage.targetId}
-                onSelect={onSelectEspionageTarget}
+                selectedPlayerId={espionage.pendingEspionage.targetId}
+                onSelect={espionage.onSelectEspionageTarget}
               />
             </div>
             <OpponentHandPicker
               // Same reset-on-switch reasoning as Guild Dues' own key above.
-              key={pendingEspionage.targetId}
-              target={players.find((p) => p.id === pendingEspionage.targetId) ?? otherPlayers[0] ?? viewer}
+              key={espionage.pendingEspionage.targetId}
+              target={players.find((p) => p.id === espionage.pendingEspionage!.targetId) ?? otherPlayers[0] ?? viewer}
               mode="progressCards"
               maxPicks={1}
-              onConfirm={(picks) => onConfirmEspionage(picks as number[])}
-              onCancel={onCancelEspionage}
+              onConfirm={(picks) => espionage.onConfirmEspionage(picks as number[])}
+              onCancel={espionage.onCancelEspionage}
             />
           </div>
         </div>
@@ -1280,11 +1331,11 @@ export function GameHud({
       )}
       {gamePhase === 'discard' && (
         <DiscardPanel
-          isMyDiscardTurn={isMyDiscardTurn}
-          discardingPlayerName={discardingPlayerName}
-          requiredCount={discardRequiredCount}
-          selectedCount={discardSelectedCount}
-          onConfirm={onConfirmDiscard}
+          isMyDiscardTurn={discard.isMyDiscardTurn}
+          discardingPlayerName={discard.discardingPlayerName}
+          requiredCount={discard.discardRequiredCount}
+          selectedCount={discard.discardSelectedCount}
+          onConfirm={discard.onConfirmDiscard}
         />
       )}
       {winner && (
@@ -1292,10 +1343,10 @@ export function GameHud({
           winner={winner}
           players={players}
           settlements={settlements}
-          longestRoadHolderId={longestRoadHolderId}
-          largestArmyHolderId={largestArmyHolderId}
-          metropolisHolders={metropolisHolders}
-          merchantHolderId={merchantHolderId}
+          longestRoadHolderId={trophies.longestRoadHolderId}
+          largestArmyHolderId={trophies.largestArmyHolderId}
+          metropolisHolders={trophies.metropolisHolders}
+          merchantHolderId={trophies.merchantHolderId}
           onReturnToMenu={onReturnToMenu}
         />
       )}

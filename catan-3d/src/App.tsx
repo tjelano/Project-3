@@ -7297,118 +7297,136 @@ function App() {
 
       <GameHud
         players={players}
-        currentPlayerIndex={currentPlayerIndex}
-        isMyTurn={isMyTurn}
-        lastRoll={lastRoll}
-        lastEventDie={lastEventDie}
-        onRollDice={rollDice}
-        hasRolledThisTurn={hasRolledThisTurn}
-        onEndTurn={handleEndTurn}
-        gamePhase={gamePhase}
-        setupStage={setupStage}
+        turn={{
+          currentPlayerIndex,
+          isMyTurn,
+          gamePhase,
+          setupStage,
+          hasRolledThisTurn,
+          devCardPlayedThisTurn,
+          onEndTurn: handleEndTurn,
+        }}
+        dice={{ lastRoll, lastEventDie, isRolling, onRollDice: rollDice }}
         banner={banner}
         onRestart={restartGame}
         canRestart={onlineInfo == null || isEffectiveHost}
-        portRates={currentPlayerPortRates}
-        onTrade={bankTrade}
-        onTradeCommodity={tradeCommodity}
-        isRolling={isRolling}
-        devDeckCount={devDeck.length}
-        onBuyDevCard={buyDevCard}
+        trade={{
+          portRates: currentPlayerPortRates,
+          onTrade: bankTrade,
+          onTradeCommodity: tradeCommodity,
+          pendingTrade,
+          localPlayerId: onlineInfo?.localPlayerId ?? null,
+          onProposeTrade: proposePlayerTrade,
+          onResolveTrade: resolvePlayerTrade,
+        }}
+        devCards={{ devDeckCount: devDeck.length, onBuyDevCard: buyDevCard, onPlayDevCard: playDevCard }}
         winner={winner}
         settlements={gameState.board.settlements}
         onReturnToMenu={returnToMenu}
-        pendingTrade={pendingTrade}
-        localPlayerId={onlineInfo?.localPlayerId ?? null}
-        onProposeTrade={proposePlayerTrade}
-        onResolveTrade={resolvePlayerTrade}
-        onPlayDevCard={playDevCard}
-        devCardPicker={devCardPicker}
-        onResolveDevCardPicker={resolveDevCardPicker}
-        onResolveDevCardCommodityPicker={resolveDevCardCommodityPicker}
-        scienceFreeResourceActive={activeScienceFreeResourcePlayerId != null}
-        onResolveScienceFreeResource={resolveScienceFreeResource}
-        goldFieldResourceActive={activeGoldFieldResourcePlayerId != null}
-        onResolveGoldFieldResource={resolveGoldFieldResourcePick}
-        devCardPlayedThisTurn={devCardPlayedThisTurn}
-        longestRoadHolderId={longestRoadHolderId}
-        longestRoadLengths={longestRoadLengths}
-        largestArmyHolderId={largestArmyHolderId}
-        metropolisHolders={metropolisHolders}
-        metropolisVertexIds={metropolisVertexIds}
-        merchantHolderId={merchantHolderId}
-        pendingMetropolisTrack={
-          pendingMetropolisClaim && pendingMetropolisClaim.playerId === localPlayer.id
-            ? pendingMetropolisClaim.track
-            : null
-        }
-        citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
-        onBuyImprovement={buyCityImprovement}
-        citiesAndKnightsProgressCards={gameRules.citiesAndKnightsProgressCards}
-        citiesAndKnightsBarbarians={gameRules.citiesAndKnightsBarbarians}
-        barbarianTrackPosition={barbarianTrackPosition}
-        citiesAndKnightsKnights={gameRules.citiesAndKnightsKnights}
-        onRecruitKnight={armKnightRecruit}
-        canRecruitKnight={canRecruitKnight(localPlayer)}
-        onActivateKnight={activateKnight}
-        onPromoteKnight={promoteKnight}
-        onArmKnightMove={armKnightMove}
-        onArmKnightDisplace={armKnightDisplace}
-        onArmChaseRobber={armChaseRobber}
-        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId)}
-        onArmChasePirate={armChasePirate}
-        canChasePirate={(knight) =>
-          gameState.board.pirateTileId != null &&
-          new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId)
-        }
-        armedKnightId={armedKnightAction?.knightId ?? null}
-        knightsPromotedThisTurn={knightsPromotedThisTurn}
-        onBuildWall={buildCityWall}
-        pendingFreeCityWall={pendingFreeCityWall}
-        onResolveFreeWall={resolveFreeCityWall}
-        progressCardDeckCounts={{
-          science: progressCardDecks.science.length,
-          trade: progressCardDecks.trade.length,
-          politics: progressCardDecks.politics.length,
+        picker={{
+          devCardPicker,
+          onResolveDevCardPicker: resolveDevCardPicker,
+          onResolveDevCardCommodityPicker: resolveDevCardCommodityPicker,
+          scienceFreeResourceActive: activeScienceFreeResourcePlayerId != null,
+          onResolveScienceFreeResource: resolveScienceFreeResource,
+          goldFieldResourceActive: activeGoldFieldResourcePlayerId != null,
+          onResolveGoldFieldResource: resolveGoldFieldResourcePick,
         }}
-        progressCardPlayHandlers={progressCardPlayHandlers}
-        onPlayAlchemy={playAlchemy}
-        craneDiscountActive={craneDiscountPlayerId === localPlayer.id}
-        onPlayInvention={playInvention}
-        inventionSwapActive={pendingInventionSwap !== null}
-        onPlayMerchantFleet={playMerchantFleet}
-        merchantFleetRate={merchantFleetRate}
-        onPlayCommercialHarbor={playCommercialHarbor}
-        onPlayTreason={playTreason}
-        treasonPlacementActive={pendingTreasonPlacement?.playerId === localPlayer.id}
-        onPlayDiplomacy={activateDiplomacy}
-        diplomacyPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
-        onCancelDiplomacy={cancelDiplomacy}
-        pendingGuildDues={pendingGuildDues}
-        guildDuesEligibleTargets={guildDuesEligibleTargets}
-        onSelectGuildDuesTarget={selectGuildDuesTarget}
-        onConfirmGuildDues={confirmGuildDues}
-        onCancelGuildDues={cancelGuildDues}
-        pendingEspionage={pendingEspionage}
-        onSelectEspionageTarget={selectEspionageTarget}
-        onConfirmEspionage={confirmEspionage}
-        onCancelEspionage={cancelEspionage}
-        activeProgressDiscarderId={activeProgressDiscarderId}
-        progressDiscardSelection={progressDiscardSelection}
-        onToggleProgressDiscard={toggleProgressDiscardSelection}
-        progressDiscardRequiredCount={progressDiscardRequiredCount}
-        onConfirmProgressDiscard={confirmProgressDiscard}
-        progressDiscardingPlayerName={progressDiscardingPlayer?.name ?? ''}
-        isMyDiscardTurn={isMyDiscardTurn}
-        discardingPlayerName={discardingPlayer?.name ?? ''}
-        discardRequiredCount={discardRequiredCount}
-        discardSelectedCount={discardSelection.length}
-        onConfirmDiscard={confirmDiscard}
+        trophies={{
+          longestRoadHolderId,
+          longestRoadLengths,
+          largestArmyHolderId,
+          metropolisHolders,
+          metropolisVertexIds,
+          merchantHolderId,
+        }}
+        houseRules={{
+          citiesAndKnightsCommodities: gameRules.citiesAndKnightsCommodities,
+          citiesAndKnightsProgressCards: gameRules.citiesAndKnightsProgressCards,
+          citiesAndKnightsBarbarians: gameRules.citiesAndKnightsBarbarians,
+          citiesAndKnightsKnights: gameRules.citiesAndKnightsKnights,
+        }}
+        improvements={{
+          onBuyImprovement: buyCityImprovement,
+          pendingMetropolisTrack:
+            pendingMetropolisClaim && pendingMetropolisClaim.playerId === localPlayer.id
+              ? pendingMetropolisClaim.track
+              : null,
+          craneDiscountActive: craneDiscountPlayerId === localPlayer.id,
+        }}
+        barbarianTrackPosition={barbarianTrackPosition}
+        knights={{
+          onRecruitKnight: armKnightRecruit,
+          canRecruitKnight: canRecruitKnight(localPlayer),
+          onActivateKnight: activateKnight,
+          onPromoteKnight: promoteKnight,
+          onArmKnightMove: armKnightMove,
+          onArmKnightDisplace: armKnightDisplace,
+          onArmChaseRobber: armChaseRobber,
+          canChaseRobber: (knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId),
+          onArmChasePirate: armChasePirate,
+          canChasePirate: (knight) =>
+            gameState.board.pirateTileId != null &&
+            new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId),
+          armedKnightId: armedKnightAction?.knightId ?? null,
+          knightsPromotedThisTurn,
+        }}
+        cityWalls={{
+          onBuildWall: buildCityWall,
+          pendingFreeCityWall,
+          onResolveFreeWall: resolveFreeCityWall,
+        }}
+        progressCards={{
+          progressCardDeckCounts: {
+            science: progressCardDecks.science.length,
+            trade: progressCardDecks.trade.length,
+            politics: progressCardDecks.politics.length,
+          },
+          progressCardPlayHandlers,
+          onPlayAlchemy: playAlchemy,
+          onPlayInvention: playInvention,
+          inventionSwapActive: pendingInventionSwap !== null,
+          onPlayMerchantFleet: playMerchantFleet,
+          merchantFleetRate,
+          onPlayCommercialHarbor: playCommercialHarbor,
+          onPlayTreason: playTreason,
+          treasonPlacementActive: pendingTreasonPlacement?.playerId === localPlayer.id,
+          onPlayDiplomacy: activateDiplomacy,
+          diplomacyPickerActive: pendingDiplomacyRemoval?.playerId === localPlayer.id,
+          onCancelDiplomacy: cancelDiplomacy,
+        }}
+        guildDues={{
+          pendingGuildDues,
+          guildDuesEligibleTargets,
+          onSelectGuildDuesTarget: selectGuildDuesTarget,
+          onConfirmGuildDues: confirmGuildDues,
+          onCancelGuildDues: cancelGuildDues,
+        }}
+        espionage={{
+          pendingEspionage,
+          onSelectEspionageTarget: selectEspionageTarget,
+          onConfirmEspionage: confirmEspionage,
+          onCancelEspionage: cancelEspionage,
+        }}
+        progressDiscard={{
+          activeProgressDiscarderId,
+          progressDiscardSelection,
+          onToggleProgressDiscard: toggleProgressDiscardSelection,
+          progressDiscardRequiredCount,
+          onConfirmProgressDiscard: confirmProgressDiscard,
+          progressDiscardingPlayerName: progressDiscardingPlayer?.name ?? '',
+        }}
+        discard={{
+          isMyDiscardTurn,
+          discardingPlayerName: discardingPlayer?.name ?? '',
+          discardRequiredCount,
+          discardSelectedCount: discardSelection.length,
+          onConfirmDiscard: confirmDiscard,
+        }}
         roomCode={onlineInfo?.roomCode ?? null}
         viewerPlayerId={localPlayer.id}
         eventLog={eventLog}
-        chatMessages={chatMessages}
-        onSendChatMessage={sendChatMessage}
+        chat={{ chatMessages, onSendChatMessage: sendChatMessage }}
       />
 
       {/* Robber-or-pirate choice (Task 6) — the entry point a rolled 7 or a

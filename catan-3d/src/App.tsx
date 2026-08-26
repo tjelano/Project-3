@@ -7332,23 +7332,29 @@ function App() {
           goldFieldResourceActive: activeGoldFieldResourcePlayerId != null,
           onResolveGoldFieldResource: resolveGoldFieldResourcePick,
         }}
-        longestRoadHolderId={longestRoadHolderId}
-        longestRoadLengths={longestRoadLengths}
-        largestArmyHolderId={largestArmyHolderId}
-        metropolisHolders={metropolisHolders}
-        metropolisVertexIds={metropolisVertexIds}
-        merchantHolderId={merchantHolderId}
-        pendingMetropolisTrack={
-          pendingMetropolisClaim && pendingMetropolisClaim.playerId === localPlayer.id
-            ? pendingMetropolisClaim.track
-            : null
-        }
-        citiesAndKnightsCommodities={gameRules.citiesAndKnightsCommodities}
-        onBuyImprovement={buyCityImprovement}
-        citiesAndKnightsProgressCards={gameRules.citiesAndKnightsProgressCards}
-        citiesAndKnightsBarbarians={gameRules.citiesAndKnightsBarbarians}
+        trophies={{
+          longestRoadHolderId,
+          longestRoadLengths,
+          largestArmyHolderId,
+          metropolisHolders,
+          metropolisVertexIds,
+          merchantHolderId,
+        }}
+        houseRules={{
+          citiesAndKnightsCommodities: gameRules.citiesAndKnightsCommodities,
+          citiesAndKnightsProgressCards: gameRules.citiesAndKnightsProgressCards,
+          citiesAndKnightsBarbarians: gameRules.citiesAndKnightsBarbarians,
+          citiesAndKnightsKnights: gameRules.citiesAndKnightsKnights,
+        }}
+        improvements={{
+          onBuyImprovement: buyCityImprovement,
+          pendingMetropolisTrack:
+            pendingMetropolisClaim && pendingMetropolisClaim.playerId === localPlayer.id
+              ? pendingMetropolisClaim.track
+              : null,
+          craneDiscountActive: craneDiscountPlayerId === localPlayer.id,
+        }}
         barbarianTrackPosition={barbarianTrackPosition}
-        citiesAndKnightsKnights={gameRules.citiesAndKnightsKnights}
         onRecruitKnight={armKnightRecruit}
         canRecruitKnight={canRecruitKnight(localPlayer)}
         onActivateKnight={activateKnight}
@@ -7364,9 +7370,11 @@ function App() {
         }
         armedKnightId={armedKnightAction?.knightId ?? null}
         knightsPromotedThisTurn={knightsPromotedThisTurn}
-        onBuildWall={buildCityWall}
-        pendingFreeCityWall={pendingFreeCityWall}
-        onResolveFreeWall={resolveFreeCityWall}
+        cityWalls={{
+          onBuildWall: buildCityWall,
+          pendingFreeCityWall,
+          onResolveFreeWall: resolveFreeCityWall,
+        }}
         progressCardDeckCounts={{
           science: progressCardDecks.science.length,
           trade: progressCardDecks.trade.length,
@@ -7374,7 +7382,6 @@ function App() {
         }}
         progressCardPlayHandlers={progressCardPlayHandlers}
         onPlayAlchemy={playAlchemy}
-        craneDiscountActive={craneDiscountPlayerId === localPlayer.id}
         onPlayInvention={playInvention}
         inventionSwapActive={pendingInventionSwap !== null}
         onPlayMerchantFleet={playMerchantFleet}

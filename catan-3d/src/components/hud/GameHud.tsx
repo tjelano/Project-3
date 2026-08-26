@@ -167,20 +167,7 @@ interface PickerHudState {
   onResolveGoldFieldResource: (resource: ResourceType) => void
 }
 
-interface GameHudProps {
-  players: Player[]
-  turn: TurnHudState
-  dice: DiceHudState
-  banner: BannerMessage | null
-  onRestart: () => void
-  // False only in an online match for a non-host player.
-  canRestart: boolean
-  trade: TradeHudState
-  devCards: DevCardHudState
-  winner: Player | null
-  settlements: Record<string, Building>
-  onReturnToMenu: () => void
-  picker: PickerHudState
+interface TrophyHudState {
   longestRoadHolderId: number | null
   longestRoadLengths: Map<number, number>
   largestArmyHolderId: number | null
@@ -197,11 +184,9 @@ interface GameHudProps {
   // RankingsPanel/VictoryBanner for scoring, same "live in App.tsx, not on
   // Player" reasoning metropolisHolders' own comment above gives.
   merchantHolderId: number | null
-  // Set the instant the viewer's own purchase crosses into level 4/5 on a
-  // track — threaded straight down from App.tsx (not derivable from any
-  // prop GameHud already has) so CityImprovementsPanel can swap that row to
-  // a "select a city" prompt.
-  pendingMetropolisTrack: ImprovementTrack | null
+}
+
+interface HouseRulesHudState {
   // Cities & Knights house rule — whether commodity cards count toward the
   // "cards in hand" discard-risk total shown in ResourcePanel. Passed as a
   // plain boolean (not the whole GameRules object) since that's the only
@@ -209,7 +194,6 @@ interface GameHudProps {
   // CityImprovementsPanel renders at all — a match with this house rule off
   // never shows city improvement tracks.
   citiesAndKnightsCommodities: boolean
-  onBuyImprovement: (track: ImprovementTrack) => void
   // Cities & Knights progress cards — gates whether ProgressCardsPanel
   // renders at all, same "derived from GameRules, not folded into
   // citiesAndKnightsCommodities" split GameRules itself keeps (see that
@@ -226,9 +210,6 @@ interface GameHudProps {
   // comparison), unlike the pillage/draw pickers Tasks 6-7 add elsewhere —
   // no per-player gating, everyone on this house rule sees the same thing.
   citiesAndKnightsBarbarians: boolean
-  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
-  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
-  barbarianTrackPosition: number
   // Cities & Knights knights (Task 7) — gates whether KnightsPanel renders
   // at all, same "derived from GameRules, not folded into
   // citiesAndKnightsProgressCards" split GameRules itself keeps (see that
@@ -237,6 +218,69 @@ interface GameHudProps {
   // here either, matching the citiesAndKnightsCommodities/
   // citiesAndKnightsProgressCards precedent above).
   citiesAndKnightsKnights: boolean
+}
+
+interface ImprovementHudState {
+  onBuyImprovement: (track: ImprovementTrack) => void
+  // Set the instant the viewer's own purchase crosses into level 4/5 on a
+  // track — threaded straight down from App.tsx (not derivable from any
+  // prop GameHud already has) so CityImprovementsPanel can swap that row to
+  // a "select a city" prompt.
+  pendingMetropolisTrack: ImprovementTrack | null
+  // Grouped with the improvement track rather than with the other progress
+  // cards: Crane is a progress card by origin, but its only consumer is
+  // CityImprovementsPanel and its only meaning is "the viewer's next
+  // improvement costs 1 less." Grouped by what it does here, not by which
+  // rulebook chapter minted it.
+  // Cities & Knights Crane — true when the viewer holds an unused "next
+  // improvement costs 1 less" discount. Threaded straight through to
+  // CityImprovementsPanel — see that prop's own comment for why the button-
+  // enabled check needs it too, not just App.tsx's own purchase gate.
+  craneDiscountActive: boolean
+}
+
+interface CityWallHudState {
+  // Cities & Knights city walls (Task 12) — no board picker: the target is
+  // one of the viewer's own cities, chosen via ResourcePanel's own "City
+  // Walls" button row (ownCities/canBuildWallAt below are derived right
+  // here from `viewer`/`settlements`/`players`, same "computed locally from
+  // props this file already has" treatment `canBuildWallAt`'s sibling
+  // `canPromote` gets above, rather than App.tsx pre-deriving them for a
+  // `viewer` concept it doesn't have). Only onBuildWall itself needs to
+  // come from App.tsx, since building a wall touches shared match state.
+  onBuildWall: (vertexId: string) => void
+  // Cities & Knights Engineering (Task 13) — non-null (and equal to
+  // viewer.id) while the VIEWER's own free-wall pick is in progress; reuses
+  // the SAME Wall buttons just above (canBuildWallAt below branches on it
+  // internally) rather than a dedicated picker, since Engineering only needs
+  // the SAME "click one of my eligible cities" affordance those buttons
+  // already offer, made free. App.tsx-owned (local-only pending state,
+  // never broadcast), same treatment pendingMerchantPlacement/
+  // pendingGuildDues etc. get elsewhere in this file's own props.
+  pendingFreeCityWall: number | null
+  onResolveFreeWall: (vertexId: string) => void
+}
+
+interface GameHudProps {
+  players: Player[]
+  turn: TurnHudState
+  dice: DiceHudState
+  banner: BannerMessage | null
+  onRestart: () => void
+  // False only in an online match for a non-host player.
+  canRestart: boolean
+  trade: TradeHudState
+  devCards: DevCardHudState
+  winner: Player | null
+  settlements: Record<string, Building>
+  onReturnToMenu: () => void
+  picker: PickerHudState
+  trophies: TrophyHudState
+  houseRules: HouseRulesHudState
+  improvements: ImprovementHudState
+  // Cities & Knights barbarian ship position on its 7-space track (Task 4's
+  // App.tsx state) — passed straight through to BarbarianTrackPanel below.
+  barbarianTrackPosition: number
   // Recruit (Task 7), Activate/Promote (Task 8), and Move (Task 9) are
   // wired up so far — Task 10-11 add the remaining KnightsPanel props
   // (displace/chase-robber) the same way onPlayAlchemy etc. were added
@@ -280,25 +324,7 @@ interface GameHudProps {
   // because canPromote below needs to check membership per-knight, not
   // once for the whole panel.
   knightsPromotedThisTurn: Set<string>
-  // Cities & Knights city walls (Task 12) — no board picker: the target is
-  // one of the viewer's own cities, chosen via ResourcePanel's own "City
-  // Walls" button row (ownCities/canBuildWallAt below are derived right
-  // here from `viewer`/`settlements`/`players`, same "computed locally from
-  // props this file already has" treatment `canBuildWallAt`'s sibling
-  // `canPromote` gets above, rather than App.tsx pre-deriving them for a
-  // `viewer` concept it doesn't have). Only onBuildWall itself needs to
-  // come from App.tsx, since building a wall touches shared match state.
-  onBuildWall: (vertexId: string) => void
-  // Cities & Knights Engineering (Task 13) — non-null (and equal to
-  // viewer.id) while the VIEWER's own free-wall pick is in progress; reuses
-  // the SAME Wall buttons just above (canBuildWallAt below branches on it
-  // internally) rather than a dedicated picker, since Engineering only needs
-  // the SAME "click one of my eligible cities" affordance those buttons
-  // already offer, made free. App.tsx-owned (local-only pending state,
-  // never broadcast), same treatment pendingMerchantPlacement/
-  // pendingGuildDues etc. get elsewhere in this file's own props.
-  pendingFreeCityWall: number | null
-  onResolveFreeWall: (vertexId: string) => void
+  cityWalls: CityWallHudState
   // Remaining cards in each of the 3 progress-card decks — shown in the
   // panel header the same way DiscardPanel/EventLogPanel show live counts.
   progressCardDeckCounts: Record<'science' | 'trade' | 'politics', number>
@@ -312,11 +338,6 @@ interface GameHudProps {
   // Dice button below, only reachable pre-roll on the current player's own
   // turn.
   onPlayAlchemy: (d1: number, d2: number) => void
-  // Cities & Knights Crane — true when the viewer holds an unused "next
-  // improvement costs 1 less" discount. Threaded straight through to
-  // CityImprovementsPanel — see that prop's own comment for why the button-
-  // enabled check needs it too, not just App.tsx's own purchase gate.
-  craneDiscountActive: boolean
   // Cities & Knights Invention — deliberately NOT part of
   // progressCardPlayHandlers (same exception as Alchemy above): fires from
   // its own small "Play" button near Roll Dice, which only spends the card
@@ -457,19 +478,10 @@ export function GameHud({
   settlements,
   onReturnToMenu,
   picker,
-  longestRoadHolderId,
-  longestRoadLengths,
-  largestArmyHolderId,
-  metropolisHolders,
-  metropolisVertexIds,
-  merchantHolderId,
-  pendingMetropolisTrack,
-  citiesAndKnightsCommodities,
-  onBuyImprovement,
-  citiesAndKnightsProgressCards,
-  citiesAndKnightsBarbarians,
+  trophies,
+  houseRules,
+  improvements,
   barbarianTrackPosition,
-  citiesAndKnightsKnights,
   onRecruitKnight,
   canRecruitKnight,
   onActivateKnight,
@@ -482,13 +494,10 @@ export function GameHud({
   canChasePirate,
   armedKnightId,
   knightsPromotedThisTurn,
-  onBuildWall,
-  pendingFreeCityWall,
-  onResolveFreeWall,
+  cityWalls,
   progressCardDeckCounts,
   progressCardPlayHandlers,
   onPlayAlchemy,
-  craneDiscountActive,
   onPlayInvention,
   inventionSwapActive,
   onPlayMerchantFleet,
@@ -545,6 +554,8 @@ export function GameHud({
     goldFieldResourceActive,
     onResolveGoldFieldResource,
   } = picker
+  const { citiesAndKnightsCommodities, citiesAndKnightsProgressCards, citiesAndKnightsBarbarians, citiesAndKnightsKnights } =
+    houseRules
   const [isTradeOpen, setIsTradeOpen] = useState(false)
   // Cities & Knights Alchemy's own 2-number picker (Set Dice button near
   // Roll Dice, below) — plain local UI state, never broadcast, same
@@ -613,8 +624,14 @@ export function GameHud({
     ? (Object.fromEntries(
         IMPROVEMENT_TRACK_ORDER.map((track) => [
           track,
-          evaluateMetropolisPurchase(players, settlements, metropolisHolders, metropolisVertexIds, track, viewer.id)
-            .blocked,
+          evaluateMetropolisPurchase(
+            players,
+            settlements,
+            trophies.metropolisHolders,
+            trophies.metropolisVertexIds,
+            track,
+            viewer.id,
+          ).blocked,
         ]),
       ) as Record<ImprovementTrack, boolean>)
     : NO_METROPOLIS_PURCHASE_BLOCKED
@@ -670,7 +687,7 @@ export function GameHud({
   // path — see that gate's own comment just below for why that must not
   // drift) and by the button row's onClick branch, threaded straight to
   // ResourcePanel.
-  const freeWallActive = pendingFreeCityWall === viewer.id
+  const freeWallActive = cityWalls.pendingFreeCityWall === viewer.id
   // Folds in the SAME action-gate set every sibling derivation in this file
   // applies (canTrade/canBuyDevCard/canPlayDevCards/canBuyImprovement all
   // nearby) before ever calling canBuildCityWall — CodeRabbit already
@@ -816,11 +833,11 @@ export function GameHud({
           players={players}
           settlements={settlements}
           viewerPlayerId={viewer.id}
-          longestRoadHolderId={longestRoadHolderId}
-          longestRoadLengths={longestRoadLengths}
-          largestArmyHolderId={largestArmyHolderId}
-          metropolisHolders={metropolisHolders}
-          merchantHolderId={merchantHolderId}
+          longestRoadHolderId={trophies.longestRoadHolderId}
+          longestRoadLengths={trophies.longestRoadLengths}
+          largestArmyHolderId={trophies.largestArmyHolderId}
+          metropolisHolders={trophies.metropolisHolders}
+          merchantHolderId={trophies.merchantHolderId}
         />
         {/* Placement is a first-pass call, not yet confirmed live in the
             browser (see this task's report) — stacked here alongside
@@ -831,10 +848,10 @@ export function GameHud({
             commodities={viewer.commodities}
             cityImprovements={viewer.cityImprovements}
             canBuy={canBuyImprovement}
-            onBuy={onBuyImprovement}
-            pendingMetropolisTrack={pendingMetropolisTrack}
+            onBuy={improvements.onBuyImprovement}
+            pendingMetropolisTrack={improvements.pendingMetropolisTrack}
             metropolisPurchaseBlocked={metropolisPurchaseBlocked}
-            craneDiscountActive={craneDiscountActive}
+            craneDiscountActive={improvements.craneDiscountActive}
           />
         )}
         {citiesAndKnightsProgressCards && (
@@ -929,9 +946,9 @@ export function GameHud({
         cityWallCount={viewer.cityWalls.length}
         ownCities={ownCities}
         canBuildWallAt={canBuildWallAt}
-        onBuildWall={onBuildWall}
+        onBuildWall={cityWalls.onBuildWall}
         freeWallActive={freeWallActive}
-        onResolveFreeWall={onResolveFreeWall}
+        onResolveFreeWall={cityWalls.onResolveFreeWall}
       />
       {isTradeOpen && (
         <TradeModal
@@ -1317,10 +1334,10 @@ export function GameHud({
           winner={winner}
           players={players}
           settlements={settlements}
-          longestRoadHolderId={longestRoadHolderId}
-          largestArmyHolderId={largestArmyHolderId}
-          metropolisHolders={metropolisHolders}
-          merchantHolderId={merchantHolderId}
+          longestRoadHolderId={trophies.longestRoadHolderId}
+          largestArmyHolderId={trophies.largestArmyHolderId}
+          metropolisHolders={trophies.metropolisHolders}
+          merchantHolderId={trophies.merchantHolderId}
           onReturnToMenu={onReturnToMenu}
         />
       )}

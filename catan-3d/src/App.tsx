@@ -7355,43 +7355,46 @@ function App() {
           craneDiscountActive: craneDiscountPlayerId === localPlayer.id,
         }}
         barbarianTrackPosition={barbarianTrackPosition}
-        onRecruitKnight={armKnightRecruit}
-        canRecruitKnight={canRecruitKnight(localPlayer)}
-        onActivateKnight={activateKnight}
-        onPromoteKnight={promoteKnight}
-        onArmKnightMove={armKnightMove}
-        onArmKnightDisplace={armKnightDisplace}
-        onArmChaseRobber={armChaseRobber}
-        canChaseRobber={(knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId)}
-        onArmChasePirate={armChasePirate}
-        canChasePirate={(knight) =>
-          gameState.board.pirateTileId != null &&
-          new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId)
-        }
-        armedKnightId={armedKnightAction?.knightId ?? null}
-        knightsPromotedThisTurn={knightsPromotedThisTurn}
+        knights={{
+          onRecruitKnight: armKnightRecruit,
+          canRecruitKnight: canRecruitKnight(localPlayer),
+          onActivateKnight: activateKnight,
+          onPromoteKnight: promoteKnight,
+          onArmKnightMove: armKnightMove,
+          onArmKnightDisplace: armKnightDisplace,
+          onArmChaseRobber: armChaseRobber,
+          canChaseRobber: (knight) => new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.robberTileId),
+          onArmChasePirate: armChasePirate,
+          canChasePirate: (knight) =>
+            gameState.board.pirateTileId != null &&
+            new Set(graph.vertexTileIds.get(knight.vertexId) ?? []).has(gameState.board.pirateTileId),
+          armedKnightId: armedKnightAction?.knightId ?? null,
+          knightsPromotedThisTurn,
+        }}
         cityWalls={{
           onBuildWall: buildCityWall,
           pendingFreeCityWall,
           onResolveFreeWall: resolveFreeCityWall,
         }}
-        progressCardDeckCounts={{
-          science: progressCardDecks.science.length,
-          trade: progressCardDecks.trade.length,
-          politics: progressCardDecks.politics.length,
+        progressCards={{
+          progressCardDeckCounts: {
+            science: progressCardDecks.science.length,
+            trade: progressCardDecks.trade.length,
+            politics: progressCardDecks.politics.length,
+          },
+          progressCardPlayHandlers,
+          onPlayAlchemy: playAlchemy,
+          onPlayInvention: playInvention,
+          inventionSwapActive: pendingInventionSwap !== null,
+          onPlayMerchantFleet: playMerchantFleet,
+          merchantFleetRate,
+          onPlayCommercialHarbor: playCommercialHarbor,
+          onPlayTreason: playTreason,
+          treasonPlacementActive: pendingTreasonPlacement?.playerId === localPlayer.id,
+          onPlayDiplomacy: activateDiplomacy,
+          diplomacyPickerActive: pendingDiplomacyRemoval?.playerId === localPlayer.id,
+          onCancelDiplomacy: cancelDiplomacy,
         }}
-        progressCardPlayHandlers={progressCardPlayHandlers}
-        onPlayAlchemy={playAlchemy}
-        onPlayInvention={playInvention}
-        inventionSwapActive={pendingInventionSwap !== null}
-        onPlayMerchantFleet={playMerchantFleet}
-        merchantFleetRate={merchantFleetRate}
-        onPlayCommercialHarbor={playCommercialHarbor}
-        onPlayTreason={playTreason}
-        treasonPlacementActive={pendingTreasonPlacement?.playerId === localPlayer.id}
-        onPlayDiplomacy={activateDiplomacy}
-        diplomacyPickerActive={pendingDiplomacyRemoval?.playerId === localPlayer.id}
-        onCancelDiplomacy={cancelDiplomacy}
         pendingGuildDues={pendingGuildDues}
         guildDuesEligibleTargets={guildDuesEligibleTargets}
         onSelectGuildDuesTarget={selectGuildDuesTarget}

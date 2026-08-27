@@ -116,9 +116,15 @@ function useDissolvingTileIds(revealedTileIds: ReadonlySet<string>): ReadonlySet
   const pendingTimers = useRef(new Set<ReturnType<typeof setTimeout>>())
 
   useEffect(() => {
-    const justRevealed = [...revealedTileIds].filter((id) => !settledTileIds.current.has(id))
+    const justRevealed: string[] = []
+    for (const id of revealedTileIds) {
+      if (!settledTileIds.current.has(id)) {
+        justRevealed.push(id)
+      }
+    }
     settledTileIds.current = revealedTileIds
     if (justRevealed.length === 0) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDissolvingTileIds((previous) => new Set([...previous, ...justRevealed]))
     // Each batch owns its own timer instead of one shared timer this
     // effect replaces on every run: two settlements landing less than

@@ -35,14 +35,36 @@ export const initialGameState: GameState = {
 export type GameAction = BoardAction | PlayersAction | TurnAction | ProgressAction | DecksAction | TrophiesAction | PendingQueuesAction | TradeAction
 
 export function reduceGame(state: GameState, action: GameAction): GameState {
+  const board = reduceBoard(state.board, action, state)
+  const players = reducePlayers(state.players, action, state)
+  const turn = reduceTurn(state.turn, action, state)
+  const progress = reduceProgress(state.progress, action, state)
+  const decks = reduceDecks(state.decks, action, state)
+  const trophies = reduceTrophies(state.trophies, action, state)
+  const pendingQueues = reducePendingQueues(state.pendingQueues, action, state)
+  const trade = reduceTrade(state.trade, action, state)
+
+  if (
+    board === state.board &&
+    players === state.players &&
+    turn === state.turn &&
+    progress === state.progress &&
+    decks === state.decks &&
+    trophies === state.trophies &&
+    pendingQueues === state.pendingQueues &&
+    trade === state.trade
+  ) {
+    return state
+  }
+
   return {
-    board: reduceBoard(state.board, action, state),
-    players: reducePlayers(state.players, action, state),
-    turn: reduceTurn(state.turn, action, state),
-    progress: reduceProgress(state.progress, action, state),
-    decks: reduceDecks(state.decks, action, state),
-    trophies: reduceTrophies(state.trophies, action, state),
-    pendingQueues: reducePendingQueues(state.pendingQueues, action, state),
-    trade: reduceTrade(state.trade, action, state),
+    board,
+    players,
+    turn,
+    progress,
+    decks,
+    trophies,
+    pendingQueues,
+    trade,
   }
 }

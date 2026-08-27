@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHexBoard, buildHexBoardFromCells, BOARD_SHAPE_LABELS, type Biome } from './hexBoard'
+import { buildHexBoard, buildHexBoardFromCells, type Biome, type BoardShapeId } from './hexBoard'
 
 describe('buildHexBoard', () => {
   it('generates exactly 19 tiles', () => {
@@ -270,7 +270,19 @@ describe('seafarersBasic board shape', () => {
   })
 
   it('only seafarersBasic ever produces sea or gold tiles', () => {
-    for (const shapeId of Object.keys(BOARD_SHAPE_LABELS) as Array<keyof typeof BOARD_SHAPE_LABELS>) {
+    const allShapes: BoardShapeId[] = [
+      'standard',
+      'newfoundland',
+      'peanut',
+      'bigPeanut',
+      'apocalypse',
+      'newIsland',
+      'northAmerica',
+      'southAmerica',
+      'bigBasic',
+      'seafarersBasic',
+    ]
+    for (const shapeId of allShapes) {
       const tiles = buildHexBoard(`shape-check-${shapeId}`, shapeId)
       const hasSeaOrGold = tiles.some(t => t.biome === 'sea' || t.biome === 'gold')
       expect(hasSeaOrGold).toBe(shapeId === 'seafarersBasic')

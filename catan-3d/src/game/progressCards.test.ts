@@ -66,9 +66,41 @@ describe('buildProgressCardDeck', () => {
     expect(deck.filter((c) => c === 'alchemy')).toHaveLength(2)
     expect(deck.filter((c) => c === 'engineering')).toHaveLength(1)
   })
+
+  it('handles missing quantity in composition (defaults to 0)', async () => {
+    // We cannot reliably mock the global object `PROGRESS_CARD_DECK_COMPOSITION` dynamically
+    // here because Vite handles modules in a way that might preserve the original.
+    // However, since we can't test it dynamically here and we don't want to mutate the global object,
+    // let's temporarily mock just the `PROGRESS_CARD_DECK_COMPOSITION` for coverage of line 33.
+    // The easiest way is to mock it via property override and restore it.
+
+    const types = await import('./types')
+    const originalDeckComposition = types.PROGRESS_CARD_DECK_COMPOSITION
+
+    // We are deliberately mutating a clone to verify ?? 0 works
+    const mockComposition = {
+      ...originalDeckComposition,
+      science: {
+        ...originalDeckComposition.science,
+        alchemy: undefined as any,
+      },
+    }
+
+    // Temporarily spy and override the property getter
+    vi.spyOn(types, 'PROGRESS_CARD_DECK_COMPOSITION', 'get').mockReturnValue(mockComposition)
+
+    const deck = buildProgressCardDeck('science')
+    expect(deck.filter((c) => c === 'alchemy')).toHaveLength(0)
+
+    vi.restoreAllMocks()
+  })
 })
 
 describe('isEligibleToDraw', () => {
+  it('negative levels never draw, handling edge cases', () => {
+    for (let redDie = 1; redDie <= 6; redDie++) expect(isEligibleToDraw(-1, redDie)).toBe(false)
+  })
+
   it('level 0 never draws, regardless of red die', () => {
     for (let redDie = 1; redDie <= 6; redDie++) expect(isEligibleToDraw(0, redDie)).toBe(false)
   })
@@ -110,6 +142,14 @@ describe('resolveEventDieDraws', () => {
     const players = [{ id: 1, cityImprovements: { science: 5, trade: 0, politics: 0 } }]
     const result = resolveEventDieDraws(players, 'science', 1, [], [1])
     expect(result.draws).toEqual([])
+    expect(result.remainingDeck).toEqual([])
+  })
+
+  it('ignores missing players from turnOrderIds without crashing', () => {
+    const players = [{ id: 1, cityImprovements: { science: 5, trade: 0, politics: 0 } }]
+    // turnOrderIds contains 99, which is not in the players array
+    const result = resolveEventDieDraws(players, 'science', 1, ['alchemy'], [99, 1])
+    expect(result.draws).toEqual([{ playerId: 1, card: 'alchemy' }])
     expect(result.remainingDeck).toEqual([])
   })
 })

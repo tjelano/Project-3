@@ -11,3 +11,6 @@
 ## 2024-11-20 - Array instead of Set for small collections
 **Learning:** When dealing with very small collections (e.g. Catan vertices on a tile, max 6), using `Array` with `Array.includes()` can be significantly faster (up to ~30%) than instantiating a `Set` and spreading it back into an Array (`[...set]`). The V8 engine overhead of Set allocation and the spread operator outweighs the O(N) lookup cost of `includes()` for N <= 6.
 **Action:** Use Arrays instead of Sets when you know the collection size is strictly bound to a very small number and the resulting collection will immediately need to be converted to an array for random access or iteration.
+## 2024-06-25 - [O(N^2) Array Filter to Map Optimization]
+**Learning:** [Using `Array.filter` inside a loop leads to a performance bottleneck of O(N*M). V8 JavaScript array optimizations favor a single-pass mapped frequency count `const counts = new Map()` loop which makes performance O(N+M).]
+**Action:** [Avoid `Array.filter` in loops when resolving count or matching conditions across arrays; favor Map objects for single-pass O(N) evaluations when array length scale varies significantly.]

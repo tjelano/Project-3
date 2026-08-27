@@ -246,10 +246,17 @@ function buildCardSlots(resources: Resources, commodities: Commodities, devCards
   for (const commodity of COMMODITY_ORDER) {
     for (let i = 0; i < commodities[commodity]; i++) out.push({ id: `${commodity}-${i}`, key: commodity })
   }
+  const counts = new Map<DevCardType, number>()
+  for (let i = 0; i < devCards.length; i++) {
+    const card = devCards[i]
+    counts.set(card, (counts.get(card) || 0) + 1)
+  }
+
   for (const dev of DEV_CARD_ORDER) {
-    const count = devCards.filter((card) => card === dev).length
+    const count = counts.get(dev) || 0
     for (let i = 0; i < count; i++) out.push({ id: `${dev}-${i}`, key: dev })
   }
+
   return out
 }
 
@@ -620,12 +627,27 @@ export function PlayerHand3D({
   // of each playable type as clickable and leaves the rest inert.
   const playableIds = useMemo(() => {
     if (!canPlayDevCards) return new Set<string>()
+
+    const totalCounts = new Map<DevCardType, number>()
+    for (let i = 0; i < devCards.length; i++) {
+      const c = devCards[i]
+      totalCounts.set(c, (totalCounts.get(c) || 0) + 1)
+    }
+
+    const boughtCounts = new Map<DevCardType, number>()
+    const boughtList = devCardsBoughtThisTurn ?? []
+    for (let i = 0; i < boughtList.length; i++) {
+      const c = boughtList[i]
+      boughtCounts.set(c, (boughtCounts.get(c) || 0) + 1)
+    }
+
     const remaining = new Map<DevCardType, number>()
     for (const type of Object.keys(DEV_CARD_PLAY_LABELS) as DevCardType[]) {
-      const total = devCards.filter((c) => c === type).length
-      const bought = (devCardsBoughtThisTurn ?? []).filter((c) => c === type).length
+      const total = totalCounts.get(type) || 0
+      const bought = boughtCounts.get(type) || 0
       remaining.set(type, Math.max(0, total - bought))
     }
+
     const ids = new Set<string>()
     for (const card of cards) {
       const left = remaining.get(card.key as DevCardType)

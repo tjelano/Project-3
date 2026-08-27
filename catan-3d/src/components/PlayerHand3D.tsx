@@ -621,9 +621,23 @@ export function PlayerHand3D({
   const playableIds = useMemo(() => {
     if (!canPlayDevCards) return new Set<string>()
     const remaining = new Map<DevCardType, number>()
-    for (const type of Object.keys(DEV_CARD_PLAY_LABELS) as DevCardType[]) {
-      const total = devCards.filter((c) => c === type).length
-      const bought = (devCardsBoughtThisTurn ?? []).filter((c) => c === type).length
+    const types = Object.keys(DEV_CARD_PLAY_LABELS) as DevCardType[]
+
+    for (let t = 0; t < types.length; t++) {
+      const type = types[t]
+      let total = 0
+      let bought = 0
+
+      for (let i = 0; i < devCards.length; i++) {
+        if (devCards[i] === type) total++
+      }
+
+      if (devCardsBoughtThisTurn) {
+        for (let i = 0; i < devCardsBoughtThisTurn.length; i++) {
+          if (devCardsBoughtThisTurn[i] === type) bought++
+        }
+      }
+
       remaining.set(type, Math.max(0, total - bought))
     }
     const ids = new Set<string>()

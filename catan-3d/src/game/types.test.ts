@@ -23,6 +23,7 @@ import {
   getScoreBreakdown,
   removeOne,
   totalResourceCount,
+  totalCommodityCount,
   type Building,
   type MetropolisHolders,
   type Player,
@@ -178,6 +179,21 @@ describe('resource helpers', () => {
     expect(canAfford(wallet, { lumber: 1, brick: 1, wool: 1 })).toBe(false)
   })
 
+  it('canAfford returns true for exact cost', () => {
+    const wallet = { lumber: 1, brick: 1, wool: 0, grain: 0, ore: 0 }
+    expect(canAfford(wallet, { lumber: 1, brick: 1 })).toBe(true)
+  })
+
+  it('canAfford returns true for an empty cost', () => {
+    const wallet = { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 }
+    expect(canAfford(wallet, {})).toBe(true)
+  })
+
+  it('canAfford handles negative amounts gracefully', () => {
+    const wallet = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }
+    expect(canAfford(wallet, { lumber: -1 })).toBe(true) // Math is math
+  })
+
   it('deductCost subtracts without mutating the original wallet', () => {
     const wallet = { lumber: 2, brick: 2, wool: 0, grain: 0, ore: 0 }
     const after = deductCost(wallet, { lumber: 1, brick: 1 })
@@ -185,11 +201,37 @@ describe('resource helpers', () => {
     expect(wallet.lumber).toBe(2)
   })
 
+  it('deductCost handles empty cost correctly', () => {
+    const wallet = { lumber: 2, brick: 2, wool: 0, grain: 0, ore: 0 }
+    const after = deductCost(wallet, {})
+    expect(after).toEqual({ lumber: 2, brick: 2, wool: 0, grain: 0, ore: 0 })
+    expect(wallet).not.toBe(after) // It should be a new object
+  })
+
   it('removeOne drops a single instance and leaves the rest in order', () => {
     expect(removeOne(['knight', 'monopoly', 'knight'], 'knight')).toEqual(['monopoly', 'knight'])
     expect(removeOne(['knight'], 'monopoly')).toEqual(['knight'])
   })
 
+  it('totalResourceCount sums all resources correctly', () => {
+    const wallet = { lumber: 1, brick: 2, wool: 3, grain: 4, ore: 5 }
+    expect(totalResourceCount(wallet)).toBe(15)
+  })
+
+  it('totalResourceCount returns 0 for an empty wallet', () => {
+    const wallet = { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 }
+    expect(totalResourceCount(wallet)).toBe(0)
+  })
+
+  it('totalCommodityCount sums all commodities correctly', () => {
+    const commodities = { paper: 1, cloth: 2, coin: 3 }
+    expect(totalCommodityCount(commodities)).toBe(6)
+  })
+
+  it('totalCommodityCount returns 0 for an empty wallet', () => {
+    const commodities = { paper: 0, cloth: 0, coin: 0 }
+    expect(totalCommodityCount(commodities)).toBe(0)
+  })
 })
 
 describe('getScoreBreakdown metropolis VP', () => {

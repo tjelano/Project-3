@@ -109,6 +109,9 @@ const COMMODITY_CARD_CROP: Record<CommodityType, CardArtCrop> = {
   paper: { repeatX: 351 / 432, offsetX: 46 / 432, repeatY: 564 / 578, offsetY: 5 / 578 },
 }
 
+const RESOURCE_SET = new Set<CardKey>(RESOURCE_ORDER as readonly CardKey[])
+const COMMODITY_SET = new Set<CardKey>(COMMODITY_ORDER as readonly CardKey[])
+
 // crop defaults to RESOURCE_CARD_CROP so every existing call site (resource
 // art, dev-card art, the card back) keeps its byte-for-byte current
 // behavior. The 3 commodity textures pass their own crop from
@@ -658,8 +661,8 @@ export function PlayerHand3D({
         // discard requirement from either pile. Dev cards remain
         // never-discardable.
         const isDiscardableCard =
-          (RESOURCE_ORDER as readonly CardKey[]).includes(card.key) ||
-          (COMMODITY_ORDER as readonly CardKey[]).includes(card.key)
+          RESOURCE_SET.has(card.key) ||
+          COMMODITY_SET.has(card.key)
         return (
           <HandCard
             key={card.id}

@@ -68,7 +68,7 @@ export function calculateLongestRoad(
     if (isBlockedByOpponent(vertex) && visitedEdges.size > 0) return 0
 
     let best = 0
-    for (const { edgeId, nextVertex } of adjacency.get(vertex) ?? []) {
+    for (const { edgeId, nextVertex } of adjacency.get(vertex)!) {
       if (visitedEdges.has(edgeId)) continue
       const outgoingType = edgeType.get(edgeId)!
       // CN3083: "roads and ships are only considered part of the same
@@ -122,6 +122,8 @@ export function pickTrophyHolder(
     if (count > winnerCount) {
       winnerId = playerId
       winnerCount = count
+    } else if (count === winnerCount && winnerId !== prevHolderId) {
+      winnerId = null
     }
   }
 

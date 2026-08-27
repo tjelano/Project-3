@@ -67,6 +67,69 @@ describe('saveCustomBoardShape / loadCustomBoardShapes', () => {
     )
     expect(loadCustomBoardShapes().length).toBe(1)
   })
+
+  it('returns empty array when storage is empty', () => {
+    expect(loadCustomBoardShapes()).toEqual([])
+  })
+
+  it('returns empty array when storage contains invalid JSON', () => {
+    localStorage.setItem('catan3d.customBoardShapes', '{[invalid json')
+    expect(loadCustomBoardShapes()).toEqual([])
+  })
+
+  it('returns empty array when storage contains a non-array', () => {
+    localStorage.setItem('catan3d.customBoardShapes', JSON.stringify({ id: 'bad' }))
+    expect(loadCustomBoardShapes()).toEqual([])
+  })
+
+  it('filters out malformed shapes', () => {
+    localStorage.setItem(
+      'catan3d.customBoardShapes',
+      JSON.stringify([
+        { id: 'good', name: 'Good', cells: [{ col: 0, row: 0 }] },
+        { name: 'Missing ID', cells: [{ col: 0, row: 0 }] },
+        { id: 'missing-name', cells: [{ col: 0, row: 0 }] },
+        { id: 'missing-cells', name: 'Missing Cells' },
+        { id: 'cells-not-array', name: 'Cells Not Array', cells: 'not an array' },
+        null,
+        'not an object',
+      ]),
+    )
+    const shapes = loadCustomBoardShapes()
+    expect(shapes.length).toBe(1)
+    expect(shapes[0].id).toBe('good')
+  })
+
+  it('filters out shapes with invalid biomeOverrides type', () => {
+    localStorage.setItem(
+      'catan3d.customBoardShapes',
+      JSON.stringify([
+        { id: 'bad-overrides-1', name: 'Bad Overrides 1', cells: [{ col: 0, row: 0 }], biomeOverrides: 'not an object' },
+        { id: 'bad-overrides-2', name: 'Bad Overrides 2', cells: [{ col: 0, row: 0 }], biomeOverrides: null },
+      ]),
+    )
+    expect(loadCustomBoardShapes()).toEqual([])
+  })
+
+  it('returns empty array if localStorage.getItem throws', () => {
+    const originalGetItem = localStorage.getItem
+    localStorage.getItem = () => {
+      throw new Error('Storage disabled')
+    }
+    expect(loadCustomBoardShapes()).toEqual([])
+    localStorage.getItem = originalGetItem
+  })
+
+  it('returns updated array even if localStorage.setItem throws', () => {
+    const shape: CustomBoardShape = { id: 'c', name: 'Error', cells: [{ col: 0, row: 0 }] }
+    const originalSetItem = localStorage.setItem
+    localStorage.setItem = () => {
+      throw new Error('Storage disabled')
+    }
+    const result = saveCustomBoardShape(shape)
+    expect(result).toEqual([shape])
+    localStorage.setItem = originalSetItem
+  })
 })
 
 describe('deleteCustomBoardShape', () => {
@@ -87,5 +150,16 @@ describe('deleteCustomBoardShape', () => {
     saveCustomBoardShape({ id: 'a', name: 'A', cells: [{ col: 0, row: 0 }] })
     const result = deleteCustomBoardShape('a')
     expect(result).toEqual([])
+  })
+
+  it('returns updated array even if localStorage.setItem throws', () => {
+    saveCustomBoardShape({ id: 'a', name: 'A', cells: [{ col: 0, row: 0 }] })
+    const originalSetItem = localStorage.setItem
+    localStorage.setItem = () => {
+      throw new Error('Storage disabled')
+    }
+    const result = deleteCustomBoardShape('a')
+    expect(result).toEqual([])
+    localStorage.setItem = originalSetItem
   })
 })

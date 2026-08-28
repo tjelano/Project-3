@@ -31,7 +31,7 @@ export function BoardShapePreview({ shapeId }: { shapeId: BoardShapeId }) {
         <polygon
           key={index}
           points={hexPoints(pos.x, pos.z, HEX_RADIUS * 0.94)}
-          className="fill-gold/15 stroke-gold/60"
+          className="fill-[#7a3b1e]/10 stroke-[#7a3b1e]/50"
           strokeWidth={0.04}
         />
       ))}

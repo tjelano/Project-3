@@ -15,11 +15,15 @@
   --font-display: 'Pixelify Sans', Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
   --font-body: 'Pixelify Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-data: 'Pixelify Sans', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  /* Warm dark charcoal-brown, not the cool blue-gray --color-glass reads as
-     against this scene's torch-lit wood/stone — chosen to replace the flat
-     navy baked into the generated border-image art (see ui-panel etc.
-     below, which paint their own background instead of relying on the
-     source image's "fill" region for exactly this reason). */
+}
+
+/* Room code display/input only (RoomLobby, JoinRoomModal) — Pixelify
+   Sans's 5/9/S read too close together at a glance for a code someone has
+   to copy or type correctly. A real monospace system font instead, not a
+   pregame-wide font-data change (that'd also affect other data readouts
+   using font-data, like the VP counter, which don't have this problem). */
+.room-code-font {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 /* Pixellab-generated UI-kit border-images — 9-slice frames (thin gold trim,
@@ -67,6 +71,148 @@
   border-image-slice: 8 fill;
   border-image-width: 6px;
   border-image-repeat: stretch;
+}
+
+/* Hand-made pixel-art buttons (user, Aseprite, 2026-08-28) — the label is
+   baked into each image, and each has a real "pressed" variant drawn
+   separately (not just a filter/scale trick). All 4 are sized via an
+   explicit Rect (GameSetupMenu.tsx's LAYOUT, both width AND height set),
+   not by their own aspect-ratio — no aspect-ratio declared here, since a
+   fixed one would fight a rect whose proportions don't happen to match it.
+   background-size: 100% 100% (stretch), not contain: contain preserves the
+   art's own proportions by fitting inside whichever box dimension is more
+   constraining, which means growing a rect in the OTHER dimension changes
+   nothing visible except where the art re-centers — reads as the art
+   sliding, not resizing. Stretch makes width/height each directly and
+   predictably control rendered size, matching every other rect-positioned
+   element (the book background, .tab-banner, .expansion-card's fill). */
+.btn-start-game {
+  background-image: url('./assets/menu/button-start-game.png');
+}
+.btn-start-game:active {
+  background-image: url('./assets/menu/button-start-game-pressed.png');
+}
+.btn-join-game {
+  background-image: url('./assets/menu/button-join-game.png');
+}
+.btn-join-game:active {
+  background-image: url('./assets/menu/button-join-game-pressed.png');
+}
+/* Local Play / Host Online are a 2-way toggle, not one-shot actions — the
+   "pressed" art doubles as the SELECTED state (.is-selected) rather than
+   only firing on :active, since only one of the two is ever the current
+   mode and it should read as such at rest, not just while clicking. */
+.btn-local-play {
+  background-image: url('./assets/menu/button-local-play.png');
+}
+.btn-local-play.is-selected,
+.btn-local-play:active {
+  background-image: url('./assets/menu/button-local-play-pressed.png');
+}
+.btn-host-online {
+  background-image: url('./assets/menu/button-host-online.png');
+}
+.btn-host-online.is-selected,
+.btn-host-online:active {
+  background-image: url('./assets/menu/button-host-online-pressed.png');
+}
+.btn-start-game,
+.btn-join-game,
+.btn-local-play,
+.btn-host-online {
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* Player-count tiles — blank (no baked-in number; 1-6 render as real text
+   on top, one shared pair of images). is-selected's canvas (67x70) isn't
+   proportioned the same as the base tile's (64x60), so background-size:
+   contain — which fits each image's WHOLE canvas into the box — rendered
+   the selected tile's core shape visibly smaller than the base tile's
+   (same bug as the buttons, index.css .btn-local-play etc.). Fixed the
+   same way: 100% 100% (stretch) makes both states fill the identical box
+   regardless of their own canvas proportions. */
+.player-tile {
+  aspect-ratio: 64 / 60;
+  background-image: url('./assets/menu/player-tile.png');
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.player-tile.is-selected {
+  background-image: url('./assets/menu/player-tile-selected.png');
+}
+
+/* Toggle switch — 2-frame sheet (off, on), thumb slides left/right. Plain
+   background-position swap, not a transition: this is a binary state
+   flip on click, not a hover-driven reveal, so there's no interruption
+   class of bug to guard against here (unlike the Conquer logo). */
+.toggle-switch-sprite {
+  background-image: url('./assets/menu/toggle-switch-sheet.png');
+  background-size: 200% 100%;
+  background-position: 0% 0%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.toggle-switch-sprite.is-on {
+  background-position: 100% 0%;
+}
+
+/* Hand-made tab-label banner (user, Aseprite, 2026-08-28) — a small dark
+   wood plaque, no baked-in text (the Expansions/House Rules label renders
+   as real HTML text on top, in the cream tone used for light-on-dark art
+   elsewhere, e.g. .player-tile's number). background-size: 100% 100%
+   (stretch), not contain: unlike the buttons this has no fixed-proportion
+   baked label to preserve — it's flexible chrome, same treatment as the
+   book background and .expansion-card's own fill. .is-selected swaps to a
+   real gold-rimmed pressed variant (added 2026-08-28), same convention as
+   .btn-local-play/.btn-host-online's own selected state — replaces an
+   earlier inset-box-shadow-ring placeholder used before this art existed. */
+.tab-banner {
+  background-image: url('./assets/menu/tab-banner.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.tab-banner.is-selected {
+  background-image: url('./assets/menu/tab-banner-pressed.png');
+}
+
+/* Hand-made Victory Points chrome (user, Aseprite, 2026-08-28). .vp-label
+   is a plaque background behind the "Victory Points" text (same treatment
+   as .tab-banner — no baked text, real HTML text on top). .vp-counter
+   bakes the −/value/+ stepper's visual housing into ONE image (no
+   separate button sprites), so the actual − and + hit targets are plain
+   transparent thirds of the box layered on top in GameSetupMenu.tsx, not
+   separate art assets. */
+.vp-label {
+  background-image: url('./assets/menu/vp-label.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.vp-counter {
+  background-image: url('./assets/menu/vp-counter.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* Hand-made expansion/house-rules card frame (user, Aseprite, 2026-08-28) —
+   wood border + gold corner medallions around aged parchment. 15px
+   transparent margin before the border starts, ~9px of actual wood border
+   after that (pixel-scanned) — slice:24 clears both, landing right at the
+   cream interior. */
+.expansion-card {
+  border-style: solid;
+  border-width: 16px;
+  border-image-source: url('./assets/menu/expansion-panel.png');
+  border-image-slice: 24 fill;
+  border-image-width: 16px;
+  border-image-repeat: stretch;
+  image-rendering: pixelated;
 }
 
 @theme {

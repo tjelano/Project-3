@@ -5,6 +5,7 @@ import { useRoomChannel, type PresencePlayer, type RoomPlayer } from '../../mult
 import { EyeIcon } from './EyeIcon'
 import { CopyIcon } from './CopyIcon'
 import { RegionSelectMenu } from './RegionSelectMenu'
+import { INK, INK_MUTED, PARCHMENT_BUTTON } from './parchmentTheme'
 import type { GameRules, PlayerColorToken } from '../../game/types'
 import type { CustomBoardShape } from '../../data/customBoardShapes'
 import type { BoardShapeId } from '../../data/hexBoard'
@@ -415,28 +416,31 @@ export function RoomLobby(props: RoomLobbyProps) {
 
   return (
     <div className="mx-auto w-full max-w-lg animate-victory-in">
-      <div className="glow-gold-lift rounded-2xl border border-glass-border bg-glass p-6 backdrop-blur-xl">
+      {/* Same prototype as JoinRoomModal/RegionSelectMenu — reusing
+          .expansion-card's parchment panel art rather than bespoke book art
+          for this screen. */}
+      <div className="expansion-card p-6">
         <div className="text-center">
-          <h1 className="font-display text-lg tracking-[0.3em] text-gold uppercase">Room Lobby</h1>
-          <div className="mx-auto mt-3 h-px w-16 bg-gold/40" />
+          <h1 className={`font-display text-lg tracking-[0.3em] uppercase ${INK}`}>Room Lobby</h1>
+          <div className="mx-auto mt-3 h-px w-16 bg-[#8a6d47]/40" />
         </div>
 
-        <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-glass-border bg-white/[0.02] px-3 py-2.5">
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-[#8a6d47]/30 bg-[#f1e0be]/30 px-3 py-2.5">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setIsRoomCodeVisible((prev) => !prev)}
               aria-label={isRoomCodeVisible ? 'Hide room code' : 'Show room code'}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-white/60 hover:text-gold"
+              className={`flex h-7 w-7 items-center justify-center rounded-md ${INK_MUTED} hover:text-[#2b1810]`}
             >
               <EyeIcon open={isRoomCodeVisible} className="h-4 w-4" />
             </button>
             {isRoomCodeVisible ? (
-              <span className="font-data text-lg font-bold tracking-[0.4em] text-gold">{roomCode}</span>
+              <span className={`room-code-font text-lg font-bold tracking-[0.4em] ${INK}`}>{roomCode}</span>
             ) : (
               <span className="flex gap-2 pl-1">
                 {roomCode.split('').map((_, index) => (
-                  <span key={index} className="h-2 w-2 rounded-full bg-gold/60" />
+                  <span key={index} className="h-2 w-2 rounded-full bg-[#8a6d47]/60" />
                 ))}
               </span>
             )}
@@ -444,12 +448,12 @@ export function RoomLobby(props: RoomLobbyProps) {
               type="button"
               onClick={handleCopyRoomCode}
               aria-label="Copy room code"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-white/60 hover:text-gold"
+              className={`flex h-7 w-7 items-center justify-center rounded-md ${INK_MUTED} hover:text-[#2b1810]`}
             >
               <CopyIcon copied={justCopiedRoomCode} className="h-4 w-4" />
             </button>
           </div>
-          <span className="font-display text-sm font-bold tracking-[0.1em] text-gold">
+          <span className={`font-display text-sm font-bold tracking-[0.1em] ${INK}`}>
             {joinedCount} / {targetCount ?? '…'}
           </span>
         </div>
@@ -460,13 +464,13 @@ export function RoomLobby(props: RoomLobbyProps) {
               return (
                 <div
                   key="self"
-                  className="flex items-center gap-2 rounded-lg border border-gold/30 bg-gold/[0.06] px-2.5 py-2"
+                  className="flex items-center gap-2 rounded-lg border border-[#7a3b1e]/30 bg-[#7a3b1e]/[0.06] px-2.5 py-2"
                 >
                   <button
                     type="button"
                     onClick={cycleMyColor}
                     aria-label={`Your color: ${myColor}`}
-                    className="h-6 w-6 shrink-0 rounded-full ring-2 ring-white/20 transition-transform hover:scale-110"
+                    className="h-6 w-6 shrink-0 rounded-full ring-2 ring-[#2b1810]/20 transition-transform hover:scale-110"
                     style={playerColorStyle(myColor)}
                   />
                   <input
@@ -485,9 +489,9 @@ export function RoomLobby(props: RoomLobbyProps) {
                     placeholder="Your name"
                     aria-label="Your name"
                     maxLength={20}
-                    className="min-w-0 flex-1 bg-transparent font-body text-sm text-white placeholder:text-white/30 focus:outline-none"
+                    className={`min-w-0 flex-1 bg-transparent font-body text-sm ${INK} placeholder:text-[#7a6248] focus:outline-none`}
                   />
-                  {isHostRole && <span className="shrink-0 font-body text-[9px] tracking-[0.1em] text-gold/70 uppercase">Host</span>}
+                  {isHostRole && <span className="shrink-0 font-body text-[9px] tracking-[0.1em] text-[#7a3b1e]/80 uppercase">Host</span>}
                 </div>
               )
             }
@@ -499,19 +503,19 @@ export function RoomLobby(props: RoomLobbyProps) {
             const player = hasRealOthers ? orderedRealPlayers[index] : TEMP_TEST_PLAYERS[index - 1]
             const key = !player ? `empty-${index}` : 'id' in player ? player.id : player.name
             return (
-              <div key={key} className="flex items-center gap-2 rounded-lg border border-glass-border px-2.5 py-2">
+              <div key={key} className="flex items-center gap-2 rounded-lg border border-[#8a6d47]/30 px-2.5 py-2">
                 {player?.colorToken && (
                   <span
                     aria-label={`${player.name}'s color`}
-                    className="h-6 w-6 shrink-0 rounded-full ring-2 ring-white/10"
+                    className="h-6 w-6 shrink-0 rounded-full ring-2 ring-[#2b1810]/10"
                     style={playerColorStyle(player.colorToken)}
                   />
                 )}
                 {player && (
                   <>
-                    <span className="min-w-0 flex-1 truncate font-body text-sm text-white">{player.name}</span>
+                    <span className={`min-w-0 flex-1 truncate font-body text-sm ${INK}`}>{player.name}</span>
                     {'isHost' in player && player.isHost && (
-                      <span className="shrink-0 font-body text-[9px] tracking-[0.1em] text-gold/70 uppercase">Host</span>
+                      <span className="shrink-0 font-body text-[9px] tracking-[0.1em] text-[#7a3b1e]/80 uppercase">Host</span>
                     )}
                   </>
                 )}
@@ -530,7 +534,7 @@ export function RoomLobby(props: RoomLobbyProps) {
           </p>
         )}
 
-        <div className="mt-5 grid grid-cols-2 gap-2 border-t border-glass-border pt-4">
+        <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[#8a6d47]/30 pt-4">
           {/* For the host, Back reopens the map picker in place (see the
               isChangingMap branch above), not onBack: the room stays live
               the whole time, so this doesn't leave/kick anyone. A joiner
@@ -546,7 +550,7 @@ export function RoomLobby(props: RoomLobbyProps) {
               }
               onBack()
             }}
-            className="rounded-lg border border-glass-border py-2.5 font-display text-sm tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/40 hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+            className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold`}
           >
             {isHostRole ? 'Change Map' : 'Leave Room'}
           </button>
@@ -556,12 +560,12 @@ export function RoomLobby(props: RoomLobbyProps) {
               disabled={!isFull || hasDuplicateNames}
               onClick={handleStart}
               aria-label={hasDuplicateNames ? 'Start game (two players have the same name)' : 'Start game'}
-              className="glow-gold rounded-lg border border-gold/60 bg-gold/20 py-2.5 font-display text-sm tracking-[0.15em] text-gold uppercase transition-transform hover:scale-[1.02] hover:bg-gold/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.15em] uppercase disabled:cursor-not-allowed disabled:opacity-50`}
             >
               Start Game
             </button>
           ) : (
-            <div className="flex items-center justify-center font-body text-xs tracking-[0.1em] text-white/40 uppercase">
+            <div className={`flex items-center justify-center font-body text-xs tracking-[0.1em] ${INK_MUTED} uppercase`}>
               Waiting for host…
             </div>
           )}

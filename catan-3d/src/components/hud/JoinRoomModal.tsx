@@ -2,12 +2,21 @@ import { useState } from 'react'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import { normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
+import { INK, INK_MUTED, PARCHMENT_INPUT, PARCHMENT_BUTTON } from './parchmentTheme'
 import type { GameStartInfo } from './StartScreen'
 
+// Prototype: reusing the existing .expansion-card parchment-panel art
+// (PanelforExpansionAndHouserules.png) as this modal's whole panel, instead
+// of drawing bespoke book art for every remaining pre-game screen — see if
+// the same card frame reads fine stretched to a bigger, denser panel before
+// committing more art production to RegionSelectMenu/RoomLobby.
+
 /**
- * Component-based rebuild — real inputs/buttons in a glass panel, matching
- * GameSetupMenu's visual language, instead of transparent hit-targets
- * positioned over join-room-menu.png's painted fields.
+ * Component-based rebuild — real inputs/buttons in a panel, matching
+ * GameSetupMenu's open-book/parchment visual language, instead of
+ * transparent hit-targets positioned over join-room-menu.png's painted
+ * fields (or, before that, the dark-navy/gold glass panel this project's
+ * other not-yet-migrated screens still use).
  */
 export function JoinRoomModal({
   onClose,
@@ -76,9 +85,9 @@ export function JoinRoomModal({
           aria-modal="true"
           aria-labelledby="join-room-reconnect-heading"
           tabIndex={-1}
-          className="w-80 rounded-2xl border border-glass-border bg-board-navy/95 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl animate-victory-in"
+          className="expansion-card w-80 px-5 py-5 text-center animate-victory-in"
         >
-          <p id="join-room-reconnect-heading" className="font-body text-xs text-white/70">
+          <p id="join-room-reconnect-heading" className={`font-body text-xs ${INK_MUTED}`}>
             No one named &ldquo;{name}&rdquo; is in this room. Which player are you?
           </p>
           <div className="mt-4 flex flex-col gap-2">
@@ -99,7 +108,7 @@ export function JoinRoomModal({
                     snapshot,
                   })
                 }}
-                className="w-full rounded-lg border border-glass-border bg-white/5 py-2.5 font-display text-sm font-semibold text-white transition-colors hover:border-gold/50 hover:text-gold"
+                className={`${PARCHMENT_BUTTON} w-full py-2.5 font-display text-sm font-semibold`}
               >
                 {playerName}
               </button>
@@ -108,7 +117,7 @@ export function JoinRoomModal({
           <button
             type="button"
             onClick={() => setReconnectPicker(null)}
-            className="mt-4 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70"
+            className={`mt-4 font-body text-[10px] tracking-[0.15em] uppercase ${INK_MUTED} hover:text-[#2b1810]`}
           >
             Back
           </button>
@@ -120,14 +129,14 @@ export function JoinRoomModal({
           aria-modal="true"
           aria-label="Join room"
           tabIndex={-1}
-          className="glow-gold-lift w-full max-w-sm animate-victory-in rounded-2xl border border-glass-border bg-board-navy/95 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+          className="expansion-card w-full max-w-sm animate-victory-in px-6 py-6"
         >
-          <h2 className="text-center font-display text-base tracking-[0.2em] text-gold uppercase">Join Existing Game</h2>
-          <div className="mx-auto mt-3 h-px w-16 bg-gold/40" />
+          <h2 className={`text-center font-display text-base tracking-[0.2em] uppercase ${INK}`}>Join Existing Game</h2>
+          <div className="mx-auto mt-3 h-px w-16 bg-[#8a6d47]/40" />
 
           <div className="mt-5 flex flex-col gap-3">
             <label className="block">
-              <span className="font-body text-[11px] tracking-[0.15em] text-white/40 uppercase">Your Name</span>
+              <span className={`font-body text-[11px] tracking-[0.15em] uppercase ${INK_MUTED}`}>Your Name</span>
               <input
                 type="text"
                 value={name}
@@ -135,11 +144,11 @@ export function JoinRoomModal({
                 placeholder="Your name"
                 aria-label="Your name"
                 maxLength={20}
-                className="mt-1 w-full rounded-lg border border-glass-border bg-white/5 px-3 py-2.5 font-body text-sm text-white placeholder:text-white/30 focus:border-gold/50 focus:outline-none"
+                className={PARCHMENT_INPUT}
               />
             </label>
             <label className="block">
-              <span className="font-body text-[11px] tracking-[0.15em] text-white/40 uppercase">Room Code</span>
+              <span className={`font-body text-[11px] tracking-[0.15em] uppercase ${INK_MUTED}`}>Room Code</span>
               <input
                 type="text"
                 value={roomCodeInput}
@@ -147,7 +156,7 @@ export function JoinRoomModal({
                 placeholder="B7F3"
                 aria-label="Room code"
                 maxLength={4}
-                className="mt-1 w-full rounded-lg border border-glass-border bg-white/5 px-3 py-2.5 text-center font-data text-lg tracking-[0.4em] text-white uppercase placeholder:text-white/30 focus:border-gold/50 focus:outline-none"
+                className={`${PARCHMENT_INPUT} room-code-font text-center text-lg tracking-[0.4em] uppercase`}
               />
             </label>
           </div>
@@ -156,7 +165,7 @@ export function JoinRoomModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-glass-border py-2.5 font-display text-sm tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/40 hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold`}
             >
               Back
             </button>
@@ -164,7 +173,7 @@ export function JoinRoomModal({
               type="button"
               disabled={!canSubmit}
               onClick={handleJoin}
-              className="glow-gold rounded-lg border border-gold/60 bg-gold/20 py-2.5 font-display text-sm tracking-[0.15em] text-gold uppercase transition-transform hover:scale-[1.02] hover:bg-gold/30 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.15em] uppercase disabled:cursor-not-allowed disabled:opacity-50`}
             >
               {checking ? 'Checking…' : 'Join'}
             </button>

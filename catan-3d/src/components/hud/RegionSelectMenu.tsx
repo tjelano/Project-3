@@ -11,6 +11,7 @@ import regionIcon09Url from '../../assets/menu/region-icon-09.png'
 import regionIcon10Url from '../../assets/menu/region-icon-10.png'
 import { BoardShapeEditor } from './BoardShapeEditor'
 import { BoardShapePreview } from './BoardShapePreview'
+import { INK, INK_MUTED, PARCHMENT_BUTTON } from './parchmentTheme'
 import { saveCustomBoardShape, type CustomBoardShape } from '../../data/customBoardShapes'
 import type { BoardShapeId } from '../../data/hexBoard'
 
@@ -91,10 +92,12 @@ export function RegionSelectMenu({
 
   return (
     <div className="mx-auto w-full max-w-2xl animate-victory-in">
-      <div className="glow-gold-lift rounded-2xl border border-glass-border bg-glass p-6 backdrop-blur-xl">
+      {/* Same prototype as JoinRoomModal — reusing .expansion-card's
+          parchment panel art rather than bespoke book art for this screen. */}
+      <div className="expansion-card p-6">
         <div className="text-center">
-          <h1 className="font-display text-lg tracking-[0.3em] text-gold uppercase">Choose Your Realm</h1>
-          <div className="mx-auto mt-3 h-px w-16 bg-gold/40" />
+          <h1 className={`font-display text-lg tracking-[0.3em] uppercase ${INK}`}>Choose Your Realm</h1>
+          <div className="mx-auto mt-3 h-px w-16 bg-[#8a6d47]/40" />
         </div>
 
         {/* Preview column sized generously (18rem, ~1:1 with the panel's
@@ -103,7 +106,7 @@ export function RegionSelectMenu({
             and a large one (Serpentine River) reads as less of a jump than
             it would cramped into a small box. */}
         <div className="mt-5 grid grid-cols-[minmax(0,1fr)_18rem] gap-3">
-          <div className="max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-gold/60 scrollbar-track-transparent">
+          <div className="max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#8a6d47]/60 scrollbar-track-transparent">
             <div className="flex flex-col gap-1.5">
               {REGION_LIST_ENTRIES.map(({ region, iconUrl, name }) => {
                 const isSelected = region ? !isCustomSelected && selected.id === region.id : isCustomSelected
@@ -125,14 +128,16 @@ export function RegionSelectMenu({
                     aria-pressed={isSelected}
                     className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
                       isSelected
-                        ? 'border-gold bg-gold/10'
+                        ? 'border-[#7a3b1e] bg-[#7a3b1e]/10'
                         : readOnly
-                          ? 'cursor-default border-glass-border'
-                          : 'border-glass-border hover:border-gold/25'
+                          ? 'cursor-default border-[#8a6d47]/30'
+                          : 'border-[#8a6d47]/30 hover:border-[#8a6d47]/60'
                     }`}
                   >
                     <img src={iconUrl} alt="" className="h-8 w-8 shrink-0 select-none object-contain" draggable={false} />
-                    <span className={`font-display text-sm tracking-[0.05em] uppercase ${isSelected ? 'text-gold' : 'text-white/70'}`}>
+                    <span
+                      className={`font-display text-sm tracking-[0.05em] uppercase ${isSelected ? INK : INK_MUTED}`}
+                    >
                       {name}
                     </span>
                   </button>
@@ -146,9 +151,9 @@ export function RegionSelectMenu({
               has no fixed layout to preview (the player draws their own in
               BoardShapeEditor), so it gets an explanatory placeholder
               instead of an empty box. */}
-          <div className="flex h-80 flex-col items-center justify-center rounded-lg border border-glass-border bg-white/[0.02] p-3">
+          <div className="flex h-80 flex-col items-center justify-center rounded-lg border border-[#8a6d47]/30 bg-[#f1e0be]/30 p-3">
             {isCustomSelected ? (
-              <p className="text-center font-body text-xs leading-snug text-white/40">Design your own layout</p>
+              <p className={`text-center font-body text-xs leading-snug ${INK_MUTED}`}>Design your own layout</p>
             ) : (
               <BoardShapePreview shapeId={selected.id} />
             )}
@@ -156,11 +161,11 @@ export function RegionSelectMenu({
         </div>
 
         {!readOnly && (
-          <div className="mt-5 grid grid-cols-2 gap-2 border-t border-glass-border pt-4">
+          <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[#8a6d47]/30 pt-4">
             <button
               type="button"
               onClick={onBack}
-              className="rounded-lg border border-glass-border py-2.5 font-display text-sm tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/40 hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold`}
             >
               Back
             </button>
@@ -173,7 +178,7 @@ export function RegionSelectMenu({
                 }
                 onConfirm(selected.id)
               }}
-              className="glow-gold rounded-lg border border-gold/60 bg-gold/20 py-2.5 font-display text-sm tracking-[0.15em] text-gold uppercase transition-transform hover:scale-[1.02] hover:bg-gold/30 active:scale-95"
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.15em] uppercase`}
             >
               {isCustomSelected ? 'Design Map' : `Select ${selected.name}`}
             </button>
@@ -183,12 +188,8 @@ export function RegionSelectMenu({
             watching the host browse maps still needs a way to leave the
             room, not just the host's own Back affordance. */}
         {readOnly && (
-          <div className="mt-5 border-t border-glass-border pt-4">
-            <button
-              type="button"
-              onClick={onBack}
-              className="w-full rounded-lg border border-glass-border py-2.5 font-display text-sm tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/40 hover:text-gold"
-            >
+          <div className="mt-5 border-t border-[#8a6d47]/30 pt-4">
+            <button type="button" onClick={onBack} className={`${PARCHMENT_BUTTON} w-full py-2.5 font-display text-sm tracking-[0.1em] uppercase`}>
               Leave Room
             </button>
           </div>

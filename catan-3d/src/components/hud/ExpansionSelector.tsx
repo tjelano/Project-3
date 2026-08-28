@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { ToggleSwitch } from './ToggleSwitch'
 
 // Cities & Knights and Seafarers are the two REAL expansions a player thinks
@@ -30,25 +31,41 @@ export function ExpansionSelector({
   onToggleSeafarers,
   citiesAndKnightsEnabled,
   onToggleCitiesAndKnights,
+  leftCardStyle,
+  rightCardStyle,
 }: {
   seafarersSelected: boolean
   onToggleSeafarers: (value: boolean) => void
   citiesAndKnightsEnabled: boolean
   onToggleCitiesAndKnights: (value: boolean) => void
+  // Positions each card independently against the book art (caller's Rect
+  // system) — Seafarers always renders left/first, Cities & Knights right/
+  // second, so index order alone decides which style applies.
+  leftCardStyle: CSSProperties
+  rightCardStyle: CSSProperties
 }) {
   const checkedFor = (id: (typeof EXPANSIONS)[number]['id']) =>
     id === 'seafarers' ? seafarersSelected : citiesAndKnightsEnabled
   const onToggleFor = (id: (typeof EXPANSIONS)[number]['id']) =>
     id === 'seafarers' ? onToggleSeafarers : onToggleCitiesAndKnights
+  const cardStyles = [leftCardStyle, rightCardStyle]
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      {EXPANSIONS.map((expansion) => {
+    <>
+      {EXPANSIONS.map((expansion, index) => {
         const checked = checkedFor(expansion.id)
         return (
           <label
             key={expansion.id}
-            className={`ui-button flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors ${checked ? 'glow-gold-sm bg-gold/[0.06]' : ''}`}
+            style={cardStyles[index]}
+            // Inset box-shadow, not a background tint — border-image's own
+            // `fill` (index.css .expansion-card) paints the card's parchment
+            // interior AFTER backgrounds in the CSS paint order, so a plain
+            // bg-* class for the selected state would render invisibly
+            // underneath it. box-shadow paints after border, so it shows.
+            className={`expansion-card flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors ${
+              checked ? 'shadow-[inset_0_0_0_2px_#7a3b1e]' : ''
+            }`}
           >
             <input
               type="checkbox"
@@ -57,13 +74,13 @@ export function ExpansionSelector({
               className="sr-only"
             />
             <div className="min-w-0 flex-1">
-              <div className="font-display text-sm text-gold">{expansion.name}</div>
-              <p className="mt-0.5 font-body text-xs leading-snug text-white/50">{expansion.description}</p>
+              <div className="font-display text-sm text-[#2b1810]">{expansion.name}</div>
+              <p className="mt-0.5 font-body text-xs leading-snug text-[#6b5540]">{expansion.description}</p>
             </div>
             <ToggleSwitch checked={checked} />
           </label>
         )
       })}
-    </div>
+    </>
   )
 }

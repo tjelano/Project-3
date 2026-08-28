@@ -165,7 +165,7 @@ export function RegionSelectMenu({
             <button
               type="button"
               onClick={onBack}
-              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold`}
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase`}
             >
               Back
             </button>

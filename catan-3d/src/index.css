@@ -12,9 +12,9 @@
    tokens in @theme below: the in-game HUD (~20 panels) hasn't been
    rebuilt yet and must keep its current fonts until that's its own project. */
 .pregame-screen {
-  --font-display: 'Pixelify Sans', Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
+  --font-display: 'Pixelify Sans', georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
   --font-body: 'Pixelify Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-data: 'Pixelify Sans', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-data: 'Pixelify Sans', ui-monospace, SFMono-Regular, menlo, consolas, monospace;
 }
 
 /* Room code display/input only (RoomLobby, JoinRoomModal) — Pixelify
@@ -23,7 +23,7 @@
    pregame-wide font-data change (that'd also affect other data readouts
    using font-data, like the VP counter, which don't have this problem). */
 .room-code-font {
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, menlo, consolas, monospace;
 }
 
 /* Pixellab-generated UI-kit border-images — 9-slice frames (thin gold trim,

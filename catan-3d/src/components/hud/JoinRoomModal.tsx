@@ -1,61 +1,22 @@
 import { useState } from 'react'
-import joinRoomMenuUrl from '../../assets/menu/join-room-menu.png'
-import selectorBorderUrl from '../../assets/menu/selector-border.png'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
-import { useHoverActive } from './useHoverActive'
 import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import { normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
+import { INK, INK_MUTED, PARCHMENT_INPUT, PARCHMENT_BUTTON } from './parchmentTheme'
 import type { GameStartInfo } from './StartScreen'
 
-interface Rect {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
-// Every number here is a % of join-room-menu.png's own 1536x1024 canvas —
-// edit directly to line a field up with the art. No live editor — just
-// change the numbers and check the result in the browser.
-const LAYOUT = {
-  nameField: { left: 14, top: 20, width: 72, height: 13 } satisfies Rect,
-  roomCodeField: { left: 14, top: 44, width: 72, height: 14 } satisfies Rect,
-  joinButton: { left: 16, top: 63.3, width: 68, height: 16 } satisfies Rect,
-  backButton: { left: 38, top: 78, width: 24, height: 8 } satisfies Rect,
-  // How far the glow frame around the Join button extends past its own
-  // edges, in % of the button's own size — same selector-border.png asset
-  // used elsewhere as a "this is the primary action" highlight.
-  joinButtonSelectorInsetXPct: 3,
-  joinButtonSelectorInsetYPct: 40,
-}
-
-// Opacity at rest vs. while hovered/focused.
-const JOIN_BUTTON_GLOW_IDLE_OPACITY = 0
-const JOIN_BUTTON_GLOW_ACTIVE_OPACITY = 1
-
-function rectStyle({ left, top, width, height }: Rect) {
-  return { left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }
-}
-
-// Extends selector-border.png past its own box's edges by the given %, same
-// pattern GameSetupMenu.tsx's selector overlays use — `inset` alone doesn't
-// resize a replaced image element, only repositions it, so this computes
-// explicit left/top/width/height instead.
-function selectorOverlayStyle(insetXPct: number, insetYPct: number) {
-  return {
-    left: `-${insetXPct}%`,
-    top: `-${insetYPct}%`,
-    width: `calc(100% + ${insetXPct * 2}%)`,
-    height: `calc(100% + ${insetYPct * 2}%)`,
-    maxWidth: 'none',
-  }
-}
+// Prototype: reusing the existing .expansion-card parchment-panel art
+// (PanelforExpansionAndHouserules.png) as this modal's whole panel, instead
+// of drawing bespoke book art for every remaining pre-game screen — see if
+// the same card frame reads fine stretched to a bigger, denser panel before
+// committing more art production to RegionSelectMenu/RoomLobby.
 
 /**
- * Ornate popup built directly on JoinRoomMenu.png — real inputs/buttons sit
- * as transparent hit-targets positioned (in % of the image, see LAYOUT
- * above) over the painted fields, rather than recreating the frame in CSS.
- * Same asset strategy as GameSetupMenu.tsx.
+ * Component-based rebuild — real inputs/buttons in a panel, matching
+ * GameSetupMenu's open-book/parchment visual language, instead of
+ * transparent hit-targets positioned over join-room-menu.png's painted
+ * fields (or, before that, the dark-navy/gold glass panel this project's
+ * other not-yet-migrated screens still use).
  */
 export function JoinRoomModal({
   onClose,
@@ -68,7 +29,6 @@ export function JoinRoomModal({
   // joiner view — see StartScreen.tsx.
   onJoinLobby: (seed: { roomCode: string; selfName: string }) => void
 }) {
-  const joinButtonGlow = useHoverActive()
   const [name, setName] = useState('')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [checking, setChecking] = useState(false)
@@ -114,15 +74,10 @@ export function JoinRoomModal({
     onJoinLobby({ roomCode: roomCodeInput, selfName: name })
   }
 
+  // No dim/blur overlay — GameSetupMenu underneath stays fully visible,
+  // just covered where this modal's own panel sits on top of it.
   return (
-    <div
-      className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md animate-veil-in"
-      style={{
-        background: 'radial-gradient(circle at center, rgba(12,12,14,0.55) 0%, rgba(12,12,14,0.4) 40%, rgba(12,12,14,0) 72%)',
-        maskImage: 'radial-gradient(circle at center, black 0%, black 40%, transparent 72%)',
-        WebkitMaskImage: 'radial-gradient(circle at center, black 0%, black 40%, transparent 72%)',
-      }}
-    >
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center animate-veil-in">
       {reconnectPicker ? (
         <div
           ref={dialogRef}
@@ -130,9 +85,9 @@ export function JoinRoomModal({
           aria-modal="true"
           aria-labelledby="join-room-reconnect-heading"
           tabIndex={-1}
-          className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl animate-victory-in"
+          className="expansion-card w-80 px-5 py-5 text-center animate-victory-in"
         >
-          <p id="join-room-reconnect-heading" className="font-body text-xs text-white/70">
+          <p id="join-room-reconnect-heading" className={`font-body text-xs ${INK_MUTED}`}>
             No one named &ldquo;{name}&rdquo; is in this room. Which player are you?
           </p>
           <div className="mt-4 flex flex-col gap-2">
@@ -153,7 +108,7 @@ export function JoinRoomModal({
                     snapshot,
                   })
                 }}
-                className="w-full rounded-lg border border-glass-border bg-white/5 py-2.5 font-display text-sm font-semibold text-white transition-colors hover:border-gold/50 hover:text-gold"
+                className={`${PARCHMENT_BUTTON} w-full py-2.5 font-display text-sm font-semibold`}
               >
                 {playerName}
               </button>
@@ -162,7 +117,7 @@ export function JoinRoomModal({
           <button
             type="button"
             onClick={() => setReconnectPicker(null)}
-            className="mt-4 font-body text-[10px] tracking-[0.15em] text-white/40 uppercase hover:text-white/70"
+            className={`mt-4 font-body text-[10px] tracking-[0.15em] uppercase ${INK_MUTED} hover:text-[#2b1810]`}
           >
             Back
           </button>
@@ -174,63 +129,54 @@ export function JoinRoomModal({
           aria-modal="true"
           aria-label="Join room"
           tabIndex={-1}
-          className="relative w-full max-w-md animate-victory-in"
+          className="expansion-card w-full max-w-sm animate-victory-in px-6 py-6"
         >
-          <div className="relative aspect-[1536/1024] w-full">
-            <img src={joinRoomMenuUrl} alt="" className="absolute inset-0 h-full w-full select-none" draggable={false} />
+          <h2 className={`text-center font-display text-base tracking-[0.2em] uppercase ${INK}`}>Join Existing Game</h2>
+          <div className="mx-auto mt-3 h-px w-16 bg-[#8a6d47]/40" />
 
-            <input
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Your name"
-              aria-label="Your name"
-              maxLength={20}
-              className="absolute bg-transparent text-center font-body text-sm text-white placeholder:text-white/30 focus:outline-none"
-              style={rectStyle(LAYOUT.nameField)}
-            />
-            <input
-              type="text"
-              value={roomCodeInput}
-              onChange={(event) => setRoomCodeInput(normalizeRoomCode(event.target.value))}
-              placeholder="B7F3"
-              aria-label="Room code"
-              maxLength={4}
-              className="absolute bg-transparent text-center font-data text-lg tracking-[0.4em] text-white uppercase placeholder:text-white/30 focus:outline-none"
-              style={rectStyle(LAYOUT.roomCodeField)}
-            />
+          <div className="mt-5 flex flex-col gap-3">
+            <label className="block">
+              <span className={`font-body text-[11px] tracking-[0.15em] uppercase ${INK_MUTED}`}>Your Name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Your name"
+                aria-label="Your name"
+                maxLength={20}
+                className={PARCHMENT_INPUT}
+              />
+            </label>
+            <label className="block">
+              <span className={`font-body text-[11px] tracking-[0.15em] uppercase ${INK_MUTED}`}>Room Code</span>
+              <input
+                type="text"
+                value={roomCodeInput}
+                onChange={(event) => setRoomCodeInput(normalizeRoomCode(event.target.value))}
+                placeholder="B7F3"
+                aria-label="Room code"
+                maxLength={4}
+                className={`${PARCHMENT_INPUT} room-code-font text-center text-lg tracking-[0.4em] uppercase`}
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.1em] uppercase`}
+            >
+              Back
+            </button>
             <button
               type="button"
               disabled={!canSubmit}
               onClick={handleJoin}
-              aria-label="Join room"
-              className="absolute outline-none transition-transform hover:scale-[1.02] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-              style={rectStyle(LAYOUT.joinButton)}
-              {...joinButtonGlow.handlers}
+              className={`${PARCHMENT_BUTTON} py-2.5 font-display text-sm tracking-[0.15em] uppercase disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              <img
-                src={selectorBorderUrl}
-                alt=""
-                className="pointer-events-none absolute transition-opacity"
-                style={{
-                  ...selectorOverlayStyle(LAYOUT.joinButtonSelectorInsetXPct, LAYOUT.joinButtonSelectorInsetYPct),
-                  opacity: joinButtonGlow.isActive ? JOIN_BUTTON_GLOW_ACTIVE_OPACITY : JOIN_BUTTON_GLOW_IDLE_OPACITY,
-                }}
-                draggable={false}
-              />
-              {checking && (
-                <span className="absolute inset-0 flex items-center justify-center font-display text-sm tracking-[0.1em] text-gold uppercase">
-                  Checking…
-                </span>
-              )}
+              {checking ? 'Checking…' : 'Join'}
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Back"
-              className="absolute outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-              style={rectStyle(LAYOUT.backButton)}
-            />
           </div>
         </div>
       )}

@@ -320,7 +320,11 @@ const BIOME_OVERRIDES_BY_SHAPE: Partial<Record<BoardShapeId, Record<string, Biom
   },
 }
 
-const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = {
+// Exported so RegionSelectMenu.tsx can render a schematic layout preview
+// (cellPosition-derived hex silhouette) without going through
+// buildHexBoard's randomized biome/number assignment — a preview cares
+// about shape only.
+export const BOARD_SHAPES: Record<BoardShapeId, BoardCell[]> = {
   ...(Object.fromEntries(
     Object.entries(BUILT_IN_COLUMN_HEIGHTS).map(([id, heights]) => [id, columnHeightsToCells(heights)]),
   ) as Record<ColumnShapeId, BoardCell[]>),

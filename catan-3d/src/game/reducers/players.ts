@@ -210,29 +210,31 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         return { ...p, commodities, resources: { ...p.resources, [receiveResource]: p.resources[receiveResource] + 1 } }
       })
     case 'COMMERCIAL_HARBOR_PLAYED': {
-      let next = players.map((p) =>
+      const next = players.map((p) =>
         p.id === action.announcerId ? { ...p, progressCards: removeOne(p.progressCards, 'commercialHarbor') } : p,
       )
+      const byId = new Map(next.map((p) => [p.id, p]))
       for (const targetId of action.otherIdsInOrder) {
-        const announcer = next.find((p) => p.id === action.announcerId)!
+        const announcer = byId.get(action.announcerId)!
         if (announcer.resources[action.resource] <= 0) break
-        const target = next.find((p) => p.id === targetId)!
+        const target = byId.get(targetId)!
         const heldCommodities = COMMODITY_ORDER.filter((c) => target.commodities[c] > 0).sort(
           (a, b) => target.commodities[b] - target.commodities[a],
         )
         if (heldCommodities.length === 0) continue
         const commodity = heldCommodities[0]
-        next = next.map((p) => {
-          if (p.id === action.announcerId) {
-            return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] - 1 }, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] + 1 } }
-          }
-          if (p.id === targetId) {
-            return { ...p, resources: { ...p.resources, [action.resource]: p.resources[action.resource] + 1 }, commodities: { ...p.commodities, [commodity]: p.commodities[commodity] - 1 } }
-          }
-          return p
+        byId.set(action.announcerId, {
+          ...announcer,
+          resources: { ...announcer.resources, [action.resource]: announcer.resources[action.resource] - 1 },
+          commodities: { ...announcer.commodities, [commodity]: announcer.commodities[commodity] + 1 },
+        })
+        byId.set(targetId, {
+          ...target,
+          resources: { ...target.resources, [action.resource]: target.resources[action.resource] + 1 },
+          commodities: { ...target.commodities, [commodity]: target.commodities[commodity] - 1 },
         })
       }
-      return next
+      return next.map((p) => byId.get(p.id)!)
     }
     case 'BANK_TRADE':
       return players.map((p) =>

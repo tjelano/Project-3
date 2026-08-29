@@ -122,6 +122,7 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
+import type { CatanTestHarness } from './testHarness'
 
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -750,11 +751,18 @@ function App() {
     setEventLog((prev) => [...prev.slice(-19), { id: eventLogIdRef.current, text, variant }])
   }
 
+  // Read by the test harness's getLastWarning() (testHarness.ts) — cleared
+  // by the harness itself before each action it dispatches, so a read
+  // right after an action is unambiguous. Not used by any real player-
+  // facing code; a plain assignment here costs nothing for real players.
+  const lastWarningRef = useRef<string | null>(null)
+
   const warn = (text: string) => {
     console.warn(`[Catan] ${text}`)
 
     setBanner({ text, variant: 'warning' })
     logEvent(text, 'warning')
+    lastWarningRef.current = text
   }
 
   const inform = (text: string) => {
@@ -7161,6 +7169,46 @@ function App() {
     progressCardOverLimitPlayerIds,
     progressCardDecks,
   ])
+
+  // Test-only surface for the multiplayer sync harness (see
+  // docs/superpowers/specs/2026-08-29-multiplayer-sync-testing-harness-design.md).
+  // MODE is statically known at build time, so Vite/Rolldown dead-code-
+  // eliminates this whole branch from a real production build — not just
+  // runtime-inert, actually absent from the shipped bundle. Must run on
+  // every render (no dependency array) and must be BEFORE the early
+  // return below, or the hook count changes once gameStarted flips true
+  // ("Rendered more hooks than during the previous render").
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'test') return
+    const wrap =
+      <A extends unknown[]>(fn: (...a: A) => void) =>
+      (...a: A) => {
+        lastWarningRef.current = null
+        fn(...a)
+      }
+    window.__catanTestHarness = {
+      actions: {
+        buildSettlement: wrap(buildSettlementRaw),
+        buildRoad: wrap(buildRoadRaw),
+        buildShip: wrap(buildShipRaw),
+        rollDice: wrap(rollDice),
+        buyDevCard: wrap(buyDevCard),
+        playDevCard: wrap(playDevCard),
+        endTurn: wrap(endTurn),
+      },
+      getState: () => gameState,
+      // graph.vertexEdgeIds is a native Map — converted to a plain object
+      // here since Map doesn't survive Playwright's page.evaluate()
+      // serialization (silently becomes {}).
+      getGraph: () => ({
+        vertices: graph.vertices,
+        edges: graph.edges,
+        vertexEdgeIds: Object.fromEntries(graph.vertexEdgeIds),
+      }),
+      getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
+      getLastWarning: () => lastWarningRef.current,
+    } as const satisfies CatanTestHarness
+  })
 
   if (!gameStarted) {
     return (

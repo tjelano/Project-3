@@ -6581,10 +6581,33 @@ function App() {
     dispatch({ type: 'RESET_BOARD', robberTileId: (desertTile ?? freshTiles[0]).id })
     dispatch({ type: 'REVEALED_TILES_SET', tileIds: [] })
     setBanner(null)
-    dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget)) })
-    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: buildProgressCardDeck('science') })
-    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: buildProgressCardDeck('trade') })
-    dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'politics', deck: buildProgressCardDeck('politics') })
+    // Seeded (not the default crypto-random source) whenever online, so
+    // every client builds the byte-identical deck from the same
+    // effectiveBoardSeed — same "-suffix" convention as
+    // freshStartingPlayerIndex just above. Each client previously shuffled
+    // independently and only synced the SPECIFIC card broadcast on each
+    // draw while still popping its own local (differently-ordered) deck on
+    // every draw regardless of who drew — which could silently hand out a
+    // different card-type composition than the deck actually contains once
+    // both host and joiner had drawn a few cards each. Local play keeps the
+    // crypto-random source: with only one client, determinism never mattered.
+    const devDeckRandom = effectiveBoardSeed ? createSeededRandom(`${effectiveBoardSeed}-dev-deck`) : undefined
+    dispatch({ type: 'DEV_DECK_SET', deck: shuffle(buildDevCardDeck(effectiveRules.victoryPointTarget), devDeckRandom) })
+    dispatch({
+      type: 'PROGRESS_CARD_DECK_SET',
+      track: 'science',
+      deck: buildProgressCardDeck('science', effectiveBoardSeed ? createSeededRandom(`${effectiveBoardSeed}-science-deck`) : undefined),
+    })
+    dispatch({
+      type: 'PROGRESS_CARD_DECK_SET',
+      track: 'trade',
+      deck: buildProgressCardDeck('trade', effectiveBoardSeed ? createSeededRandom(`${effectiveBoardSeed}-trade-deck`) : undefined),
+    })
+    dispatch({
+      type: 'PROGRESS_CARD_DECK_SET',
+      track: 'politics',
+      deck: buildProgressCardDeck('politics', effectiveBoardSeed ? createSeededRandom(`${effectiveBoardSeed}-politics-deck`) : undefined),
+    })
     dispatch({ type: 'PROGRESS_CARD_OVER_LIMIT_PLAYERS_SET', playerIds: [] })
     setWinner(null)
     dispatch({ type: 'PENDING_TRADE_CLEARED' })
@@ -6914,10 +6937,14 @@ function App() {
     // before this field was wired in, which falls back to a freshly built
     // set of per-track decks (correct composition, just not this match's
     // exact remaining draw order).
+    // Seeded off the room code for the same reason resetGame's fresh-start
+    // decks are — every reconnecting client hits this same fallback
+    // independently, and without a shared seed each would rebuild a
+    // differently-ordered deck.
     const restoredProgressCardDecks = snapshot.progressCardDecks ?? {
-      science: buildProgressCardDeck('science'),
-      trade: buildProgressCardDeck('trade'),
-      politics: buildProgressCardDeck('politics'),
+      science: buildProgressCardDeck('science', createSeededRandom(`${online.roomCode}-science-deck`)),
+      trade: buildProgressCardDeck('trade', createSeededRandom(`${online.roomCode}-trade-deck`)),
+      politics: buildProgressCardDeck('politics', createSeededRandom(`${online.roomCode}-politics-deck`)),
     }
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'science', deck: restoredProgressCardDecks.science })
     dispatch({ type: 'PROGRESS_CARD_DECK_SET', track: 'trade', deck: restoredProgressCardDecks.trade })

@@ -25,15 +25,21 @@ export function rollEventDie(): EventDieFace {
 }
 
 // One full shuffled deck for a track, exact composition per
-// PROGRESS_CARD_DECK_COMPOSITION (18 cards, every track).
-export function buildProgressCardDeck(track: ImprovementTrack): ProgressCardType[] {
+// PROGRESS_CARD_DECK_COMPOSITION (18 cards, every track). `random` mirrors
+// buildHexBoardFromCells's own optional seed param — online callers pass a
+// seeded source (App.tsx's resetGame) so every client builds the IDENTICAL
+// deck instead of each independently shuffling with the default
+// crypto-random source, which used to let the composition actually dealt to
+// players drift from the deck's true one once both host and joiner drew
+// cards (see resetGame's own comment on this).
+export function buildProgressCardDeck(track: ImprovementTrack, random?: () => number): ProgressCardType[] {
   const deck: ProgressCardType[] = []
   const composition = PROGRESS_CARD_DECK_COMPOSITION[track]
   for (const type of Object.keys(composition) as ProgressCardType[]) {
     const qty = composition[type] ?? 0
     for (let i = 0; i < qty; i++) deck.push(type)
   }
-  return shuffle(deck)
+  return shuffle(deck, random)
 }
 
 // CN3087 p.6/p.8: level N (1-5) draws on red-die 1 through N+1. Level 0

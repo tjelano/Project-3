@@ -6,6 +6,7 @@ import {
   progressCardHandExcess,
   rollEventDie,
 } from './progressCards'
+import { createSeededRandom } from '../utils/seededRandom'
 import type { EventDieFace } from '../components/Dice3D'
 import type { ImprovementTrack, ProgressCardType } from './types'
 
@@ -65,6 +66,26 @@ describe('buildProgressCardDeck', () => {
     const deck = buildProgressCardDeck('science')
     expect(deck.filter((c) => c === 'alchemy')).toHaveLength(2)
     expect(deck.filter((c) => c === 'engineering')).toHaveLength(1)
+  })
+
+  // Regression: two independent clients (host/joiner) each call this with
+  // their own createSeededRandom(sameSeed) — this is what makes their
+  // decks converge instead of each independently crypto-shuffling and
+  // silently handing players a different card-type composition than the
+  // deck actually contains once both had drawn a few cards (see
+  // resetGame's own comment on this bug).
+  it('produces the identical deck for two independent calls given the same seed', () => {
+    for (const track of ['science', 'trade', 'politics'] as ImprovementTrack[]) {
+      const a = buildProgressCardDeck(track, createSeededRandom('room-XYZ-' + track))
+      const b = buildProgressCardDeck(track, createSeededRandom('room-XYZ-' + track))
+      expect(a).toEqual(b)
+    }
+  })
+
+  it('produces a different order for a different seed', () => {
+    const a = buildProgressCardDeck('science', createSeededRandom('seed-A'))
+    const b = buildProgressCardDeck('science', createSeededRandom('seed-B'))
+    expect(a).not.toEqual(b)
   })
 
   it('handles missing quantity in composition (defaults to 0)', async () => {

@@ -72,15 +72,16 @@ export async function runScenario(pageA: Page, pageB: Page, steps: ScenarioStep[
     }
 
     // The acting page's own harness snapshot can briefly lag its own
-    // dispatch: React 18 batches an update triggered from outside its
-    // event system (like this externally-injected page.evaluate() call)
-    // onto a microtask rather than flushing it synchronously, so an
-    // immediate read straight after dispatch can still observe pre-action
-    // state — confirmed via a live two-browser run, where this lasted up
-    // to several hundred ms. Wait for the acting page's own state to
-    // actually move before treating it as ground truth, or a stale
-    // immediate read makes convergence impossible to ever satisfy once
-    // the other page correctly catches up past it.
+    // dispatch — an immediate read straight after runAction() can still
+    // observe pre-action state. Confirmed via a live two-browser run
+    // (observed lag ranged from tens of ms up to tens of seconds under
+    // heavy main-thread contention — likely some mix of React 18 batching
+    // an externally-triggered dispatch onto a microtask, and the
+    // page.evaluate() round-trip itself queuing behind a busy render
+    // loop; the exact split wasn't isolated). Wait for the acting page's
+    // own state to actually move before treating it as ground truth, or a
+    // stale immediate read makes convergence impossible to ever satisfy
+    // once the other page correctly catches up past it.
     let expected = before
     await expect
       .poll(

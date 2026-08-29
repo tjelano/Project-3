@@ -8,6 +8,13 @@ describe('seededRandom', () => {
       expect(val).toBeGreaterThanOrEqual(0)
       expect(val).toBeLessThan(1)
     })
+
+    it('draws from crypto.getRandomValues, not Math.random', () => {
+      const cryptoSpy = vi.spyOn(crypto, 'getRandomValues')
+      secureRandom()
+      expect(cryptoSpy).toHaveBeenCalledTimes(1)
+      cryptoSpy.mockRestore()
+    })
   })
 
   describe('createSeededRandom', () => {
@@ -50,12 +57,12 @@ describe('seededRandom', () => {
     })
 
     it('uses secureRandom by default', () => {
-      // In a real environment we'd spy on crypto.getRandomValues, but since it's global
-      // and we just want to ensure it works, we verify elements are preserved.
-      // If secureRandom threw an error, this would fail.
+      const cryptoSpy = vi.spyOn(crypto, 'getRandomValues')
       const items = [1, 2, 3, 4, 5]
       const result = shuffle(items)
       expect(result).toEqual(expect.arrayContaining(items))
+      expect(cryptoSpy).toHaveBeenCalled()
+      cryptoSpy.mockRestore()
     })
   })
 })

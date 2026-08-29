@@ -18,11 +18,20 @@ export function createSeededRandom(seed: string): () => number {
   }
 }
 
+/**
+ * Returns a cryptographically secure random number in the range [0, 1).
+ */
+export function secureRandom(): number {
+  const array = new Uint32Array(1)
+  crypto.getRandomValues(array)
+  return array[0] / 4294967296
+}
+
 // Fisher-Yates. Takes an injectable random source (createSeededRandom's
-// output, for reproducible board generation) — defaults to Math.random for
+// output, for reproducible board generation) — defaults to secureRandom for
 // every other caller (dev-card/progress-card deck shuffles, plain board
 // generation), so the vast majority of call sites need no second argument.
-export function shuffle<T>(items: T[], random: () => number = Math.random): T[] {
+export function shuffle<T>(items: T[], random: () => number = secureRandom): T[] {
   const result = [...items]
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1))

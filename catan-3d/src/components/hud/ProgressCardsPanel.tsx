@@ -68,7 +68,11 @@ export interface ProgressCardsPanelProps {
 export function ProgressCardsPanel({
   progressCards, deckCounts, playHandlers, isMyTurn, discardActive, discardSelection, onToggleDiscard,
 }: ProgressCardsPanelProps) {
-  if (progressCards.length === 0) return null
+  // Always rendered while progress cards are on (GameHud.tsx's own
+  // citiesAndKnightsProgressCards gate is what decides that) — same
+  // "always-visible reference panel" treatment BuildingCostsPanel/
+  // RankingsPanel/ResourcePanel already get, not conditional on actually
+  // holding any cards yet.
   // Distinct 4-card hand-limit indicator, called for in the design spec
   // (docs/superpowers/specs/2026-08-16-cities-knights-progress-cards-design.md,
   // "Hand Limit") but never actually surfaced here — before this, a player
@@ -92,7 +96,12 @@ export function ProgressCardsPanel({
           Sci {deckCounts.science} · Trd {deckCounts.trade} · Pol {deckCounts.politics}
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      {/* grid-cols-4, not -3 — PROGRESS_CARD_HAND_LIMIT is 4, so a 3-column
+          grid wrapped the 4th card to a second row, growing the panel
+          taller and overlapping EventLogPanel below it (that panel isn't
+          flow-connected to this one). 4 columns keeps any count up to the
+          hand limit on one row — wider instead of taller. */}
+      <div className="grid grid-cols-4 gap-2">
         {progressCards.map((card, index) => {
           const isVp = PROGRESS_CARD_VP_TYPES.has(card)
           const selected = discardSelection?.includes(index)

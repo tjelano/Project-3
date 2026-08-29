@@ -14,6 +14,7 @@ import {
   type KnightPiece,
   type MetropolisHolders,
   type Player,
+  type ProgressCardType,
   type ResourceType,
 } from '../../game/types'
 import { evaluateMetropolisPurchase } from '../../game/cityImprovements'
@@ -21,6 +22,7 @@ import { canBuildCityWall, canPromoteKnight } from '../../game/knights'
 import type { ChatMessagePayload } from '../../multiplayer/useRoomChannel'
 import { TopBar } from './TopBar'
 import { ResourcePanel } from './ResourcePanel'
+import { CityWallsPanel } from './CityWallsPanel'
 import { RollDiceButton } from './RollDiceButton'
 import { EventDieIndicator } from './EventDieIndicator'
 import type { EventDieFace } from '../Dice3D'
@@ -129,7 +131,7 @@ interface TradeHudState {
   // everyone else (including the proposer) just sees their action buttons
   // locked until it resolves.
   localPlayerId: number | null
-  onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
+  onProposeTrade: (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => void
   onResolveTrade: (accept: boolean) => void
 }
 
@@ -455,6 +457,13 @@ interface DiscardHudState {
   discardRequiredCount: number
   discardSelectedCount: number
   onConfirmDiscard: () => void
+  // Same "<type>-<index>" card ids PlayerHand3D's own 3D-click selection
+  // already uses — threaded here too so DiscardPanel's +/- steppers (shown
+  // once the discarder's hand is in PlayerHand3D's stacked-mode threshold)
+  // can drive the exact same selection state, just via specific ids chosen
+  // for the player rather than a direct card click.
+  discardSelection: string[]
+  onToggleDiscard: (cardId: string) => void
 }
 
 interface ChatHudState {
@@ -475,6 +484,10 @@ interface GameHudProps {
   devCards: DevCardHudState
   winner: Player | null
   settlements: Record<string, Building>
+  // Vertex ids touching at least one Sea tile — canBuildCityWall's own
+  // water-adjacency restriction needs this, and GameHud has no board graph/
+  // tile-biome data of its own to derive it from.
+  vertexTouchesWater: ReadonlySet<string>
   onReturnToMenu: () => void
   picker: PickerHudState
   trophies: TrophyHudState
@@ -515,6 +528,7 @@ export function GameHud({
   devCards,
   winner,
   settlements,
+  vertexTouchesWater,
   onReturnToMenu,
   picker,
   trophies,
@@ -540,10 +554,10 @@ export function GameHud({
   // dot access at the single panel it's threaded to (knights.armedKnightId,
   // discard.discardingPlayerName, …), where the group name reads as useful
   // provenance rather than noise.
-  const { currentPlayerIndex, isMyTurn, hasRolledThisTurn, onEndTurn, gamePhase, setupStage, devCardPlayedThisTurn } = turn
+  const { currentPlayerIndex, isMyTurn, hasRolledThisTurn, onEndTurn, gamePhase, setupStage } = turn
   const { lastRoll, lastEventDie, onRollDice, isRolling } = dice
   const { portRates, onTrade, onTradeCommodity, pendingTrade, localPlayerId, onProposeTrade, onResolveTrade } = trade
-  const { devDeckCount, onBuyDevCard, onPlayDevCard } = devCards
+  const { devDeckCount, onBuyDevCard } = devCards
   const {
     devCardPicker,
     onResolveDevCardPicker,
@@ -588,6 +602,12 @@ export function GameHud({
   // exists yet, or none has been picked) has to be handled explicitly —
   // see resolvedTreasonTargetId below, which is what actually gets read.
   const [treasonTargetId, setTreasonTargetId] = useState<number | null>(null)
+  // Which of the 6 picker-style progress cards (Alchemy/Invention/Merchant
+  // Fleet/Commercial Harbor/Diplomacy/Treason) has its "play" widget open —
+  // null means none. A single value, not a Set: only one card's widget can
+  // be open at a time, so clicking a card in ProgressCardsPanel either opens
+  // it (replacing whatever was open) or closes it if it was already open.
+  const [openProgressCardWidget, setOpenProgressCardWidget] = useState<ProgressCardType | null>(null)
   // devCardPicker takes priority — the two are mutually exclusive in
   // practice (see scienceFreeResourceActive's prop comment), but this
   // ordering also doubles as the "guard against stacking" the two modals
@@ -668,14 +688,6 @@ export function GameHud({
     !pickerBlocked &&
     devDeckCount > 0 &&
     isMyTurn
-  const canPlayDevCards =
-    gamePhase === 'playing' &&
-    !isRolling &&
-    gameActive &&
-    !tradeBlocked &&
-    !pickerBlocked &&
-    !devCardPlayedThisTurn &&
-    isMyTurn
   // Cities & Knights city walls (Task 12) — ownCities is every vertex where
   // the viewer owns a city (a wall can only ever go on one of THEIR OWN
   // cities), sorted by vertex id so the buttons below render in a stable
@@ -702,8 +714,8 @@ export function GameHud({
   // ResourcePanel.
   const freeWallActive = cityWalls.pendingFreeCityWall === viewer.id
   // Folds in the SAME action-gate set every sibling derivation in this file
-  // applies (canTrade/canBuyDevCard/canPlayDevCards/canBuyImprovement all
-  // nearby) before ever calling canBuildCityWall — CodeRabbit already
+  // applies (canTrade/canBuyDevCard/canBuyImprovement all nearby) before
+  // ever calling canBuildCityWall — CodeRabbit already
   // caught this exact omission once on the progress-card play widgets (see
   // canPlayProgressCards' own comment below); without it the Wall button
   // would render clickable off-turn, mid-roll, or during a blocked trade/
@@ -727,6 +739,7 @@ export function GameHud({
       vertexId,
       settlements,
       totalWallsOnBoard,
+      vertexTouchesWater,
     )
   // Mirrors canBuyDevCard's derivation above — city improvements are also
   // only purchasable during your own action phase, after rolling (same
@@ -742,13 +755,14 @@ export function GameHud({
     !pickerBlocked &&
     isMyTurn &&
     hasRolledThisTurn
-  // Same derivation as canPlayDevCards above (minus its once-per-turn
-  // devCardPlayedThisTurn check, which doesn't apply to progress cards —
-  // they're drawn, not purchased) — progress cards are also only playable
-  // during the viewer's own action phase, with no forced overlay or
-  // pending trade in the way. CodeRabbit caught that the play widgets
-  // below previously checked only citiesAndKnightsProgressCards && isMyTurn,
-  // missing every other lock canPlayDevCards already enforces. Also folds
+  // Same action-gate set the rest of this file applies before any other
+  // spend/play action (gamePhase/isRolling/gameActive/tradeBlocked/
+  // pickerBlocked/isMyTurn — see canBuyImprovement just above), minus a
+  // once-per-turn "already played a dev card" check: that one doesn't apply
+  // to progress cards, since they're drawn, not purchased. CodeRabbit
+  // caught that the play widgets below previously checked only
+  // citiesAndKnightsProgressCards && isMyTurn, missing every other lock
+  // this file's other action gates already enforce. Also folds
   // in viewer.id === currentPlayer.id: during a local Pass & Play discard
   // hand-off, viewerPlayerId is the discarding player while isMyTurn still
   // tracks the roller, so without this a stacked control could offer cards
@@ -815,16 +829,19 @@ export function GameHud({
         // bypass of anything still in progress.
         canRestart={canRestart && !tradeBlocked && !pickerBlocked}
       />
-      <EventBanner banner={banner} />
+      <EventBanner banner={banner} belowBarbarianTrack={citiesAndKnightsBarbarians} />
       {/* Cities & Knights barbarian track (Task 8) — public, read-only
           info (track position + live strength comparison), so unlike the
           pillage/draw pickers (Tasks 6-7) this has no per-player gating,
-          just the plain house-rule flag. Sits below EventBanner's own
-          top-20 slot (top-32, not top-20) so a transient banner message
-          never visually collides with this persistent panel — both are
-          centered in the same top-center column. */}
+          just the plain house-rule flag. top-[74px] matches TopBar's own
+          bottom edge + 8px, same gap-2 spacing every other HUD stack uses —
+          measured, not guessed (TopBar bottoms out at 66px). Sits inside
+          EventBanner's own former top-20 slot, same center column —
+          EventBanner.tsx now drops to top-[173px] (this panel's own bottom
+          edge + 8px) whenever citiesAndKnightsBarbarians is on, instead of
+          the two overlapping. */}
       {citiesAndKnightsBarbarians && (
-        <div className="pointer-events-none absolute top-32 left-1/2 -translate-x-1/2">
+        <div className="pointer-events-none absolute top-[74px] left-1/2 -translate-x-1/2">
           <BarbarianTrackPanel position={barbarianTrackPosition} players={players} settlements={settlements} />
         </div>
       )}
@@ -852,32 +869,197 @@ export function GameHud({
           metropolisHolders={trophies.metropolisHolders}
           merchantHolderId={trophies.merchantHolderId}
         />
-        {/* Placement is a first-pass call, not yet confirmed live in the
-            browser (see this task's report) — stacked here alongside
-            BuildingCostsPanel/RankingsPanel since it's the same "your own
-            reference info" category, but may move once actually rendered. */}
-        {citiesAndKnightsCommodities && (
-          <CityImprovementsPanel
-            commodities={viewer.commodities}
-            cityImprovements={viewer.cityImprovements}
-            canBuy={canBuyImprovement}
-            onBuy={improvements.onBuyImprovement}
-            pendingMetropolisTrack={improvements.pendingMetropolisTrack}
-            metropolisPurchaseBlocked={metropolisPurchaseBlocked}
-            craneDiscountActive={improvements.craneDiscountActive}
-          />
-        )}
         {citiesAndKnightsProgressCards && (
           <>
-            <ProgressCardsPanel
-              progressCards={viewer.progressCards}
-              deckCounts={progressCards.progressCardDeckCounts}
-              playHandlers={progressCards.progressCardPlayHandlers}
-              isMyTurn={canPlayProgressCards}
-              discardActive={isMyProgressDiscardTurn}
-              discardSelection={progressDiscardSelection}
-              onToggleDiscard={onToggleProgressDiscard}
-            />
+            <div className="relative">
+              <ProgressCardsPanel
+                progressCards={viewer.progressCards}
+                deckCounts={progressCards.progressCardDeckCounts}
+                // Alchemy/Invention/Merchant Fleet/Commercial Harbor/
+                // Diplomacy/Treason each need an argument picked before
+                // they can play (see ProgressCardHudState's own comments),
+                // so instead of playing instantly they just toggle their
+                // widget open below — progressCardPlayHandlers itself never
+                // has entries for these 6 (deliberately, per its own prop
+                // comment), so this merge can't collide with it.
+                playHandlers={{
+                  ...progressCards.progressCardPlayHandlers,
+                  alchemy: () => setOpenProgressCardWidget((cur) => (cur === 'alchemy' ? null : 'alchemy')),
+                  invention: () => setOpenProgressCardWidget((cur) => (cur === 'invention' ? null : 'invention')),
+                  merchantFleet: () => setOpenProgressCardWidget((cur) => (cur === 'merchantFleet' ? null : 'merchantFleet')),
+                  commercialHarbor: () => setOpenProgressCardWidget((cur) => (cur === 'commercialHarbor' ? null : 'commercialHarbor')),
+                  diplomacy: () => setOpenProgressCardWidget((cur) => (cur === 'diplomacy' ? null : 'diplomacy')),
+                  treason: () => setOpenProgressCardWidget((cur) => (cur === 'treason' ? null : 'treason')),
+                }}
+                isMyTurn={canPlayProgressCards}
+                discardActive={isMyProgressDiscardTurn}
+                discardSelection={progressDiscardSelection}
+                onToggleDiscard={onToggleProgressDiscard}
+              />
+              {/* Anchored to ProgressCardsPanel itself (not the left
+                  column) via left-full on a relative wrapper, so it tracks
+                  the panel's real position even when BuildingCostsPanel/
+                  RankingsPanel above it change height, without hand-tuned
+                  pixel offsets. */}
+              {openProgressCardWidget && (
+                <div className="pointer-events-none absolute top-0 left-full ml-2 w-52">
+                  {canPlayProgressCards && !hasRolledThisTurn && viewer.progressCards.includes('alchemy') && openProgressCardWidget === 'alchemy' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={alchemyD1}
+                          onChange={(e) => setAlchemyD1(Number(e.target.value))}
+                          className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+                        >
+                          {[1, 2, 3, 4, 5, 6].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={alchemyD2}
+                          onChange={(e) => setAlchemyD2(Number(e.target.value))}
+                          className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+                        >
+                          {[1, 2, 3, 4, 5, 6].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayAlchemy(alchemyD1, alchemyD2)
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  )}
+                  {canPlayProgressCards && !progressCards.inventionSwapActive && viewer.progressCards.includes('invention') && openProgressCardWidget === 'invention' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayInvention()
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  )}
+                  {canPlayProgressCards && viewer.progressCards.includes('merchantFleet') && openProgressCardWidget === 'merchantFleet' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Merchant Fleet: Name a Type</span>
+                      <select
+                        value={merchantFleetType}
+                        onChange={(e) => setMerchantFleetType(e.target.value as ResourceType | CommodityType)}
+                        className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+                      >
+                        {RESOURCE_ORDER.map((resource) => (
+                          <option key={resource} value={resource}>
+                            {RESOURCE_LABELS[resource]}
+                          </option>
+                        ))}
+                        {COMMODITY_ORDER.map((commodity) => (
+                          <option key={commodity} value={commodity}>
+                            {COMMODITY_LABELS[commodity]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayMerchantFleet(merchantFleetType)
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                      {merchantFleetRate?.playerId === viewer.id && (
+                        <span className="font-body text-[9px] text-gold/80">
+                          Active: 2:1{' '}
+                          {(COMMODITY_ORDER as string[]).includes(merchantFleetRate.type)
+                            ? COMMODITY_LABELS[merchantFleetRate.type as CommodityType]
+                            : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {canPlayProgressCards && viewer.progressCards.includes('commercialHarbor') && openProgressCardWidget === 'commercialHarbor' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Commercial Harbor: Offer a Resource</span>
+                      <select
+                        value={commercialHarborResource}
+                        onChange={(e) => setCommercialHarborResource(e.target.value as ResourceType)}
+                        className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+                      >
+                        {RESOURCE_ORDER.map((resource) => (
+                          <option key={resource} value={resource}>
+                            {RESOURCE_LABELS[resource]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayCommercialHarbor(commercialHarborResource)
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  )}
+                  {canPlayProgressCards && !progressCards.diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && openProgressCardWidget === 'diplomacy' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayDiplomacy()
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  )}
+                  {canPlayProgressCards &&
+                    !progressCards.treasonPlacementActive &&
+                    resolvedTreasonTargetId != null &&
+                    viewer.progressCards.includes('treason') &&
+                    openProgressCardWidget === 'treason' && (
+                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Treason: Choose a Target</span>
+                      <PlayerTargetPicker players={otherPlayers} selectedPlayerId={resolvedTreasonTargetId} onSelect={setTreasonTargetId} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenProgressCardWidget(null)
+                          progressCards.onPlayTreason(resolvedTreasonTargetId)
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {/* Small confirm/count indicator for the 4-card hand-limit
                 discard — deliberately NOT a full-screen DiscardPanel-style
                 modal like the 7-roll resource discard: a progress-card draw
@@ -918,6 +1100,64 @@ export function GameHud({
             )}
           </>
         )}
+      </div>
+      <EventLogPanel events={eventLog} />
+      {roomCode && <ChatBoxPanel messages={chat.chatMessages} players={players} onSend={chat.onSendChatMessage} />}
+      {/* CityWallsPanel sits next to EventLogPanel (bottom-left), not in the
+          right-side column below — it used to be flow-stacked there
+          alongside CityImprovements/Knights, but that meant CityWalls
+          appearing (as soon as the viewer owns a city) pushed Knights down
+          far enough to collide with the RollDiceButton/EventDieIndicator/
+          End Turn cluster at the bottom-right. Moving it out of that
+          column entirely removes the height-budget problem at its source,
+          rather than capping/scrolling around it. left-[312px] = EventLog's
+          own left-4 (16px) + its w-72 (288px) + 8px gap, matching the
+          gap-2 spacing every other HUD stack uses. */}
+      {citiesAndKnightsKnights && ownCities.length > 0 && (
+        <div className="pointer-events-none absolute bottom-4 left-[312px] w-52">
+          <CityWallsPanel
+            ownCities={ownCities}
+            canBuildWallAt={canBuildWallAt}
+            onBuildWall={cityWalls.onBuildWall}
+            freeWallActive={freeWallActive}
+            onResolveFreeWall={cityWalls.onResolveFreeWall}
+          />
+        </div>
+      )}
+      {/* ResourcePanel, then City Improvements/Knights below it — ONE
+          flow-stacked column (like the left BuildingCosts/Rankings/
+          ProgressCards column already is), not two independently
+          absolutely-positioned blocks with a hardcoded pixel gap. That
+          first version broke the instant ResourcePanel grew taller than
+          its measured baseline (e.g. the "Over N — a rolled 7 costs you
+          half" discard-risk warning appearing): with a fixed top offset,
+          a taller ResourcePanel just overlapped City Improvements instead
+          of pushing it down. Flow stacking makes that structurally
+          impossible, same reason the left column already uses it. */}
+      <div className="pointer-events-none absolute top-20 right-4 flex w-52 flex-col gap-2">
+        <ResourcePanel
+          resources={viewer.resources}
+          commodities={viewer.commodities}
+          countsCommodities={citiesAndKnightsCommodities}
+          canTrade={canTrade}
+          onOpenTrade={() => setIsTradeOpen(true)}
+          devCards={viewer.devCards}
+          canBuyDevCard={canBuyDevCard}
+          onBuyDevCard={onBuyDevCard}
+          citiesAndKnightsKnights={citiesAndKnightsKnights}
+          cityWallCount={viewer.cityWalls.length}
+        />
+        {citiesAndKnightsCommodities && (
+          <CityImprovementsPanel
+            commodities={viewer.commodities}
+            cityImprovements={viewer.cityImprovements}
+            canBuy={canBuyImprovement}
+            onBuy={improvements.onBuyImprovement}
+            pendingMetropolisTrack={improvements.pendingMetropolisTrack}
+            metropolisPurchaseBlocked={metropolisPurchaseBlocked}
+            craneDiscountActive={improvements.craneDiscountActive}
+          />
+        )}
         {/* Cities & Knights knights — Recruit (Task 7), Activate/Promote
             (Task 8), Move (Task 9), Displace (Task 10), and Chase Robber
             (Task 11) are all wired up. */}
@@ -942,29 +1182,6 @@ export function GameHud({
           />
         )}
       </div>
-      <EventLogPanel events={eventLog} />
-      {roomCode && <ChatBoxPanel messages={chat.chatMessages} players={players} onSend={chat.onSendChatMessage} />}
-      <ResourcePanel
-        resources={viewer.resources}
-        commodities={viewer.commodities}
-        countsCommodities={citiesAndKnightsCommodities}
-        canTrade={canTrade}
-        onOpenTrade={() => setIsTradeOpen(true)}
-        devCards={viewer.devCards}
-        devCardsBoughtThisTurn={viewer.devCardsBoughtThisTurn}
-        knightsPlayed={viewer.knightsPlayed}
-        canBuyDevCard={canBuyDevCard}
-        onBuyDevCard={onBuyDevCard}
-        canPlayDevCards={canPlayDevCards}
-        onPlayDevCard={onPlayDevCard}
-        citiesAndKnightsKnights={citiesAndKnightsKnights}
-        cityWallCount={viewer.cityWalls.length}
-        ownCities={ownCities}
-        canBuildWallAt={canBuildWallAt}
-        onBuildWall={cityWalls.onBuildWall}
-        freeWallActive={freeWallActive}
-        onResolveFreeWall={cityWalls.onResolveFreeWall}
-      />
       {isTradeOpen && (
         <TradeModal
           resources={viewer.resources}
@@ -975,6 +1192,12 @@ export function GameHud({
           onClose={() => setIsTradeOpen(false)}
           isMyTurn={isMyTurn}
           commodities={viewer.commodities}
+          // Gates the Player tab's own Commodities rows — unlike the
+          // commodity-mode tab above (Trade level 3, house-rule-implied via
+          // CityImprovementsPanel), a base-game match with the house rule
+          // off never grants any commodities at all, so those rows would
+          // just be a wall of permanently-empty, unaffordable buttons.
+          commoditiesEnabled={citiesAndKnightsCommodities}
           // Not further AND-ed with citiesAndKnightsCommodities here — a
           // player can only ever reach trade level 3 via CityImprovementsPanel,
           // which already only renders under that same house rule (see its
@@ -1009,162 +1232,16 @@ export function GameHud({
         disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
         playerLabel={`${currentPlayer.name}:`}
       />
-      {/* Every progress card with its own small picker UI (not
-          progressCardPlayHandlers' generic click-to-play) stacks in this one
-          column, anchored to the LEFT of Roll Dice (right-44 clears that
-          button's own right-8/w-32 footprint). flex-col-reverse + gap-2
-          grows the stack UPWARD from a single shared bottom-10 anchor as
-          more of these become simultaneously eligible, rather than each
-          needing its own hand-tuned bottom offset that would need
-          re-tuning every time a sibling is added/removed. */}
+      {/* Only the "board interaction in progress" hints remain here, anchored
+          to the LEFT of Roll Dice (right-44 clears that button's own
+          right-8/w-32 footprint) — the initial "play this card" widgets now
+          live next to ProgressCardsPanel instead, opened by clicking the
+          card (see openProgressCardWidget above). flex-col-reverse + gap-2
+          grows the stack UPWARD from a single shared bottom-10 anchor. */}
       <div className="pointer-events-none absolute right-44 bottom-10 flex flex-col-reverse items-center gap-2">
-        {/* Cities & Knights Alchemy — a 2-number picker, gated on the exact
-            same pre-roll/own-turn conditions as RollDiceButton right next to
-            it, so it only ever appears for the player who could actually use
-            it right now. */}
-        {canPlayProgressCards && !hasRolledThisTurn && viewer.progressCards.includes('alchemy') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
-            <div className="flex items-center gap-1.5">
-              <select
-                value={alchemyD1}
-                onChange={(e) => setAlchemyD1(Number(e.target.value))}
-                className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
-              >
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={alchemyD2}
-                onChange={(e) => setAlchemyD2(Number(e.target.value))}
-                className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
-              >
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => progressCards.onPlayAlchemy(alchemyD1, alchemyD2)}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
-          </div>
-        )}
-        {/* Cities & Knights Invention — no argument picker of its own (the
-            actual 2-tile pick happens on the board itself, via
-            TileSwapLayer), so this is just a spend-and-arm button. Hidden
-            once inventionSwapActive so a second Invention can't be spent
-            mid-pick from here (App.tsx's playInvention guards this too); a
-            "pick tiles" hint takes its place instead. No pre-roll
-            restriction, unlike Alchemy — Invention has no such rule. */}
-        {canPlayProgressCards && !progressCards.inventionSwapActive && viewer.progressCards.includes('invention') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
-            <button
-              type="button"
-              onClick={progressCards.onPlayInvention}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
-          </div>
-        )}
         {citiesAndKnightsProgressCards && isMyTurn && progressCards.inventionSwapActive && (
           <div className="pointer-events-auto animate-gold-pulse rounded-xl border border-gold/60 bg-gold/10 px-3 py-2 text-center font-body text-[10px] text-gold uppercase">
             Pick 2 number tiles on the board
-          </div>
-        )}
-        {/* Cities & Knights Merchant Fleet — a 1-type picker (resource or
-            commodity), same shape as Alchemy's 2-number picker. No pre-roll
-            restriction either. */}
-        {canPlayProgressCards && viewer.progressCards.includes('merchantFleet') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Merchant Fleet: Name a Type</span>
-            <select
-              value={merchantFleetType}
-              onChange={(e) => setMerchantFleetType(e.target.value as ResourceType | CommodityType)}
-              className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
-            >
-              {RESOURCE_ORDER.map((resource) => (
-                <option key={resource} value={resource}>
-                  {RESOURCE_LABELS[resource]}
-                </option>
-              ))}
-              {COMMODITY_ORDER.map((commodity) => (
-                <option key={commodity} value={commodity}>
-                  {COMMODITY_LABELS[commodity]}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => progressCards.onPlayMerchantFleet(merchantFleetType)}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
-            {merchantFleetRate?.playerId === viewer.id && (
-              <span className="font-body text-[9px] text-gold/80">
-                Active: 2:1{' '}
-                {(COMMODITY_ORDER as string[]).includes(merchantFleetRate.type)
-                  ? COMMODITY_LABELS[merchantFleetRate.type as CommodityType]
-                  : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
-              </span>
-            )}
-          </div>
-        )}
-        {/* Cities & Knights Commercial Harbor (Task 12) — a 1-RESOURCE-type
-            picker, same shape as Merchant Fleet's own picker just above but
-            resource-only (this card only ever gives resources, never
-            commodities). No pre-roll restriction. */}
-        {canPlayProgressCards && viewer.progressCards.includes('commercialHarbor') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Commercial Harbor: Offer a Resource</span>
-            <select
-              value={commercialHarborResource}
-              onChange={(e) => setCommercialHarborResource(e.target.value as ResourceType)}
-              className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
-            >
-              {RESOURCE_ORDER.map((resource) => (
-                <option key={resource} value={resource}>
-                  {RESOURCE_LABELS[resource]}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => progressCards.onPlayCommercialHarbor(commercialHarborResource)}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
-          </div>
-        )}
-        {/* Cities & Knights Diplomacy (Task 12) — no argument picker of its
-            own (the actual road pick happens on the board itself), so this
-            is just a spend-and-arm button, same shape as Invention's own
-            block above: hidden once diplomacyPickerActive so a second
-            Diplomacy can't be spent mid-pick from here (App.tsx's
-            activateDiplomacy guards this too), a "pick a road" hint taking
-            its place instead. */}
-        {canPlayProgressCards && !progressCards.diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
-            <button
-              type="button"
-              onClick={progressCards.onPlayDiplomacy}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
           </div>
         )}
         {/* Unlike Invention's own hint block above, this one carries a
@@ -1187,37 +1264,21 @@ export function GameHud({
             </button>
           </div>
         )}
-        {/* Cities & Knights Treason (Task 14) — a 1-PLAYER-type picker
-            (PlayerTargetPicker, unrestricted like Espionage's own target
-            list — see resolvedTreasonTargetId's own comment above for why),
-            same "argument chosen before the initial click" shape Alchemy/
-            Merchant Fleet/Commercial Harbor above use. No pre-roll
-            restriction. Hidden once treasonPlacementActive so a second
-            Treason can't be spent mid-placement from here (App.tsx's
-            playTreason guards this too, same reasoning Invention's own
-            !inventionSwapActive guard gives). */}
-        {canPlayProgressCards &&
-          !progressCards.treasonPlacementActive &&
-          resolvedTreasonTargetId != null &&
-          viewer.progressCards.includes('treason') && (
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Treason: Choose a Target</span>
-            <PlayerTargetPicker players={otherPlayers} selectedPlayerId={resolvedTreasonTargetId} onSelect={setTreasonTargetId} />
-            <button
-              type="button"
-              onClick={() => progressCards.onPlayTreason(resolvedTreasonTargetId)}
-              className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-            >
-              Play
-            </button>
-          </div>
-        )}
       </div>
       {/* Same house-rule gate as every other Cities & Knights affordance
           above — the event die only exists when progress cards are on, so a
-          base-game player (all rules off) must never see its badge. */}
+          base-game player (all rules off) must never see its badge.
+          Left of RollDiceButton (right-[168px] = RollDiceButton's own
+          width 128px + right-8's 32px + an 8px gap, so its right edge
+          clears RollDiceButton's left edge by 8px), not stacked above it —
+          this badge's width varies by event face ('politics' is much
+          wider than 'ship'), and the right-side column position kept
+          drifting into the Knights panel below it depending on how tall
+          that got. Sitting in open space to the left avoids both: nothing
+          else occupies this row, so a width change has nothing to
+          collide with. */}
       {citiesAndKnightsProgressCards && lastEventDie && (
-        <div className="pointer-events-none absolute right-8 bottom-40">
+        <div className="pointer-events-none absolute right-[168px] bottom-10">
           <EventDieIndicator face={lastEventDie} />
         </div>
       )}
@@ -1349,6 +1410,10 @@ export function GameHud({
           requiredCount={discard.discardRequiredCount}
           selectedCount={discard.discardSelectedCount}
           onConfirm={discard.onConfirmDiscard}
+          resources={viewer.resources}
+          commodities={viewer.commodities}
+          discardSelection={discard.discardSelection}
+          onToggleDiscard={discard.onToggleDiscard}
         />
       )}
       {winner && (

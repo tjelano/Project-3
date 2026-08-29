@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ElementRef } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { CatanBoard } from './components/CatanBoard'
 import { FreeCameraControls } from './components/FreeCameraControls'
+import { OrbitTargetPan } from './components/OrbitTargetPan'
 import { SceneRig } from './components/SceneRig'
 import { BoardFrame } from './components/BoardFrame'
 import { CanvasErrorBoundary } from './components/CanvasErrorBoundary'
@@ -79,6 +80,8 @@ import {
   buildDevCardDeck,
   buildSetupOrder,
   canAfford,
+  cardLabel,
+  ownedCardCount,
   getPlayerScore,
   emptyCityImprovements,
   emptyCommodities,
@@ -261,6 +264,10 @@ function App() {
   const [boardShapeId, setBoardShapeId] = useState<BoardShapeId>('standard')
   // Same persistence pattern as boardShapeId — chosen once at Start Game,
   // survives a same-session restart, only changes on a fresh submission.
+  // Passed to buildHexBoard's ensureSea param.
+  const [boardSeafarers, setBoardSeafarers] = useState(false)
+  // Same persistence pattern as boardShapeId — chosen once at Start Game,
+  // survives a same-session restart, only changes on a fresh submission.
   const [gameRules, setGameRules] = useState<GameRules>(DEFAULT_GAME_RULES)
   // Set together with boardShapeId, only when a player-drawn shape is
   // active — takes priority over boardShapeId in buildHexBoard whenever
@@ -278,6 +285,12 @@ function App() {
   // soft-lock. Gates the picker's Pirate option below and choosePirate's own
   // guard, so 'movePirate' is simply unreachable on a sea-tile-less board.
   const boardHasSeaTile = useMemo(() => tiles.some((tile) => tile.biome === 'sea'), [tiles])
+  // The Pirate is a Cities & Knights piece (chased by an active Knight,
+  // parked on the barbarian track's own sea) — a Seafarers-shaped board's
+  // water tiles alone don't mean the Pirate should be offered on a 7-roll;
+  // without citiesAndKnightsKnights it's just a base game with a decorative
+  // sea ring, same as Robber-only play on any other board.
+  const pirateAvailable = boardHasSeaTile && gameRules.citiesAndKnightsKnights
   // Newfoundland/Peanut/any custom BoardShapeEditor.tsx shape can be wider
   // than standard — the tray, water and shadow frustum all derive their
   // size from the board's OWN real extent instead of a fixed constant, so
@@ -286,7 +299,30 @@ function App() {
   const frameOuterSize = useMemo(() => computeFrameOuterSize(frameInnerSize), [frameInnerSize])
   const vertexAdjacency = useMemo(() => buildVertexAdjacency(graph.edges), [graph.edges])
   const edgeById = useMemo(() => new Map(graph.edges.map((edge) => [edge.id, edge])), [graph.edges])
-  const ports = useMemo(() => assignPorts(graph), [graph])
+  const ports = useMemo(() => assignPorts(graph, tileById), [graph, tileById])
+  // City walls are barred from any vertex touching water (canBuildCityWall)
+  // — precomputed once here rather than re-deriving per call site, same
+  // "shared derived Set" treatment boardHasSeaTile above already gets.
+  const vertexTouchesWater = useMemo(() => {
+    const result = new Set<string>()
+    for (const [vertexId, tileIds] of graph.vertexTileIds) {
+      if (tileIds.some((id) => tileById.get(id)?.biome === 'sea')) result.add(vertexId)
+    }
+    return result
+  }, [graph, tileById])
+  // Which edges are "coastal" — border at least one Sea tile, and therefore
+  // need a ship instead of a road (edgeTouchesSea below just reads this).
+  // Precomputed once, same "shared derived Set" treatment vertexTouchesWater
+  // above already gets: BoardInteractions needs this for EVERY edge in its
+  // own render loop, not just the one edge a click targets.
+  const seaEdgeIds = useMemo(() => {
+    const result = new Set<string>()
+    for (const edge of graph.edges) {
+      const tileIds = graph.edgeTileIds.get(edge.id) ?? []
+      if (tileIds.some((id) => tileById.get(id)?.biome === 'sea')) result.add(edge.id)
+    }
+    return result
+  }, [graph, tileById])
   // Which seat the setup snake (and the first real turn right after it)
   // starts from — randomized per game in resetGame instead of always being
   // seat 0 (the host), so the host isn't guaranteed to go first every match.
@@ -560,6 +596,10 @@ function App() {
   // camera — OrbitControls is disabled for the duration so the two never
   // fight over the same mouse/pointer-lock input.
   const [isFreeCamActive, setIsFreeCamActive] = useState(false)
+  // OrbitTargetPan's own imperative handle onto the mounted OrbitControls
+  // instance — WASD-panning its target has to reach into the SAME controls
+  // object the mouse already drives, not a separate copy of the state.
+  const orbitControlsRef = useRef<ElementRef<typeof OrbitControls>>(null)
 
   // A lost WebGL context (GPU driver reset, VRAM pressure, tab backgrounded
   // too long) does not throw — CanvasErrorBoundary can't catch it, and
@@ -980,6 +1020,18 @@ function App() {
   // upgrade, the broadcast receiver for those) is unaffected.
   const applyCityPlacement = (vertexId: string, playerId: number, isDeciding: boolean, costOverride?: Partial<Resources>) => {
     dispatchGameAction({ type: 'BUILD_CITY', vertexId, playerId, costOverride }, isDeciding)
+    // A city built here is a fresh instance, pillageable again in some
+    // future barbarian attack — resolvedPillageVertexIdsRef (applyPillage,
+    // above) is only meant to guard against the SAME pillage resolution
+    // firing twice in one tick, not to permanently blacklist a vertex for
+    // the rest of the match. Without this, a vertex that was ever pillaged
+    // once stayed silently unpillageable forever after being rebuilt —
+    // applyPillage's dedup guard would block it, so PILLAGE_CITY never
+    // dispatched and the "choose which city to pillage" banner never
+    // cleared, even though the timeout's own inform() message (which
+    // fires unconditionally, regardless of whether applyPillage actually
+    // did anything) claimed it had resolved.
+    resolvedPillageVertexIdsRef.current.delete(vertexId)
   }
 
   const applyRoadPlacement = (edgeId: string, playerId: number, isSetup: boolean, isFreeRoad: boolean, isDeciding: boolean) => {
@@ -1188,7 +1240,7 @@ function App() {
     const player = playerById.get(playerId)
     if (player) {
       inform(
-        boardHasSeaTile
+        pirateAvailable
           ? `${player.name} played a Knight! Choose the Robber or the Pirate.`
           : `${player.name} played a Knight! Move the Robber.`,
       )
@@ -1316,14 +1368,14 @@ function App() {
   // (resolveTradeAsHost, below), neither of which re-validates: by the time
   // this runs, whoever called it has already decided the trade is legal.
   const applyTradeResolution = (trade: PendingTrade) => {
-    const { fromPlayerId, toPlayerId, offerResource, wantResource } = trade
+    const { fromPlayerId, toPlayerId, offerCard, wantCard } = trade
     const fromPlayer = playerById.get(fromPlayerId)
     const toPlayer = playerById.get(toPlayerId)
     if (!fromPlayer || !toPlayer) return
 
-    dispatch({ type: 'TRADE_RESOLVED', fromPlayerId, toPlayerId, offerResource, wantResource })
+    dispatch({ type: 'TRADE_RESOLVED', fromPlayerId, toPlayerId, offerCard, wantCard })
     inform(
-      `${fromPlayer.name} traded 1 ${RESOURCE_LABELS[offerResource]} for 1 ${RESOURCE_LABELS[wantResource]} with ${toPlayer.name}!`,
+      `${fromPlayer.name} traded 1 ${cardLabel(offerCard)} for 1 ${cardLabel(wantCard)} with ${toPlayer.name}!`,
     )
   }
 
@@ -1347,7 +1399,7 @@ function App() {
     // branch below.
     if (remaining.length === 0) {
       if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-        inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
+        inform(pirateAvailable ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
         dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
       } else {
         dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
@@ -1406,18 +1458,35 @@ function App() {
   // still see the pre-dispatch board. Cleared in resetGame/restoreFromSnapshot
   // alongside dispatch({ type: 'PILLAGE_QUEUE_SET', targets: [] }).
   const resolvedPillageVertexIdsRef = useRef(new Set<string>())
-  const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean) => {
+  // Returns whether it actually resolved — the pillage timeout fallback
+  // (below) used to tell the player "a city was chosen automatically"
+  // unconditionally, even on a run where every guard here rejected the
+  // call and nothing happened. Real state changes need real feedback.
+  const applyPillage = (vertexId: string, playerId: number, isDeciding: boolean): boolean => {
     // City-ownership guard — rejects a vertex that was never a pillageable
     // city for this player in the first place.
     const building = gameState.board.settlements[vertexId]
-    if (!building || building.type !== 'city' || building.ownerId !== playerId) return
+    // TEMPORARY DEBUG — tracing the stuck pillage-banner bug. Logs which
+    // guard (if any) is silently blocking resolution. REMOVE once fixed.
+    if (!building || building.type !== 'city' || building.ownerId !== playerId) {
+      debugLog('applyPillage blocked — invalid building', { vertexId, playerId, building })
+      return false
+    }
     // Same-tick dedupe guard — see the ref's own comment above. Prevents
     // duplicate dispatchGameAction calls, which would double-fire both the
     // "city was pillaged" banner (via describeBoardAction) and the reducer
     // application (reduceBoard and reducePlayers both run against the same
     // action). Players-side state mutations now live in reducePlayers's
     // PILLAGE_CITY case, so the guard protects both reducer passes equally.
-    if (resolvedPillageVertexIdsRef.current.has(vertexId)) return
+    if (resolvedPillageVertexIdsRef.current.has(vertexId)) {
+      debugLog('applyPillage blocked — already in resolvedPillageVertexIdsRef', {
+        vertexId,
+        playerId,
+        alreadyResolved: [...resolvedPillageVertexIdsRef.current],
+      })
+      return false
+    }
+    debugLog('applyPillage resolving', { vertexId, playerId, isDeciding })
     resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     // The inform() banner now fires via dispatchGameAction -> describeBoardAction
@@ -1426,6 +1495,7 @@ function App() {
     // (Task 5) means resolution doesn't necessarily happen in queue order
     // online, where every affected player can act independently.
     dispatch({ type: 'PILLAGE_QUEUE_ENTRY_REMOVED', playerId })
+    return true
   }
 
   // Trusted state mutation for one tied Defender-of-Catan winner's
@@ -2425,6 +2495,18 @@ function App() {
   // re-renders (pillageQueue's entries are the same references until
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
+    // TEMPORARY DEBUG — tracing the stuck pillage-banner bug: confirms
+    // whether this effect even fires, and what length it sees (if it's
+    // not exactly 1, the banner staying up and waiting for the timeout is
+    // actually correct behavior — the real question becomes why length
+    // isn't 1 for a player who only owns one city). REMOVE once fixed.
+    if (activePillageTarget) {
+      debugLog('pillage auto-resolve effect check', {
+        playerId: activePillageTarget.playerId,
+        eligibleCityVertexIds: activePillageTarget.eligibleCityVertexIds,
+        length: activePillageTarget.eligibleCityVertexIds.length,
+      })
+    }
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
       // Cascades into applyPillage's dispatch(PILLAGE_CITY)/dispatch(PILLAGE_QUEUE_ENTRY_REMOVED)
       // calls, same deliberate "self-heal" shape as the discard-queue effect
@@ -2583,7 +2665,7 @@ function App() {
     // attack resolves, skip arming moveRobber and return straight to play.
     if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      inform(boardHasSeaTile ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
+      inform(pirateAvailable ? 'Discards resolved — choose the Robber or the Pirate.' : 'Discards resolved — move the Robber.')
       dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
     } else {
       dispatch({ type: 'GAME_PHASE_SET', phase: 'playing' })
@@ -2629,10 +2711,7 @@ function App() {
   // doesn't exclude the pirate's own hex — every call site here also calls
   // isShipPlacementConnected (or, for the move source, canMoveShip) on the
   // same edge right after, and that's where the pirate-adjacency rule lives.
-  const edgeTouchesSea = (edgeId: string): boolean => {
-    const tileIds = graph.edgeTileIds.get(edgeId) ?? []
-    return tileIds.some((tileId) => tileById.get(tileId)?.biome === 'sea')
-  }
+  const edgeTouchesSea = (edgeId: string): boolean => seaEdgeIds.has(edgeId)
 
   // CN3083: "you may only move a ship if at least one of its two ends is
   // open — an end is open when it is NOT adjacent to one of your own ships
@@ -2869,12 +2948,24 @@ function App() {
       warn('Too close to another settlement.')
       return
     }
+    // A vertex where every touching tile is Sea is never legal, setup or
+    // not — real Catan/Seafarers rules never allow a settlement stranded
+    // entirely on water. Boards with painted water tiles (BoardShapeEditor)
+    // made this reachable: earlier, "tiles" never had any water entries at
+    // all, so no explicit check was needed.
+    const touchingTileIds = graph.vertexTileIds.get(vertexId) ?? []
+    if (touchingTileIds.length > 0 && touchingTileIds.every((id) => tileById.get(id)?.biome === 'sea')) {
+      warn('Settlements must touch land.')
+      return
+    }
     if (isSetup && gameRules.coastalOnlySetupPlacement) {
-      // Interior vertices always touch exactly 3 land tiles in this hex
-      // grid (tiles has no ocean entries) — anything touching fewer is on
-      // the board's outer edge, i.e. coastal.
-      const touchingTiles = graph.vertexTileIds.get(vertexId) ?? []
-      if (touchingTiles.length >= 3) {
+      // Interior vertices always touch exactly 3 tiles in this hex grid —
+      // anything touching fewer is on the board's outer edge, i.e. coastal.
+      // (Not biome-aware — deliberately stricter than the land-touching
+      // check above: a vertex between two land tiles and one interior water
+      // tile still touches 3 tiles and fails this, even though it's not
+      // stranded on water.)
+      if (touchingTileIds.length >= 3) {
         warn('Setup settlements must touch the coast.')
         return
       }
@@ -3102,6 +3193,15 @@ function App() {
       warn('That edge is already occupied.')
       return
     }
+    // Mirrors buildShipRaw's own complementary check — an edge bordering the
+    // sea needs a ship, not a road (CN3083). Previously unenforced because
+    // ships had no click target of their own to fall back to; now that
+    // BoardInteractions renders a ship slot on these edges instead of a
+    // road slot, this can never be the ONLY option for a coastal placement.
+    if (edgeTouchesSea(edgeId)) {
+      warn('That edge borders the sea — build a ship there instead.')
+      return
+    }
     if (isSetup) {
       // The free setup road is bound to the settlement placed a moment ago,
       // not to the player's network at large — otherwise the opening draft
@@ -3199,12 +3299,6 @@ function App() {
 
     applyShipPlacement(edgeId, player.id, isSetup, isFreeShip, true)
   }
-  // No 3D UI calls buildShipRaw yet (ship-building click UI is a later
-  // task) — this keeps it reachable so `noUnusedLocals` doesn't flag it as
-  // dead code. Verified via manual dispatch (this task's own report), not a
-  // click handler; a future task wires this into BoardInteractions the same
-  // way buildRoad is wired just below.
-  void buildShipRaw
 
   const moveShipRaw = (fromEdgeId: string, toEdgeId: string) => {
     if (!canInteract()) return
@@ -3277,12 +3371,17 @@ function App() {
   const buildRoadRef = useRef((id: string) => {
     void id
   })
+  const buildShipRef = useRef((id: string) => {
+    void id
+  })
   useLayoutEffect(() => {
     buildSettlementRef.current = buildSettlementRaw
     buildRoadRef.current = buildRoadRaw
+    buildShipRef.current = buildShipRaw
   })
   const buildSettlement = useCallback((id: string) => buildSettlementRef.current(id), [])
   const buildRoad = useCallback((id: string) => buildRoadRef.current(id), [])
+  const buildShip = useCallback((id: string) => buildShipRef.current(id), [])
 
   // Same stable-ref pattern as buildSettlement/buildRoad above, for the
   // same reason: this is handed to BoardInteractions (memoized) as
@@ -3308,6 +3407,21 @@ function App() {
   // for Task 7's per-player progress-card draw UI; on a barbarian win,
   // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
+    // TEMPORARY DEBUG — tracing a bug where the pillage-choice banner never
+    // clears. Checks whether pillageTargets ever comes out with a duplicate
+    // playerId or a duplicate vertexId within one target's own list (either
+    // would explain both the stuck banner and the "duplicate key" React
+    // warnings seen alongside it). REMOVE once that's confirmed/fixed.
+    debugLog('applyBarbarianAttackResult', {
+      barbarianStrength: result.barbarianStrength,
+      defenderStrength: result.defenderStrength,
+      defendersWin: result.defendersWin,
+      pillageTargets: result.pillageTargets,
+      duplicatePlayerIds: result.pillageTargets.length !== new Set(result.pillageTargets.map((t) => t.playerId)).size,
+      anyDuplicateVertexWithinTarget: result.pillageTargets.some(
+        (t) => t.eligibleCityVertexIds.length !== new Set(t.eligibleCityVertexIds).size,
+      ),
+    })
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result })
     dispatch({ type: 'PILLAGE_QUEUE_SET', targets: result.pillageTargets })
     if (result.defendersWin) {
@@ -3581,7 +3695,7 @@ function App() {
           dispatch({ type: 'GAME_PHASE_SET', phase: 'discard' })
           inform('Rolled 7 — players over their card limit must discard half.')
         } else if (!gameRules.citiesAndKnightsBarbarians || robberActive) {
-          inform(boardHasSeaTile ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
+          inform(pirateAvailable ? 'Rolled 7 — choose the Robber or the Pirate.' : 'Rolled 7 — move the Robber.')
           dispatch({ type: 'GAME_PHASE_SET', phase: 'chooseRobberOrPirate' })
         } else {
           // Cities & Knights barbarian-track gate (Task 3) — before the
@@ -3909,9 +4023,24 @@ function App() {
     const timer = setTimeout(() => {
       for (const target of pillageQueue) {
         const vertexId = target.eligibleCityVertexIds[0]
-        if (!vertexId) continue
-        applyPillage(vertexId, target.playerId, true)
-        inform(`${playerById.get(target.playerId)?.name ?? 'A player'}'s pillage choice timed out — a city was chosen automatically.`)
+        const playerName = playerById.get(target.playerId)?.name ?? 'A player'
+        // applyPillage can silently no-op (an empty eligibleCityVertexIds,
+        // an invalid building, or its own same-tick dedupe guard rejecting
+        // a stale vertex) — this used to `continue` past an empty array or
+        // just trust the dispatch blindly, leaving the queue entry (and
+        // the "choose which city to pillage" banner) stuck forever with no
+        // way to clear it. Now every path here removes the entry
+        // regardless of outcome — this timeout exists so an unresponsive
+        // player never strands everyone else, and that has to hold even
+        // when there's nothing valid left to resolve — but only claims a
+        // city was actually chosen when applyPillage confirms it was.
+        const resolved = vertexId ? applyPillage(vertexId, target.playerId, true) : false
+        if (!resolved) dispatch({ type: 'PILLAGE_QUEUE_ENTRY_REMOVED', playerId: target.playerId })
+        inform(
+          resolved
+            ? `${playerName}'s pillage choice timed out — a city was chosen automatically.`
+            : `${playerName}'s pillage choice timed out and had nothing left to resolve.`,
+        )
       }
     }, DISCARD_TIMEOUT_MS)
     return () => clearTimeout(timer)
@@ -4171,12 +4300,12 @@ function App() {
   const choosePirate = () => {
     if (gamePhase !== 'chooseRobberOrPirate') return
     if (!isMyTurn) return
-    // Defense-in-depth mirror of the picker's own boardHasSeaTile gate below
-    // (see boardHasSeaTile's own comment) — the Pirate button is hidden
+    // Defense-in-depth mirror of the picker's own pirateAvailable gate below
+    // (see pirateAvailable's own comment) — the Pirate button is hidden
     // whenever this would fire, but this keeps the invariant true even if
     // some other future entry point ever calls choosePirate directly.
-    if (!boardHasSeaTile) {
-      warn('There is no sea hex on this board — the Pirate cannot be placed.')
+    if (!pirateAvailable) {
+      warn('The Pirate is not available here — no sea hex, or Knights & City Walls is off.')
       return
     }
     inform('Choose a sea hex for the Pirate.')
@@ -4381,7 +4510,7 @@ function App() {
     if (onlineInfo) broadcastCommodityTraded({ playerId: player.id, give, receive })
   }
 
-  const proposePlayerTrade = (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => {
+  const proposePlayerTrade = (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
       warn("You can't trade right now.")
@@ -4399,8 +4528,8 @@ function App() {
       warn("It's not your turn.")
       return
     }
-    if (offerResource === wantResource) {
-      warn('Pick two different resources to trade.')
+    if (offerCard === wantCard) {
+      warn('Pick two different cards to trade.')
       return
     }
 
@@ -4409,12 +4538,12 @@ function App() {
       warn('Pick a different player to trade with.')
       return
     }
-    if (fromPlayer.resources[offerResource] < 1) {
-      warn(`Not enough ${RESOURCE_LABELS[offerResource]} to offer.`)
+    if (ownedCardCount(fromPlayer, offerCard) < 1) {
+      warn(`Not enough ${cardLabel(offerCard)} to offer.`)
       return
     }
 
-    const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerResource, wantResource }
+    const trade: PendingTrade = { fromPlayerId: fromPlayer.id, toPlayerId, offerCard, wantCard }
     dispatch({ type: 'PENDING_TRADE_SET', trade })
     playSfx('tradeRequest')
     if (onlineInfo) {
@@ -4439,7 +4568,7 @@ function App() {
       dispatch({ type: 'PENDING_TRADE_CLEARED' })
       return
     }
-    if (toPlayer.resources[trade.wantResource] < 1 || fromPlayer.resources[trade.offerResource] < 1) {
+    if (ownedCardCount(toPlayer, trade.wantCard) < 1 || ownedCardCount(fromPlayer, trade.offerCard) < 1) {
       const reason = `The trade between ${fromPlayer.name} and ${toPlayer.name} fell through — resources changed.`
       dispatch({ type: 'PENDING_TRADE_CLEARED' })
       inform(reason)
@@ -4487,8 +4616,8 @@ function App() {
       if (
         !fromPlayer ||
         !toPlayer ||
-        toPlayer.resources[pendingTrade.wantResource] < 1 ||
-        fromPlayer.resources[pendingTrade.offerResource] < 1
+        ownedCardCount(toPlayer, pendingTrade.wantCard) < 1 ||
+        ownedCardCount(fromPlayer, pendingTrade.offerCard) < 1
       ) {
         const reason = `The trade between ${fromPlayer?.name ?? 'a player'} and ${toPlayer?.name ?? 'a player'} fell through — resources changed.`
         dispatch({ type: 'PENDING_TRADE_CLEARED' })
@@ -5602,7 +5731,7 @@ function App() {
     }
     const player = players[currentPlayerIndex]
     const totalWallsOnBoard = players.reduce((sum, p) => sum + p.cityWalls.length, 0)
-    if (!canBuildCityWall(player, vertexId, gameState.board.settlements, totalWallsOnBoard)) {
+    if (!canBuildCityWall(player, vertexId, gameState.board.settlements, totalWallsOnBoard, vertexTouchesWater)) {
       warn('Cannot build a city wall there.')
       return
     }
@@ -5650,6 +5779,7 @@ function App() {
           vertexId,
           gameState.board.settlements,
           totalWallsOnBoard,
+          vertexTouchesWater,
         ),
     )
     if (!hasEligibleCity) {
@@ -5682,6 +5812,7 @@ function App() {
         vertexId,
         gameState.board.settlements,
         totalWallsOnBoard,
+        vertexTouchesWater,
       )
     ) {
       warn('Not a valid free wall target.')
@@ -6336,6 +6467,10 @@ function App() {
     // back to the CURRENT boardShapeId state — "New Game" reshuffles tiles
     // but deliberately keeps whatever shape was originally chosen.
     shapeId?: BoardShapeId,
+    // Present only on a fresh submission, same "isFreshSubmission" gating as
+    // shapeId — a restart keeps whatever the board's current seafarers
+    // state already is instead of silently reverting to false.
+    seafarers?: boolean,
     // Set together with shapeId on a fresh submission — a player-drawn
     // shape's raw cells, or undefined if they picked a built-in one (which
     // must still WIN over a stale custom shape from an earlier game this
@@ -6354,10 +6489,12 @@ function App() {
   ) => {
     const isFreshSubmission = shapeId !== undefined
     const effectiveShapeId = shapeId ?? boardShapeId
+    const effectiveSeafarers = isFreshSubmission ? (seafarers ?? false) : boardSeafarers
     const effectiveCustomCells = isFreshSubmission ? customCells : customBoardCells
     const effectiveCustomBiomeOverrides = isFreshSubmission ? customBiomeOverrides : customBoardBiomeOverrides
     const effectiveRules = isFreshSubmission ? (rules ?? gameRules) : gameRules
     setBoardShapeId(effectiveShapeId)
+    setBoardSeafarers(effectiveSeafarers)
     setCustomBoardCells(effectiveCustomCells)
     setCustomBoardBiomeOverrides(effectiveCustomBiomeOverrides)
     setGameRules(effectiveRules)
@@ -6366,7 +6503,13 @@ function App() {
     // Local Pass & Play omits the seed entirely and keeps its original
     // random board.
     const effectiveBoardSeed = online ? (boardSeed ?? online.roomCode) : undefined
-    const freshTiles = buildHexBoard(effectiveBoardSeed, effectiveShapeId, effectiveCustomCells, effectiveCustomBiomeOverrides)
+    const freshTiles = buildHexBoard(
+      effectiveBoardSeed,
+      effectiveShapeId,
+      effectiveCustomCells,
+      effectiveCustomBiomeOverrides,
+      effectiveSeafarers,
+    )
     setTiles(freshTiles)
     // freshTiles is only ever empty if cells was empty, which the
     // board-shape editor already prevents (minimum 3 tiles) — but nothing
@@ -6563,6 +6706,8 @@ function App() {
     // 'standard' is the only shape that could have produced them.
     const shapeId = snapshot.boardShapeId ?? 'standard'
     setBoardShapeId(shapeId)
+    const seafarers = snapshot.seafarers ?? false
+    setBoardSeafarers(seafarers)
     setCustomBoardCells(snapshot.customBoardCells)
     setCustomBoardBiomeOverrides(snapshot.customBoardBiomeOverrides)
     // Same fallback reasoning as boardShapeId — pre-house-rules snapshots
@@ -6572,7 +6717,7 @@ function App() {
     dispatch({ type: 'TOTAL_ROLLS_SET', count: snapshot.totalRollsThisGame ?? 0 })
     dispatch({ type: 'CONSECUTIVE_DOUBLES_SET', count: snapshot.consecutiveDoublesThisTurn ?? 0 })
     setStartingPlayerIndex(snapshot.startingPlayerIndex ?? 0)
-    const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells, snapshot.customBoardBiomeOverrides)
+    const freshTiles = buildHexBoard(online.roomCode, shapeId, snapshot.customBoardCells, snapshot.customBoardBiomeOverrides, seafarers)
     setTiles(freshTiles)
     setPlayerCount(snapshot.playerNames.length)
     setPlayerNames(snapshot.playerNames)
@@ -6847,6 +6992,7 @@ function App() {
         info.online,
         undefined,
         info.boardShapeId ?? 'standard',
+        info.seafarers ?? false,
         info.customBoardCells,
         info.gameRules ?? DEFAULT_GAME_RULES,
         info.colorTokens,
@@ -6902,6 +7048,7 @@ function App() {
       // corrupting which player every future reconnect recognizes as host.
       hostName: onlineInfo.hostName,
       boardShapeId,
+      seafarers: boardSeafarers,
       customBoardCells,
       customBoardBiomeOverrides,
       gameRules,
@@ -6948,6 +7095,7 @@ function App() {
     isEffectiveHost,
     gameStarted,
     boardShapeId,
+    boardSeafarers,
     customBoardCells,
     customBoardBiomeOverrides,
     gameRules,
@@ -7116,10 +7264,13 @@ function App() {
             graph={graph}
             settlements={gameState.board.settlements}
             roads={gameState.board.roads}
+            ships={gameState.board.ships}
+            seaEdgeIds={seaEdgeIds}
             players={players}
             metropolisVertexIds={metropolisVertexIds}
             onBuildSettlement={buildSettlement}
             onBuildRoad={buildRoad}
+            onBuildShip={buildShip}
             // Building/road placement isn't broadcast to other clients in
             // this phase — locking it for whoever doesn't hold the turn
             // stops a non-active online player from placing something only
@@ -7278,6 +7429,7 @@ function App() {
             over, when it's disabled outright so the two never fight over
             the same pointer. */}
           <OrbitControls
+            ref={orbitControlsRef}
             enabled={!isFreeCamActive}
             target={[0, 0, 0]}
             minPolarAngle={Math.PI / 6}
@@ -7296,6 +7448,9 @@ function App() {
               once active, R resets. See FreeCameraControls' own header for
               the full control scheme. */}
           <FreeCameraControls onActiveChange={setIsFreeCamActive} />
+          {/* WASD (while NOT in free-cam) pans OrbitControls' own anchor —
+              the deliberate alternative to drag-panning, which stays off. */}
+          <OrbitTargetPan controlsRef={orbitControlsRef} enabled={!isFreeCamActive} />
         </Canvas>
       </CanvasErrorBoundary>
 
@@ -7308,7 +7463,7 @@ function App() {
       >
         {isFreeCamActive
           ? 'WASD move · Mouse look · Scroll zoom · Space/Shift up/down · R reset · F exit'
-          : 'F — Free camera'}
+          : 'F — Free camera · R — Reset camera'}
       </div>
 
       <GameHud
@@ -7338,6 +7493,7 @@ function App() {
         devCards={{ devDeckCount: devDeck.length, onBuyDevCard: buyDevCard, onPlayDevCard: playDevCard }}
         winner={winner}
         settlements={gameState.board.settlements}
+        vertexTouchesWater={vertexTouchesWater}
         onReturnToMenu={returnToMenu}
         picker={{
           devCardPicker,
@@ -7440,6 +7596,8 @@ function App() {
           discardRequiredCount,
           discardSelectedCount: discardSelection.length,
           onConfirmDiscard: confirmDiscard,
+          discardSelection,
+          onToggleDiscard: toggleDiscardSelection,
         }}
         roomCode={onlineInfo?.roomCode ?? null}
         viewerPlayerId={localPlayer.id}
@@ -7457,18 +7615,21 @@ function App() {
           isMovingRobber just above uses the identical pair).
 
           Critical-bug fix (final review round) — the Pirate button only
-          renders when boardHasSeaTile (see its own comment near tileById
-          above): on every board shape except seafarersBasic there is no
-          valid sea hex to place the pirate on, so offering the choice would
-          strand the game in 'movePirate' with zero click targets and no way
-          out. Falls back to a single Robber button/heading instead of a
-          two-way choice — moving the robber is still always valid. */}
+          renders when pirateAvailable (boardHasSeaTile AND
+          citiesAndKnightsKnights — see that constant's own comment): on
+          every board shape except seafarersBasic there is no valid sea hex
+          to place the pirate on, so offering the choice would strand the
+          game in 'movePirate' with zero click targets and no way out — and
+          the Pirate is a Cities & Knights piece regardless, not something a
+          base-game Seafarers-shaped board should ever offer. Falls back to
+          a single Robber button/heading instead of a two-way choice —
+          moving the robber is still always valid. */}
       {gamePhase === 'chooseRobberOrPirate' && isMyTurn && !winner && (
         <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center">
           <div className="pointer-events-auto w-72 rounded-2xl border border-glass-border bg-glass px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Choose a Move</p>
             <p className="mt-2 font-display text-lg text-white">
-              {boardHasSeaTile ? 'Move the Robber or the Pirate?' : 'Move the Robber'}
+              {pirateAvailable ? 'Move the Robber or the Pirate?' : 'Move the Robber'}
             </p>
             <div className="mt-4 flex gap-3">
               <button
@@ -7478,7 +7639,7 @@ function App() {
               >
                 Robber
               </button>
-              {boardHasSeaTile && (
+              {pirateAvailable && (
                 <button
                   type="button"
                   onClick={choosePirate}

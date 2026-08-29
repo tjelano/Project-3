@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import {
   COMMODITY_ORDER,
@@ -229,22 +230,46 @@ const SELECTED_PULSE_SPEED = 4.5
 const SELECTED_PULSE_MIN = 0.35
 const SELECTED_PULSE_RANGE = 0.35
 
+// Above this many resource+commodity cards, the fan swaps from one sprite
+// per physical card to one sprite per TYPE (with a count badge) — otherwise
+// a long game with generous house rules squeezes every card into an
+// unreadable sliver to stay within MAX_SPAN. Dev cards are exempt (see
+// buildCardSlots below): they're never-discardable and rarely stack this
+// deep, so they keep their individual hover/play affordance regardless.
+export const HAND_STACK_THRESHOLD = 20
+
 interface CardSlot {
   id: string
   key: CardKey
+  // Set only for a stacked resource/commodity slot (HAND_STACK_THRESHOLD
+  // exceeded) — how many physical cards of this type this one sprite
+  // represents. undefined for an ordinary one-sprite-per-card slot.
+  count?: number
 }
 
-// One card object per physical card held. Resources first in fixed order,
-// then commodities (same stable-order convention), then development cards,
-// so a hand doesn't reshuffle as counts change — a card you were about to
-// hover shouldn't jump out from under the cursor.
+// One card object per physical card held, UNLESS the resource+commodity
+// total exceeds HAND_STACK_THRESHOLD, in which case each resource/commodity
+// TYPE collapses to a single slot carrying its count. Resources first in
+// fixed order, then commodities (same stable-order convention), then
+// development cards (always individual), so a hand doesn't reshuffle as
+// counts change — a card you were about to hover shouldn't jump out from
+// under the cursor.
 function buildCardSlots(resources: Resources, commodities: Commodities, devCards: DevCardType[]): CardSlot[] {
   const out: CardSlot[] = []
+  const tradeableTotal =
+    RESOURCE_ORDER.reduce((sum, r) => sum + resources[r], 0) + COMMODITY_ORDER.reduce((sum, c) => sum + commodities[c], 0)
+  const stacked = tradeableTotal > HAND_STACK_THRESHOLD
   for (const resource of RESOURCE_ORDER) {
-    for (let i = 0; i < resources[resource]; i++) out.push({ id: `${resource}-${i}`, key: resource })
+    const count = resources[resource]
+    if (count === 0) continue
+    if (stacked) out.push({ id: resource, key: resource, count })
+    else for (let i = 0; i < count; i++) out.push({ id: `${resource}-${i}`, key: resource })
   }
   for (const commodity of COMMODITY_ORDER) {
-    for (let i = 0; i < commodities[commodity]; i++) out.push({ id: `${commodity}-${i}`, key: commodity })
+    const count = commodities[commodity]
+    if (count === 0) continue
+    if (stacked) out.push({ id: commodity, key: commodity, count })
+    else for (let i = 0; i < count; i++) out.push({ id: `${commodity}-${i}`, key: commodity })
   }
   for (const dev of DEV_CARD_ORDER) {
     const count = devCards.filter((card) => card === dev).length
@@ -286,6 +311,7 @@ function HandCard({
   selected = false,
   onToggleSelect,
   layoutOverride,
+  count,
 }: {
   cardKey: CardKey
   index: number
@@ -314,6 +340,9 @@ function HandCard({
   // discarded and playing/discarding are never both live at once (they're
   // gated on different gamePhases).
   onToggleSelect?: () => void
+  // Stacked-hand mode only (see HAND_STACK_THRESHOLD) — how many physical
+  // cards this one sprite represents. Renders a small corner badge when > 1.
+  count?: number
 }) {
   const ref = useRef<THREE.Group>(null)
   // The big tactical zoom is a SEPARATE floating copy, not the card in your
@@ -563,6 +592,19 @@ function HandCard({
           depthWrite={false}
         />
       </mesh>
+      {/* Stacked-mode count badge — a real 2D HUD pill (same glass-panel
+          language as the rest of the UI), projected onto the card's 3D
+          position via drei's Html rather than 3D mesh text: SDF text
+          rendered on the card face itself inherited the fan's tilt/lighting
+          and never read cleanly. pointerEvents: 'none' so it never steals
+          the card's own click/hover handling underneath it. */}
+      {count != null && count > 1 && (
+        <Html position={[0, CARD_H / 2 + 0.08, 0]} center style={{ pointerEvents: 'none' }}>
+          <div className="rounded-full border border-glass-border bg-glass px-2 py-0.5 font-display text-xs font-semibold whitespace-nowrap text-gold shadow-[0_4px_12px_rgba(0,0,0,0.4)] backdrop-blur-sm">
+            {count}×
+          </div>
+        </Html>
+      )}
     </group>
     {playable && onPlay && (
       // The zoom preview — a second, independent copy of the same card
@@ -660,6 +702,17 @@ export function PlayerHand3D({
         const isDiscardableCard =
           (RESOURCE_ORDER as readonly CardKey[]).includes(card.key) ||
           (COMMODITY_ORDER as readonly CardKey[]).includes(card.key)
+        // A stacked slot's own id (e.g. "wood") isn't one of the real
+        // "<type>-<index>" card ids discardSelection holds, so it can't be
+        // toggled directly here — DiscardPanel's own +/- steppers drive
+        // selection for these instead (same discardSelection/onToggleDiscard
+        // underneath, just picking specific "<type>-<index>" ids for you).
+        // The stack still lifts/pulses if ANY of that type is selected, so
+        // it stays visually in sync with the steppers.
+        const isStacked = card.count != null
+        const selected = isStacked
+          ? !!discardSelection?.some((id) => id.startsWith(`${card.key}-`))
+          : !!discardSelection?.includes(card.id)
         return (
           <HandCard
             key={card.id}
@@ -669,8 +722,9 @@ export function PlayerHand3D({
             backTexture={backTexture}
             playable={playableIds.has(card.id)}
             onPlay={() => onPlayDevCard?.(card.key as DevCardType)}
-            selected={!!discardSelection?.includes(card.id)}
-            onToggleSelect={discardActive && isDiscardableCard ? () => onToggleDiscard?.(card.id) : undefined}
+            selected={selected}
+            onToggleSelect={discardActive && isDiscardableCard && !isStacked ? () => onToggleDiscard?.(card.id) : undefined}
+            count={card.count}
           />
         )
       })}

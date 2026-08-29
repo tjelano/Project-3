@@ -3,6 +3,7 @@ import {
   COMMODITY_LABELS,
   COMMODITY_ORDER,
   RESOURCE_ORDER,
+  ownedCardCount,
   type Commodities,
   type CommodityType,
   type Player,
@@ -19,7 +20,7 @@ interface TradeModalProps {
   rates: Record<ResourceType, number>
   onTrade: (give: ResourceType, receive: ResourceType) => void
   otherPlayers: Player[]
-  onProposeTrade: (toPlayerId: number, offerResource: ResourceType, wantResource: ResourceType) => void
+  onProposeTrade: (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => void
   onClose: () => void
   // Stays mounted across a turn change now (GameHud.tsx only unmounts it on
   // an explicit Close) — this is what disables the actual trade actions
@@ -31,6 +32,12 @@ interface TradeModalProps {
   commodities: Commodities
   canTradeCommodities: boolean
   onTradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
+  // Cities & Knights house rule (not the same as canTradeCommodities above,
+  // which is specifically Trade level 3) — the Player tab's own Commodities
+  // rows only make sense once the ruleset actually grants commodities at
+  // all; a base-game match would otherwise show 3 permanently-empty,
+  // unaffordable buttons for cards that can never exist in that match.
+  commoditiesEnabled: boolean
 }
 
 type TradeMode = 'bank' | 'player' | 'commodity'
@@ -46,6 +53,7 @@ export function TradeModal({
   commodities,
   canTradeCommodities,
   onTradeCommodity,
+  commoditiesEnabled,
 }: TradeModalProps) {
   const [mode, setMode] = useState<TradeMode>('bank')
   const [give, setGive] = useState<ResourceType | null>(null)
@@ -53,18 +61,28 @@ export function TradeModal({
   const [targetPlayerId, setTargetPlayerId] = useState<number | null>(otherPlayers[0]?.id ?? null)
   // Kept as their own state (not folded into give/receive above) — those two
   // are strictly ResourceType, and widening them to include CommodityType
-  // would let a stale commodity selection leak into the bank/player pickers'
+  // would let a stale commodity selection leak into the bank picker's
   // ResourceType-only logic (rates[give], resources[give], etc.) the instant
   // a player switches tabs.
   const [commodityGive, setCommodityGive] = useState<CommodityType | null>(null)
   const [commodityReceive, setCommodityReceive] = useState<ResourceType | CommodityType | null>(null)
+  // Player trades (unlike bank trades) can offer/want either a resource or a
+  // commodity — same "own state, not shared with bank's give/receive" reason
+  // as commodityGive/commodityReceive above.
+  const [playerGive, setPlayerGive] = useState<ResourceType | CommodityType | null>(null)
+  const [playerReceive, setPlayerReceive] = useState<ResourceType | CommodityType | null>(null)
   const { panelRef, onHeaderPointerDown } = useDraggablePanel<HTMLDivElement>()
 
   const rate = give ? rates[give] : null
   const canConfirmBank =
     isMyTurn && give != null && receive != null && give !== receive && rate != null && resources[give] >= rate
   const canProposePlayer =
-    isMyTurn && give != null && receive != null && give !== receive && targetPlayerId != null && resources[give] >= 1
+    isMyTurn &&
+    playerGive != null &&
+    playerReceive != null &&
+    playerGive !== playerReceive &&
+    targetPlayerId != null &&
+    ownedCardCount({ resources, commodities }, playerGive) >= 1
   // Fixed 2:1 rate — this ability, unlike bank trades, never varies by port,
   // so there's no rates[] lookup here at all.
   const canConfirmCommodity =
@@ -82,10 +100,10 @@ export function TradeModal({
   }
 
   const proposeTrade = () => {
-    if (!give || !receive || targetPlayerId == null) return
-    onProposeTrade(targetPlayerId, give, receive)
-    setGive(null)
-    setReceive(null)
+    if (!playerGive || !playerReceive || targetPlayerId == null) return
+    onProposeTrade(targetPlayerId, playerGive, playerReceive)
+    setPlayerGive(null)
+    setPlayerReceive(null)
   }
 
   const confirmCommodityTrade = () => {
@@ -159,7 +177,7 @@ export function TradeModal({
 
       {mode === 'player' && (
         <>
-          <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
+          <span className="mb-1 block font-body text-[11px] tracking-[0.2em] text-white/50 uppercase">
             Trade With
           </span>
           <div className="mb-3">
@@ -168,15 +186,12 @@ export function TradeModal({
         </>
       )}
 
-      {mode !== 'commodity' && (
+      {mode === 'bank' && (
         <>
-          <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
-            {mode === 'bank' ? 'Give' : 'You Offer'}
-          </span>
+          <span className="mb-1 block font-body text-[11px] tracking-[0.2em] text-white/50 uppercase">Give</span>
           <div className="mb-3 grid grid-cols-5 gap-1.5">
             {RESOURCE_ORDER.map((resource) => {
-              const minNeeded = mode === 'bank' ? rates[resource] : 1
-              const affordable = resources[resource] >= minNeeded
+              const affordable = resources[resource] >= rates[resource]
               const selected = give === resource
               return (
                 <button
@@ -184,21 +199,19 @@ export function TradeModal({
                   type="button"
                   disabled={!affordable}
                   onClick={() => setGive(resource)}
-                  title={mode === 'bank' ? `${resource} (${rates[resource]}:1)` : resource}
+                  title={`${resource} (${rates[resource]}:1)`}
                   className={`flex flex-col items-center gap-0.5 rounded-lg border py-1.5 transition-colors ${
                     selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
                   } ${affordable ? '' : 'cursor-not-allowed opacity-30'}`}
                 >
                   <ResourceIcon resource={resource} className="h-4 w-4" />
-                  {mode === 'bank' && <span className="font-data text-[9px]">{rates[resource]}:1</span>}
+                  <span className="font-data text-[9px]">{rates[resource]}:1</span>
                 </button>
               )
             })}
           </div>
 
-          <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
-            {mode === 'bank' ? 'Receive' : 'You Want'}
-          </span>
+          <span className="mb-1 block font-body text-[11px] tracking-[0.2em] text-white/50 uppercase">Receive</span>
           <div className="mb-4 grid grid-cols-5 gap-1.5">
             {RESOURCE_ORDER.map((resource) => {
               const selected = receive === resource
@@ -222,6 +235,110 @@ export function TradeModal({
         </>
       )}
 
+      {mode === 'player' && (
+        <>
+          {/* Unlike Bank/Commodities, a player trade has no rate restriction
+              at all — any resource or commodity can be offered or wanted, so
+              both rows below cover the full card space rather than gating on
+              trade level. */}
+          <span className="mb-1 block font-body text-[11px] tracking-[0.2em] text-white/50 uppercase">You Offer</span>
+          <span className="mb-1 block font-body text-[9px] tracking-[0.15em] text-white/35 uppercase">Resources</span>
+          <div className={`grid grid-cols-5 gap-1.5 ${commoditiesEnabled ? 'mb-2' : 'mb-7'}`}>
+            {RESOURCE_ORDER.map((resource) => {
+              const affordable = resources[resource] >= 1
+              const selected = playerGive === resource
+              return (
+                <button
+                  key={resource}
+                  type="button"
+                  disabled={!affordable}
+                  onClick={() => setPlayerGive(resource)}
+                  title={resource}
+                  className={`flex items-center justify-center rounded-lg border py-1.5 transition-colors ${
+                    selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
+                  } ${affordable ? '' : 'cursor-not-allowed opacity-30'}`}
+                >
+                  <ResourceIcon resource={resource} className="h-4 w-4" />
+                </button>
+              )
+            })}
+          </div>
+          {commoditiesEnabled && (
+            <>
+              <span className="mb-1 block font-body text-[9px] tracking-[0.15em] text-white/35 uppercase">Commodities</span>
+              <div className="mb-7 grid grid-cols-3 gap-1.5">
+                {COMMODITY_ORDER.map((commodity) => {
+                  const affordable = commodities[commodity] >= 1
+                  const selected = playerGive === commodity
+                  return (
+                    <button
+                      key={commodity}
+                      type="button"
+                      disabled={!affordable}
+                      onClick={() => setPlayerGive(commodity)}
+                      title={COMMODITY_LABELS[commodity]}
+                      className={`flex items-center justify-center rounded-lg border py-1.5 transition-colors ${
+                        selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
+                      } ${affordable ? '' : 'cursor-not-allowed opacity-30'}`}
+                    >
+                      <CommodityIcon commodity={commodity} className="h-4 w-4" />
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          <span className="mb-1 block font-body text-[11px] tracking-[0.2em] text-white/50 uppercase">You Want</span>
+          <span className="mb-1 block font-body text-[9px] tracking-[0.15em] text-white/35 uppercase">Resources</span>
+          <div className={`grid grid-cols-5 gap-1.5 ${commoditiesEnabled ? 'mb-2' : 'mb-4'}`}>
+            {RESOURCE_ORDER.map((resource) => {
+              const selected = playerReceive === resource
+              const disabled = resource === playerGive
+              return (
+                <button
+                  key={resource}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setPlayerReceive(resource)}
+                  title={resource}
+                  className={`flex items-center justify-center rounded-lg border py-1.5 transition-colors ${
+                    selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
+                  } ${disabled ? 'cursor-not-allowed opacity-30' : ''}`}
+                >
+                  <ResourceIcon resource={resource} className="h-4 w-4" />
+                </button>
+              )
+            })}
+          </div>
+          {commoditiesEnabled && (
+            <>
+              <span className="mb-1 block font-body text-[9px] tracking-[0.15em] text-white/35 uppercase">Commodities</span>
+              <div className="mb-4 grid grid-cols-3 gap-1.5">
+                {COMMODITY_ORDER.map((commodity) => {
+                  const selected = playerReceive === commodity
+                  const disabled = commodity === playerGive
+                  return (
+                    <button
+                      key={commodity}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setPlayerReceive(commodity)}
+                      title={COMMODITY_LABELS[commodity]}
+                      className={`flex items-center justify-center rounded-lg border py-1.5 transition-colors ${
+                        selected ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 bg-white/5 text-white/85'
+                      } ${disabled ? 'cursor-not-allowed opacity-30' : ''}`}
+                    >
+                      <CommodityIcon commodity={commodity} className="h-4 w-4" />
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
       {mode === 'commodity' && (
         <>
           {/* Fixed 2:1 rate — this ability, unlike Bank mode, never varies by
@@ -230,7 +347,7 @@ export function TradeModal({
           <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
             Give (2:1)
           </span>
-          <div className="mb-3 grid grid-cols-5 gap-1.5">
+          <div className="mb-3 grid grid-cols-3 gap-1.5">
             {COMMODITY_ORDER.map((commodity) => {
               const affordable = commodities[commodity] >= 2
               const selected = commodityGive === commodity
@@ -276,7 +393,7 @@ export function TradeModal({
             })}
           </div>
           <span className="mb-1 block font-body text-[9px] tracking-[0.15em] text-white/35 uppercase">Commodities</span>
-          <div className="mb-4 grid grid-cols-5 gap-1.5">
+          <div className="mb-4 grid grid-cols-3 gap-1.5">
             {COMMODITY_ORDER.map((commodity) => {
               const selected = commodityReceive === commodity
               const disabled = commodity === commodityGive

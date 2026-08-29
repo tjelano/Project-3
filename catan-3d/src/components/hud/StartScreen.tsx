@@ -26,6 +26,11 @@ export interface GameStartInfo {
   // when restoring a snapshot, where App.tsx reads it from the snapshot
   // itself instead.
   boardShapeId?: BoardShapeId
+  // GameSetupMenu's Seafarers toggle — threaded the same way boardShapeId
+  // is (see its own comment) all the way to buildHexBoard's ensureSea param,
+  // so a board with no water of its own gets auto-surrounded by sea when
+  // this is on. Absent on a snapshot restore, same reasoning as gameRules.
+  seafarers?: boolean
   // Set together, only when the picker chose a player-drawn shape —
   // overrides boardShapeId entirely (see buildHexBoard's customCells
   // param). Carried as raw cell data, not just a saved shape's id, since
@@ -67,13 +72,14 @@ export interface GameStartInfo {
 // name) instead — this tags which one a given RegionSelectMenu visit is for.
 type PendingRegionSelect =
   | { kind: 'local'; info: GameStartInfo }
-  | { kind: 'host'; playerCount: number; gameRules: GameRules }
+  | { kind: 'host'; playerCount: number; gameRules: GameRules; seafarers: boolean }
 
 // Set once RegionSelectMenu confirms a shape for the 'host' path above —
 // RoomLobby (role: 'host') is rendered from this.
 interface HostRegionConfig {
   playerCount: number
   gameRules: GameRules
+  seafarers: boolean
   boardShapeId?: BoardShapeId
   customBoardShape?: CustomBoardShape
 }
@@ -124,7 +130,12 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
               if (pendingRegionSelect.kind === 'local') {
                 onStart({ ...pendingRegionSelect.info, boardShapeId })
               } else {
-                setHostRegionConfig({ playerCount: pendingRegionSelect.playerCount, gameRules: pendingRegionSelect.gameRules, boardShapeId })
+                setHostRegionConfig({
+                  playerCount: pendingRegionSelect.playerCount,
+                  gameRules: pendingRegionSelect.gameRules,
+                  seafarers: pendingRegionSelect.seafarers,
+                  boardShapeId,
+                })
               }
               setPendingRegionSelect(null)
             }}
@@ -141,6 +152,7 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
                 setHostRegionConfig({
                   playerCount: pendingRegionSelect.playerCount,
                   gameRules: pendingRegionSelect.gameRules,
+                  seafarers: pendingRegionSelect.seafarers,
                   boardShapeId: undefined,
                   customBoardShape: shape,
                 })
@@ -154,6 +166,7 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
             role="host"
             targetCount={hostRegionConfig.playerCount}
             gameRules={hostRegionConfig.gameRules}
+            seafarers={hostRegionConfig.seafarers}
             boardShapeId={hostRegionConfig.boardShapeId}
             customBoardShape={hostRegionConfig.customBoardShape}
             onStart={onStart}
@@ -170,7 +183,9 @@ export function StartScreen({ onStart }: { onStart: (info: GameStartInfo) => voi
         ) : (
           <GameSetupMenu
             onStart={handleSetupStart}
-            onHost={(config) => setPendingRegionSelect({ kind: 'host', playerCount: config.playerCount, gameRules: config.gameRules })}
+            onHost={(config) =>
+              setPendingRegionSelect({ kind: 'host', playerCount: config.playerCount, gameRules: config.gameRules, seafarers: config.seafarers })
+            }
             onJoinLobby={(seed) => setJoinSeed({ roomCode: seed.roomCode, selfName: seed.selfName })}
           />
         )}

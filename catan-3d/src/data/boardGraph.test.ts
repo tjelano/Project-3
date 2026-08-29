@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { assignPorts, buildBoardGraph, buildVertexAdjacency, type BoardEdge, type BoardGraph } from './boardGraph'
-import { buildHexBoard, type HexTileData } from './hexBoard'
+import { buildHexBoard, cellPosition, type HexTileData } from './hexBoard'
 
 describe('assignPorts', () => {
   it('returns exactly 9 ports on a standard board', () => {
     const tiles = buildHexBoard()
     const graph = buildBoardGraph(tiles)
-    const ports = assignPorts(graph)
+    const ports = assignPorts(graph, new Map(tiles.map((tile) => [tile.id, tile])))
 
     expect(ports).toHaveLength(9)
   })
@@ -14,7 +14,7 @@ describe('assignPorts', () => {
   it('assigns the correct port types in order', () => {
     const tiles = buildHexBoard()
     const graph = buildBoardGraph(tiles)
-    const ports = assignPorts(graph)
+    const ports = assignPorts(graph, new Map(tiles.map((tile) => [tile.id, tile])))
 
     const expectedSequence = ['ore', '3:1', 'wool', '3:1', 'grain', '3:1', 'lumber', '3:1', 'brick']
     const portTypes = ports.map(p => p.type)
@@ -27,7 +27,7 @@ describe('assignPorts', () => {
       { id: '0-0', col: 0, row: 0, x: 0, z: 0, biome: 'fields' as const, number: 5 }
     ]
     const graph = buildBoardGraph(tiles)
-    const ports = assignPorts(graph)
+    const ports = assignPorts(graph, new Map(tiles.map((tile) => [tile.id, tile])))
 
     // For a single tile board, there are 6 edges and they are all boundary edges.
     // assignPorts will still map the 9 port types to these edges.
@@ -37,6 +37,28 @@ describe('assignPorts', () => {
       // Each port's edge must be a boundary edge. For a 1-tile board, all edges are boundary.
       const edge = graph.edges.find(e => e.id === port.edgeId)
       expect(edge).toBeDefined()
+    }
+  })
+
+  it('places ports on the land/water coastline, not past a painted water tile', () => {
+    // A land tile with one painted 'sea' neighbor — the coastline is the
+    // shared edge between them, not the sea tile's own far outer edges.
+    const landCell = { col: 0, row: 0 }
+    const seaCell = { col: 0, row: 1 }
+    const landPos = cellPosition(landCell)
+    const seaPos = cellPosition(seaCell)
+    const tiles: HexTileData[] = [
+      { id: 'land', col: landCell.col, row: landCell.row, x: landPos.x, z: landPos.z, biome: 'fields', number: 5 },
+      { id: 'sea', col: seaCell.col, row: seaCell.row, x: seaPos.x, z: seaPos.z, biome: 'sea', number: null },
+    ]
+    const graph = buildBoardGraph(tiles)
+    const tileById = new Map(tiles.map((tile) => [tile.id, tile]))
+    const ports = assignPorts(graph, tileById)
+
+    expect(ports.length).toBeGreaterThan(0)
+    for (const port of ports) {
+      const touchingTileIds = graph.edgeTileIds.get(port.edgeId) ?? []
+      expect(touchingTileIds).toContain('land')
     }
   })
 
@@ -52,7 +74,7 @@ describe('assignPorts', () => {
       edgeTileIds: new Map(),
       tileEdgeIds: new Map(),
     }
-    const ports = assignPorts(emptyGraph)
+    const ports = assignPorts(emptyGraph, new Map())
     expect(ports).toEqual([])
   })
 })

@@ -19,6 +19,10 @@ export interface MatchSnapshot {
   // Optional because snapshots saved before board shapes existed won't have
   // it — restoreFromSnapshot in App.tsx falls back to 'standard' when absent.
   boardShapeId?: BoardShapeId
+  // Optional for the same reason boardShapeId is — snapshots saved before
+  // this existed default to false on restore (buildHexBoard's ensureSea
+  // param), same as every other field on this line.
+  seafarers?: boolean
   // Set together, only when the match was started on a player-drawn shape.
   customBoardCells?: BoardCell[]
   customBoardBiomeOverrides?: Record<string, Biome>

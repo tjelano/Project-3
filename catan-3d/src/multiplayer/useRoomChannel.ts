@@ -240,8 +240,8 @@ export interface TradeMonopolyPlayedPayload {
 export interface TradePayload {
   fromPlayerId: number
   toPlayerId: number
-  offerResource: ResourceType
-  wantResource: ResourceType
+  offerCard: ResourceType | CommodityType
+  wantCard: ResourceType | CommodityType
 }
 
 export interface TradeCancelledPayload {
@@ -687,6 +687,10 @@ interface GameStartedPayload {
   // buildHexBoard's shape argument isn't derivable from the room code the
   // way the seed fallback is.
   boardShapeId: BoardShapeId
+  // The host's Seafarers toggle — see GameStartInfo.seafarers's own comment
+  // (StartScreen.tsx). Threaded the same way boardShapeId is: the host is
+  // the only one who knows it, so every other client has to be told.
+  seafarers: boolean
   // Set together, only when the host picked a player-drawn shape — carried
   // as raw cells rather than an id, since other clients have no way to
   // look a custom shape up from their own localStorage.
@@ -726,6 +730,7 @@ export interface RoomChannelHandlers {
     names: string[],
     hostName: string,
     boardShapeId: BoardShapeId,
+    seafarers: boolean,
     gameRules: GameRules,
     customBoardCells?: BoardCell[],
     customBoardName?: string,
@@ -994,6 +999,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         payload.names,
         payload.hostName,
         payload.boardShapeId,
+        payload.seafarers,
         payload.gameRules,
         payload.customBoardCells,
         payload.customBoardName,
@@ -1194,6 +1200,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     names: string[],
     hostName: string,
     boardShapeId: BoardShapeId,
+    seafarers: boolean,
     gameRules: GameRules,
     customBoardCells?: BoardCell[],
     customBoardName?: string,
@@ -1208,6 +1215,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
         names,
         hostName,
         boardShapeId,
+        seafarers,
         gameRules,
         customBoardCells,
         customBoardName,

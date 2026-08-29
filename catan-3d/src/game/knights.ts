@@ -45,11 +45,16 @@ export function canBuildCityWall(
   vertexId: string,
   settlements: Record<string, Building>,
   totalWallsOnBoard: number,
+  vertexTouchesWater: ReadonlySet<string>,
 ): boolean {
   const building = settlements[vertexId]
   if (!building || building.ownerId !== player.id || building.type !== 'city') return false
   if (player.cityWalls.includes(vertexId)) return false
   if (totalWallsOnBoard >= MAX_CITY_WALLS_BOARD_WIDE) return false
+  // A wall is a fortification standing up around the city's own footprint —
+  // on a vertex that touches a water tile, that footprint visually extends
+  // out over open water. Restricted to purely inland cities.
+  if (vertexTouchesWater.has(vertexId)) return false
   return canAfford(player.resources, CITY_WALL_COST)
 }
 

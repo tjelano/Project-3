@@ -2,16 +2,15 @@ import {
   COMMODITY_COLORS,
   COMMODITY_LABELS,
   COMMODITY_ORDER,
-  DEV_CARD_ORDER,
-  DEV_CARD_PLAY_LABELS,
   type Commodities,
   type DevCardType,
   type Resources,
 } from '../../game/types'
 import { discardHandSize, discardThreshold } from '../../game/discard'
-import { CollapsibleSection } from './CollapsibleSection'
 import { CommodityIcon } from './CommodityIcon'
 
+// City Walls moved to its own CityWallsPanel — see that file's own
+// comment. Buy Dev Card stays here.
 export function ResourcePanel({
   resources,
   commodities,
@@ -19,19 +18,10 @@ export function ResourcePanel({
   canTrade,
   onOpenTrade,
   devCards,
-  devCardsBoughtThisTurn,
-  knightsPlayed,
   canBuyDevCard,
   onBuyDevCard,
-  canPlayDevCards,
-  onPlayDevCard,
   citiesAndKnightsKnights,
   cityWallCount,
-  ownCities,
-  canBuildWallAt,
-  onBuildWall,
-  freeWallActive,
-  onResolveFreeWall,
 }: {
   resources: Resources
   // Commodities (Cities & Knights house rule) — counted toward the
@@ -43,16 +33,12 @@ export function ResourcePanel({
   canTrade: boolean
   onOpenTrade: () => void
   devCards: DevCardType[]
-  devCardsBoughtThisTurn: DevCardType[]
-  knightsPlayed: number
   canBuyDevCard: boolean
   onBuyDevCard: () => void
-  canPlayDevCards: boolean
-  onPlayDevCard: (type: DevCardType) => void
-  // Cities & Knights city walls (Task 12) — gates whether the "City Walls"
-  // button row below renders at all, same "derived from GameRules, not
-  // folded into an existing flag" precedent citiesAndKnightsKnights' own
-  // sibling flags keep elsewhere (see e.g. citiesAndKnightsCommodities'
+  // Cities & Knights city walls (Task 12) — gates whether cityWallCount
+  // below applies to the discard threshold, same "derived from GameRules,
+  // not folded into an existing flag" precedent citiesAndKnightsKnights'
+  // own sibling flags keep elsewhere (see e.g. citiesAndKnightsCommodities'
   // comment in GameHud.tsx).
   citiesAndKnightsKnights: boolean
   // Cities & Knights city walls (Task 12) — the viewer's OWN wall count
@@ -62,22 +48,6 @@ export function ResourcePanel({
   // "flag gates whether the derived value even applies" split every other
   // Cities & Knights prop pair in this file already keeps.
   cityWallCount: number
-  // Vertex ids of every city the viewer owns — a wall can only ever go on
-  // one of THEIR OWN cities, so each gets its own button rather than a
-  // board picker.
-  ownCities: string[]
-  canBuildWallAt: (vertexId: string) => boolean
-  onBuildWall: (vertexId: string) => void
-  // Cities & Knights Engineering (Task 13) — true only while the viewer's
-  // own free-wall pick (App.tsx's pendingFreeCityWall) is in progress. The
-  // buttons below stay the SAME "Wall N" buttons Task 12 already renders —
-  // Engineering doesn't get its own picker, just this affordance made free —
-  // so this only changes which of onBuildWall/onResolveFreeWall the click
-  // resolves through; canBuildWallAt (GameHud.tsx) already folds this same
-  // flag into its own derivation, so the disabled state needs no separate
-  // free-path prop here.
-  freeWallActive: boolean
-  onResolveFreeWall: (vertexId: string) => void
 }) {
   // Same single rule App.tsx's discard pipeline measures against — see
   // discardHandSize (game/discard.ts) on why this must not be re-inlined.
@@ -94,16 +64,8 @@ export function ResourcePanel({
   const threshold = discardThreshold(citiesAndKnightsKnights ? cityWallCount : 0)
   const atDiscardRisk = handSize > threshold
 
-  const devCardCounts = DEV_CARD_ORDER.map((type) => ({
-    type,
-    count: devCards.filter((card) => card === type).length,
-    playable:
-      devCards.filter((card) => card === type).length -
-      devCardsBoughtThisTurn.filter((card) => card === type).length,
-  }))
-
   return (
-    <div className="pointer-events-auto absolute top-20 right-4 flex w-52 flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+    <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       {/* The cards themselves now live in the 3D hand, but the TOTAL still
           belongs here: a player has to know when they are over seven, since
           a rolled 7 discards half. Counting a fanned hand by eye is exactly
@@ -169,73 +131,6 @@ export function ResourcePanel({
         Buy Dev Card
         <span className="font-data text-[9px] text-white/50">({devCards.length})</span>
       </button>
-
-      {/* Cities & Knights city walls (Task 12) — no board picker: one button
-          per city the viewer already owns (ownCities arrives pre-sorted by
-          vertex id, GameHud.tsx), each independently gated by
-          canBuildWallAt (the same action-gate set every other button in
-          this panel applies, folded around ownership/no-existing-wall/
-          board-wide-cap/affordability from game/knights.ts's
-          canBuildCityWall). Labeled by ordinal position ("Wall 1", "Wall
-          2", ...) with the actual vertex id as a title tooltip — with 2+
-          un-walled cities (a normal midgame state) bare "Wall" text on
-          every button would give no way to tell them apart. Only rendered
-          once the viewer actually has a city to wall, so a fresh match
-          never shows an empty row.
-
-          Cities & Knights Engineering (Task 13) reuses this SAME row for its
-          free wall rather than a dedicated picker: onClick branches on
-          freeWallActive between the normal paid onBuildWall and
-          onResolveFreeWall, but the label/tooltip/disabled-state derivation
-          are untouched — canBuildWallAt already folds freeWallActive into
-          its own gate (GameHud.tsx), so a free wall is exactly as
-          unclickable off-turn/mid-roll/blocked as a paid one, and still
-          reads "Wall N", never a bare "Wall". */}
-      {citiesAndKnightsKnights && ownCities.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">City Walls</span>
-          <div className="flex gap-1">
-            {ownCities.map((vertexId, index) => (
-              <button
-                key={vertexId}
-                type="button"
-                title={vertexId}
-                disabled={!canBuildWallAt(vertexId)}
-                onClick={() => (freeWallActive ? onResolveFreeWall(vertexId) : onBuildWall(vertexId))}
-                className="flex-1 rounded-full border border-glass-border bg-white/5 py-1 font-body text-[9px] tracking-[0.1em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
-              >
-                Wall {index + 1}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-2">
-        <CollapsibleSection icon="🃏" label="Play a Card">
-          <div className="flex flex-col gap-1.5 rounded-xl border border-glass-border bg-white/5 p-2">
-            {devCardCounts.map(({ type, playable }) => {
-              const playLabel = DEV_CARD_PLAY_LABELS[type]
-              if (!playLabel) return null
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  disabled={!canPlayDevCards || playable <= 0}
-                  onClick={() => onPlayDevCard(type)}
-                  className="flex items-center justify-between rounded-full border border-glass-border bg-white/5 px-2.5 py-1 font-body text-[9px] tracking-[0.08em] text-white/70 uppercase transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-glass-border disabled:hover:text-white/70"
-                >
-                  <span>{playLabel}</span>
-                  {playable > 0 && <span className="font-data text-[9px] text-gold/80">{playable}</span>}
-                </button>
-              )
-            })}
-            {knightsPlayed > 0 && (
-              <span className="px-1 font-data text-[9px] text-white/40">{knightsPlayed} knights played</span>
-            )}
-          </div>
-        </CollapsibleSection>
-      </div>
     </div>
   )
 }

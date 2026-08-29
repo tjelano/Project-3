@@ -9,6 +9,7 @@ import {
 } from '../../game/types'
 import { canAffordImprovement, improvementLevelCost } from '../../game/cityImprovements'
 import { CommodityIcon } from './CommodityIcon'
+import { CollapsibleSection } from './CollapsibleSection'
 
 interface CityImprovementsPanelProps {
   commodities: Commodities
@@ -48,8 +49,9 @@ export function CityImprovementsPanel({
   craneDiscountActive,
 }: CityImprovementsPanelProps) {
   return (
-    <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">City Improvements</span>
+    <div className="pointer-events-auto w-full rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <CollapsibleSection icon="🏛️" label="City Improvements" defaultOpen>
+      <div className="flex flex-col gap-2">
       {IMPROVEMENT_TRACK_ORDER.map((track) => {
         const level = cityImprovements[track]
         const nextName = level < 5 ? IMPROVEMENT_TRACK_NAMES[track][level] : null
@@ -98,6 +100,8 @@ export function CityImprovementsPanel({
           </div>
         )
       })}
+      </div>
+      </CollapsibleSection>
     </div>
   )
 }

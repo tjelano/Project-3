@@ -1,7 +1,7 @@
 import { useGLTF } from '@react-three/drei'
 import { useClonedModel } from '../hooks/useClonedModel'
 import { ModelErrorBoundary } from './ModelErrorBoundary'
-import type { PlayerColorToken } from '../game/types'
+import { PLAYER_COLORS, type PlayerColorToken } from '../game/types'
 import settlementPlayer1Url from '../assets/models/pieces/settlement-player-1.glb'
 import settlementPlayer2Url from '../assets/models/pieces/settlement-player-2.glb'
 import settlementPlayer3Url from '../assets/models/pieces/settlement-player-3.glb'
@@ -183,5 +183,38 @@ export function RoadModel({ colorToken, span }: { colorToken: PlayerColorToken; 
     <ModelErrorBoundary label="road model">
       <RoadMesh colorToken={colorToken} span={span} />
     </ModelErrorBoundary>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SHIP
+//
+// Placeholder-first policy (same treatment Merchant/Metropolis/City Wall
+// already got — see their own comments): no authored ship model yet, so this
+// is simple procedural geometry instead of a GLB. A hull that stretches to
+// fill the edge (same span-scaling idea as RoadMesh) plus a small mast so
+// it doesn't just read as "a road on water" — flat colour tint, no
+// pre-textured variants to load per player the way the GLB pieces have.
+// ---------------------------------------------------------------------------
+const SHIP_HULL_LENGTH = 0.62 // fraction of span the hull itself fills
+const SHIP_HULL_WIDTH = 0.16
+const SHIP_HULL_HEIGHT = 0.09
+const SHIP_MAST_HEIGHT = 0.22
+const SHIP_MAST_WIDTH = 0.03
+
+export function ShipModel({ colorToken, span }: { colorToken: PlayerColorToken; span: number }) {
+  const color = PLAYER_COLORS[colorToken]
+  const hullLength = span * SHIP_HULL_LENGTH
+  return (
+    <group rotation={[0, Math.PI / 2, 0]}>
+      <mesh position={[0, SHIP_HULL_HEIGHT / 2, 0]}>
+        <boxGeometry args={[hullLength, SHIP_HULL_HEIGHT, SHIP_HULL_WIDTH]} />
+        <meshStandardMaterial color={color} roughness={0.6} />
+      </mesh>
+      <mesh position={[0, SHIP_HULL_HEIGHT + SHIP_MAST_HEIGHT / 2, 0]}>
+        <boxGeometry args={[SHIP_MAST_WIDTH, SHIP_MAST_HEIGHT, SHIP_MAST_WIDTH]} />
+        <meshStandardMaterial color="#e8e2d2" roughness={0.7} />
+      </mesh>
+    </group>
   )
 }

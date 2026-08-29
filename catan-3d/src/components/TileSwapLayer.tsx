@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
-import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
+import { TILE_OVERLAY_ELEVATION, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
 import type { GameRules } from '../game/types'
 
@@ -29,9 +29,9 @@ const EXCLUDED_NUMBERS = [2, 6, 8, 12]
 // the first half of the swap — mirrors RobberTileGlow's "always on" role
 // below, just with the selection color instead of the threat color.
 function TileSwapSelectedGlow({ tile }: { tile: HexTileData }) {
-  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.06)
+  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.02)
   return (
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, TILE_OVERLAY_ELEVATION, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh geometry={glowGeometry}>
         <meshStandardMaterial
           color={SWAP_SELECTED_COLOR}
@@ -56,7 +56,7 @@ function TileSwapTarget({ tile, onSelect }: { tile: HexTileData; onSelect: () =>
   const glowGeometry = getTileOverlay(tile.biome, tile.id, 0.016)
 
   return (
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, TILE_OVERLAY_ELEVATION, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh
         geometry={pickGeometry}
         onPointerOver={(event: ThreeEvent<PointerEvent>) => {

@@ -277,3 +277,40 @@ describe('seafarersBasic board shape', () => {
     }
   })
 })
+
+describe('buildHexBoard — ensureSea', () => {
+  it('surrounds a waterless shape with sea when true, and leaves the land untouched', () => {
+    const tiles = buildHexBoard('test-seed', 'standard', undefined, undefined, true)
+    const landTiles = tiles.filter((t) => t.biome !== 'sea')
+    const seaTiles = tiles.filter((t) => t.biome === 'sea')
+    expect(landTiles).toHaveLength(19)
+    expect(seaTiles.length).toBeGreaterThan(0)
+    expect(seaTiles.every((t) => t.number === null)).toBe(true)
+  })
+
+  it('does nothing when false or omitted', () => {
+    const withoutFlag = buildHexBoard('test-seed', 'standard')
+    const explicitlyFalse = buildHexBoard('test-seed', 'standard', undefined, undefined, false)
+    expect(withoutFlag.some((t) => t.biome === 'sea')).toBe(false)
+    expect(explicitlyFalse).toEqual(withoutFlag)
+  })
+
+  it('is a no-op on a shape that already has sea', () => {
+    const withFlag = buildHexBoard('test-seed', 'seafarersBasic', undefined, undefined, true)
+    const withoutFlag = buildHexBoard('test-seed', 'seafarersBasic')
+    expect(withFlag).toEqual(withoutFlag)
+  })
+
+  it('is deterministic for a given seed', () => {
+    const a = buildHexBoard('same-seed', 'standard', undefined, undefined, true)
+    const b = buildHexBoard('same-seed', 'standard', undefined, undefined, true)
+    expect(a).toEqual(b)
+  })
+
+  it('also surrounds a custom (waterless) shape', () => {
+    const customCells = [{ col: 0, row: 0 }, { col: 0, row: 1 }, { col: 1, row: 0 }]
+    const tiles = buildHexBoard('seed-8', 'standard', customCells, undefined, true)
+    expect(tiles.filter((t) => t.biome !== 'sea')).toHaveLength(3)
+    expect(tiles.some((t) => t.biome === 'sea')).toBe(true)
+  })
+})

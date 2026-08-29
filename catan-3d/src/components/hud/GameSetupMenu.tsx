@@ -6,7 +6,6 @@ import openBookUrl from '../../assets/menu/open-book.png'
 import { ExpansionSelector } from './ExpansionSelector'
 import { HouseRules } from './HouseRules'
 import { JoinRoomModal } from './JoinRoomModal'
-import { INK_MUTED } from './parchmentTheme'
 import type { GameStartInfo } from './StartScreen'
 import { DEFAULT_GAME_RULES, WINNING_SCORE, type GameRules } from '../../game/types'
 
@@ -100,7 +99,7 @@ export function GameSetupMenu({
   onJoinLobby,
 }: {
   onStart: (info: GameStartInfo) => void
-  onHost: (config: { playerCount: number; gameRules: GameRules }) => void
+  onHost: (config: { playerCount: number; gameRules: GameRules; seafarers: boolean }) => void
   onJoinLobby: (seed: { roomCode: string; selfName: string }) => void
 }) {
   const [playerCount, setPlayerCount] = useState(2)
@@ -195,8 +194,9 @@ export function GameSetupMenu({
     setGameRules({ ...gameRules, [key]: value })
   }
 
-  // Seafarers has no GameRules flag — see ExpansionSelector's own comment.
-  // Purely local, cosmetic state until board-shape filtering is built.
+  // Seafarers has no GameRules flag — it's threaded to buildHexBoard's
+  // ensureSea param via GameStartInfo.seafarers instead (see handleStart
+  // below and StartScreen's own comment on that field), not through rules.
   const [seafarersSelected, setSeafarersSelected] = useState(false)
 
   // The real board game exposes ONE Cities & Knights choice, not the 4
@@ -224,13 +224,14 @@ export function GameSetupMenu({
 
   const handleStart = () => {
     if (mode === 'host') {
-      onHost({ playerCount, gameRules })
+      onHost({ playerCount, gameRules, seafarers: seafarersSelected })
       return
     }
     onStart({
       playerCount,
       names: Array.from({ length: playerCount }, (_, i) => `Player ${i + 1}`),
       gameRules,
+      seafarers: seafarersSelected,
       boardShapeId: 'standard',
     })
   }
@@ -304,7 +305,7 @@ export function GameSetupMenu({
             choice). Split 1-3/4-6 across the two pages, not one 6-wide row. */}
         <span
           style={rectStyle(LAYOUT.playersLabel)}
-          className={`font-body text-[11px] tracking-[0.15em] uppercase ${INK_MUTED}`}
+          className="font-body text-[11px] tracking-[0.15em] text-black uppercase"
         >
           Players
         </span>

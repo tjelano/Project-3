@@ -1,13 +1,18 @@
-import { RESOURCE_LABELS, type Player, type ResourceType } from '../../game/types'
+import { cardLabel, isCommodityType, type CommodityType, type Player, type ResourceType } from '../../game/types'
 import { useDraggablePanel } from '../../hooks/useDraggablePanel'
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
 import { ResourceIcon } from './ResourceIcon'
+import { CommodityIcon } from './CommodityIcon'
 
 export interface PendingTrade {
   fromPlayerId: number
   toPlayerId: number
-  offerResource: ResourceType
-  wantResource: ResourceType
+  offerCard: ResourceType | CommodityType
+  wantCard: ResourceType | CommodityType
+}
+
+function CardIcon({ type, className }: { type: ResourceType | CommodityType; className: string }) {
+  return isCommodityType(type) ? <CommodityIcon commodity={type} className={className} /> : <ResourceIcon resource={type} className={className} />
 }
 
 export function TradeOfferPrompt({
@@ -49,15 +54,15 @@ export function TradeOfferPrompt({
 
         <div className="mt-5 flex items-center justify-center gap-4">
           <div className="flex flex-col items-center gap-1">
-            <ResourceIcon resource={trade.offerResource} className="h-8 w-8 text-white" />
+            <CardIcon type={trade.offerCard} className="h-8 w-8 text-white" />
             <span className="font-body text-xs text-white/70">You get</span>
-            <span className="font-data text-sm text-white">1 {RESOURCE_LABELS[trade.offerResource]}</span>
+            <span className="font-data text-sm text-white">1 {cardLabel(trade.offerCard)}</span>
           </div>
           <span className="font-display text-xl text-gold">⇄</span>
           <div className="flex flex-col items-center gap-1">
-            <ResourceIcon resource={trade.wantResource} className="h-8 w-8 text-white" />
+            <CardIcon type={trade.wantCard} className="h-8 w-8 text-white" />
             <span className="font-body text-xs text-white/70">You give</span>
-            <span className="font-data text-sm text-white">1 {RESOURCE_LABELS[trade.wantResource]}</span>
+            <span className="font-data text-sm text-white">1 {cardLabel(trade.wantCard)}</span>
           </div>
         </div>
 

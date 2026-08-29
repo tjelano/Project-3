@@ -71,7 +71,9 @@ async function runStep(label: string, fn: () => Promise<string | void>): Promise
 
 function generateRoomCode(): string {
   let code = ''
-  for (let i = 0; i < 4; i++) code += ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)]
+  const randomValues = new Uint32Array(4)
+  crypto.getRandomValues(randomValues)
+  for (let i = 0; i < 4; i++) code += ROOM_CODE_ALPHABET[randomValues[i] % ROOM_CODE_ALPHABET.length]
   return code
 }
 

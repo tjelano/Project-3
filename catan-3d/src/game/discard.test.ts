@@ -45,6 +45,15 @@ describe('discardHandSize', () => {
     expect(withoutRule > 7).toBe(false)
     expect(Math.floor(withRule / 2)).toBe(4)
   })
+
+  it('correctly handles negative values as pure math addition', () => {
+    // discardHandSize is a pure sum; if upstream yields negatives, it just sums them.
+    const resources = { ...emptyResources(), lumber: 3, ore: -1 }
+    const commodities = { ...emptyCommodities(), paper: 2, cloth: -2 }
+
+    expect(discardHandSize(resources, commodities, false)).toBe(2)
+    expect(discardHandSize(resources, commodities, true)).toBe(2)
+  })
 })
 
 describe('autoDiscardCounts', () => {
@@ -148,6 +157,17 @@ describe('applyDiscardCounts', () => {
     const result = applyDiscardCounts(resources, commodities, counts)
 
     expect(result.resources.ore).toBe(1)
+  })
+
+  it('ignores non-finite counts without touching valid entries or crashing', () => {
+    const resources = { ...emptyResources(), grain: 3, ore: 2 }
+    const commodities = emptyCommodities()
+    const counts = { grain: NaN, ore: Infinity, brick: 1 } as unknown as Parameters<typeof applyDiscardCounts>[2]
+
+    const result = applyDiscardCounts(resources, commodities, counts)
+
+    expect(result.resources.grain).toBe(3)
+    expect(result.resources.ore).toBe(2)
   })
 })
 

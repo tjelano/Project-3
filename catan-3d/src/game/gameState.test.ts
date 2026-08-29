@@ -106,4 +106,10 @@ describe('reduceGame', () => {
     expect(before.board.settlements).toEqual({})
     expect(before.players[0].settlementsRemaining).toBe(settlementsRemainingBefore)
   })
+
+  it('returns exactly the same state object if no slice changes', () => {
+    // We send an action that doesn't trigger any state mutations in any slice
+    const result = reduceGame(initialGameState, { type: 'UNKNOWN_ACTION' } as unknown as Parameters<typeof reduceGame>[1])
+    expect(result).toBe(initialGameState)
+  })
 })

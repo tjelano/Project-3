@@ -210,6 +210,16 @@ describe('reducePlayers — ROBBER_MOVED', () => {
     )
     expect(result).toEqual(players)
   })
+
+  it('leaves third party players untouched', () => {
+    const players = createInitialPlayers(3).map((p) => ({ ...p, resources: { lumber: 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(
+      players,
+      { type: 'ROBBER_MOVED', tileId: 'T1', thiefId: players[1].id, victimId: players[0].id, stolenItem: 'lumber' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
 })
 
 describe('reducePlayers — PILLAGE_CITY', () => {
@@ -660,6 +670,19 @@ describe('reducePlayers — KNIGHT_DISPLACED', () => {
     expect(targetOwner.knightPieces).toEqual([])
     expect(targetOwner.knightSupply.strong).toBe(players[1].knightSupply.strong + 1)
   })
+
+  it('leaves a third player untouched in KNIGHT_DISPLACED', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      knightPieces: i < 2 ? [{ id: i === 0 ? 'mover' : 'target', ownerId: p.id, strength: 'mighty' as const, active: true, vertexId: 'V1' }] : [],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'KNIGHT_DISPLACED', moverId: players[0].id, knightId: 'mover', displacedOwnerId: players[1].id, targetKnightId: 'target', newMoverVertexId: 'V1', displacedVertexId: null },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
 })
 
 describe('reducePlayers — INTRIGUE_RESOLVED', () => {
@@ -702,6 +725,33 @@ describe('reducePlayers — INTRIGUE_RESOLVED', () => {
       initialGameState,
     )
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('leaves other knights untouched when displaced to a new vertex via intrigue', () => {
+    const players = createInitialPlayers(1).map((p) => ({
+      ...p,
+      knightPieces: [
+        { id: 'target', ownerId: p.id, strength: 'mighty' as const, active: true, vertexId: 'V1' },
+        { id: 'other', ownerId: p.id, strength: 'basic' as const, active: true, vertexId: 'V3' },
+      ],
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'INTRIGUE_RESOLVED', displacedOwnerId: players[0].id, targetKnightId: 'target', displacedVertexId: 'V2' },
+      initialGameState,
+    )
+    const targetPlayer = result.find((p) => p.id === players[0].id)!
+    expect(targetPlayer.knightPieces.find(k => k.id === 'other')!.vertexId).toBe('V3')
+  })
+
+  it('safely handles missing knight when displaced to supply via intrigue', () => {
+    const players = createInitialPlayers(1)
+    const result = reducePlayers(
+      players,
+      { type: 'INTRIGUE_RESOLVED', displacedOwnerId: players[0].id, targetKnightId: 'missing', displacedVertexId: null },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.knightPieces).toEqual([])
   })
 })
 
@@ -1045,6 +1095,12 @@ describe('reducePlayers — MONOPOLY_PLAYED', () => {
     const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: players[0].id, resource: 'lumber' }, initialGameState)
     expect(result.find((p) => p.id === players[0].id)!.resources.lumber).toBe(0)
   })
+
+  it('handles unknown announcer player ID safely', () => {
+    const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 } }))
+    const result = reducePlayers(players, { type: 'MONOPOLY_PLAYED', playerId: 999, resource: 'lumber' }, initialGameState)
+    expect(result).toEqual(players)
+  })
 })
 
 describe('reducePlayers — RESOURCE_MONOPOLY_PLAYED', () => {
@@ -1194,6 +1250,29 @@ describe('reducePlayers — WEDDING_PLAYED', () => {
     const result = reducePlayers(players, { type: 'WEDDING_PLAYED', announcerId: players[0].id, perPlayerCounts: [], takenTotals: {} }, initialGameState)
     expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
   })
+
+  it('credits commodities correctly to the announcer', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      progressCards: i === 0 ? ['wedding' as const] : [],
+      commodities: i === 0 ? { paper: 0, cloth: 0, coin: 0 } : { paper: 0, cloth: 2, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      {
+        type: 'WEDDING_PLAYED',
+        announcerId: players[0].id,
+        perPlayerCounts: [{ playerId: players[1].id, counts: { cloth: 1 } }],
+        takenTotals: { cloth: 1 },
+      },
+      initialGameState,
+    )
+    const announcer = result.find((p) => p.id === players[0].id)!
+    const affected = result.find((p) => p.id === players[1].id)!
+    expect(announcer.progressCards).toEqual([])
+    expect(announcer.commodities.cloth).toBe(1)
+    expect(affected.commodities.cloth).toBe(1)
+  })
 })
 
 describe('reducePlayers — GUILD_DUES_TAKEN', () => {
@@ -1215,6 +1294,19 @@ describe('reducePlayers — GUILD_DUES_TAKEN', () => {
     expect(target.resources.lumber).toBe(0)
     expect(target.commodities.paper).toBe(0)
   })
+
+  it('leaves a third player untouched', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({
+      ...p,
+      resources: i === 0 ? { lumber: 0, brick: 0, wool: 0, grain: 0, ore: 0 } : { lumber: 1, brick: 0, wool: 0, grain: 0, ore: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'GUILD_DUES_TAKEN', takerId: players[0].id, targetId: players[1].id, picks: ['lumber'] },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
 })
 
 describe('reducePlayers — ESPIONAGE_TAKEN', () => {
@@ -1235,6 +1327,12 @@ describe('reducePlayers — ESPIONAGE_TAKEN', () => {
     const players = createInitialPlayers(2).map((p, i) => ({ ...p, progressCards: i === 1 ? ['printing' as const, 'alchemy' as const] : [] }))
     const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
     expect(result).toEqual(players)
+  })
+
+  it('leaves a third player untouched', () => {
+    const players = createInitialPlayers(3).map((p, i) => ({ ...p, progressCards: i === 1 ? ['crane' as const] : [] }))
+    const result = reducePlayers(players, { type: 'ESPIONAGE_TAKEN', takerId: players[0].id, targetId: players[1].id, cardIndex: 0 }, initialGameState)
+    expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
   })
 })
 

@@ -46,6 +46,12 @@ window.__catanTestHarness = {
     // to the existing raw-action function already defined in App.tsx
   },
   getState: () => GameState,
+  // Plain, JSON-safe shape — the real BoardGraph (data/boardGraph.ts)
+  // carries several fields as native Map objects, which silently
+  // serialize to `{}` across the Node/browser boundary. Needed so
+  // scenarios can pick real, legal vertex/edge ids off the actual
+  // seeded board rather than guessing them.
+  getGraph: () => { vertices: { id: string; x: number; z: number }[]; edges: { id: string; a: string; b: string }[]; vertexEdgeIds: Record<string, string[]> },
   getStatus: () => { gameStarted: boolean; isMyTurn: boolean; connectionStatus: string },
   getLastWarning: () => string | null,
 }
@@ -59,16 +65,18 @@ Each `actions.*` entry calls the function App.tsx already defines for that actio
 
 ## Scenario format
 
-A scenario is a name plus an ordered list of steps, each naming which tab acts and what it does:
+A scenario is a name plus an ordered list of steps, each naming which tab acts, which action, and its arguments — data, not a closure:
 
 ```ts
 scenario('base game: settlement, road, roll, trade, dev card', [
-  { actor: 'A', action: (h) => h.actions.buildSettlement('V1') },
-  { actor: 'A', action: (h) => h.actions.buildRoad('E1') },
-  { actor: 'B', action: (h) => h.actions.rollDice() },
+  { actor: 'A', action: 'buildSettlement', args: ['V1'] },
+  { actor: 'A', action: 'buildRoad', args: ['E1'] },
+  { actor: 'B', action: 'rollDice' },
   // ...
 ])
 ```
+
+**Why data, not `(h) => h.actions.buildSettlement('V1')`-style closures:** the runner executes each step by crossing from Node into the browser (Playwright's `page.evaluate()`), which can only carry plain, JSON-serializable data across that boundary — not a live JavaScript closure. A closure referencing a value from outer Node-side scope (e.g. a vertex id read off the actual seeded board earlier in the test, which is how real scenarios pick legal ids rather than guessing) would silently break on the other side: `Function.prototype.toString()` (the mechanism for moving a function's definition across) captures only its source *text*, never the *values* it closed over. This is a hard constraint of the boundary itself, not an implementation preference.
 
 Every scenario must include actions from **both** actors, not just one — broadcast bugs can be asymmetric (a handler wired correctly for one role and not the other), and a host-only scenario would only ever test one direction of sync.
 

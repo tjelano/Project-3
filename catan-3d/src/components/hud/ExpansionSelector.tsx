@@ -10,14 +10,16 @@ import { ToggleSwitch } from './ToggleSwitch'
 // Seafarers has no GameRules flag at all — ships, gold fields, and the
 // pirate are already fully implemented, but they activate automatically
 // whenever the board shape (picked on the NEXT screen) has sea/gold tiles.
-// This toggle is intentionally inert for now: it's a label, not a wire.
-// Follow-up: carry `seafarersSelected` through to RegionSelectMenu and use
-// it to filter/default toward Seafarers-compatible board shapes.
+// This toggle is instead threaded straight to buildHexBoard's ensureSea
+// param (GameSetupMenu.tsx's handleStart), which auto-surrounds a
+// waterless shape with a 2-deep sea ring so ships/the pirate are always
+// playable when it's on, not just on the purpose-built Seafarers Basic
+// shape or a custom map someone painted sea onto.
 const EXPANSIONS = [
   {
     id: 'seafarers' as const,
     name: 'Seafarers',
-    description: 'Ships, gold fields, and the pirate — pick a sea board shape next to include them.',
+    description: 'Ships, gold fields, and the pirate. Surrounds land-only maps with sea automatically.',
   },
   {
     id: 'citiesAndKnights' as const,

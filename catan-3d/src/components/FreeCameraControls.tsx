@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { START_POSITION, START_TARGET } from './cameraStartPose'
 
 // Units/sec — tuned against OrbitControls' own min/maxDistance (6-24ish),
 // so a full traverse of the board at default speed takes a few seconds,
@@ -17,12 +18,6 @@ const MOUSE_SENSITIVITY = 0.0025
 // Just under straight up/down — avoids the look direction flipping
 // through the pole (gimbal flip) at exactly +-90 degrees pitch.
 const MAX_PITCH = Math.PI / 2 - 0.01
-
-// Matches the Canvas's own initial `camera` prop in App.tsx and
-// OrbitControls' `target` — R resets back to exactly this pose, not
-// wherever OrbitControls last left the camera.
-const START_POSITION = new THREE.Vector3(0, 9, 7)
-const START_TARGET = new THREE.Vector3(0, 0, 0)
 
 // Scratch objects reused every frame in useFrame below, instead of
 // allocating a fresh Euler + 3 Vector3s per frame while free-cam is active

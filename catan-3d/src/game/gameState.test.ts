@@ -88,13 +88,13 @@ describe('reduceGame', () => {
   it('routes a trade action through reduceTrade', () => {
     const result = reduceGame(initialGameState, {
       type: 'PENDING_TRADE_SET',
-      trade: { fromPlayerId: 1, toPlayerId: 2, offerResource: 'brick', wantResource: 'grain' },
+      trade: { fromPlayerId: 1, toPlayerId: 2, offerCard: 'brick', wantCard: 'grain' },
     })
     expect(result.trade.pendingTrade).toEqual({
       fromPlayerId: 1,
       toPlayerId: 2,
-      offerResource: 'brick',
-      wantResource: 'grain',
+      offerCard: 'brick',
+      wantCard: 'grain',
     })
     expect(result.board).toBe(initialGameState.board)
   })

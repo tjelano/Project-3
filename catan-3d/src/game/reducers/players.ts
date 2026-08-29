@@ -1,5 +1,5 @@
 import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack, PlayerColorToken } from '../types'
-import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, SHIP_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers } from '../types'
+import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, SHIP_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers, isCommodityType } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
 import { nextKnightStrength } from '../knights'
@@ -15,7 +15,7 @@ export type PlayersAction =
   // of placing the settlement itself.
   | { type: 'GRANT_SETUP_RESOURCES'; playerId: number; resources: Partial<Resources> }
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
-  | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerResource: ResourceType; wantResource: ResourceType }
+  | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerCard: ResourceType | CommodityType; wantCard: ResourceType | CommodityType }
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
   | { type: 'COMMODITY_TRADED'; playerId: number; give: CommodityType; receive: ResourceType | CommodityType }
   | { type: 'COMMERCIAL_HARBOR_PLAYED'; announcerId: number; resource: ResourceType; otherIdsInOrder: number[] }
@@ -87,6 +87,17 @@ function applyStealTransfer(
     }
     return p
   })
+}
+
+// Adds `delta` of one resource-or-commodity card type to a player, routing
+// to whichever bucket it actually belongs to. Shared by TRADE_RESOLVED
+// below — each side of a player trade can independently be a resource or a
+// commodity, so a single hardcoded `resources[...]` update (as bank/steal
+// trades can get away with) isn't enough here.
+function applyCardDelta(player: Player, type: ResourceType | CommodityType, delta: number): Player {
+  return isCommodityType(type)
+    ? { ...player, commodities: { ...player.commodities, [type]: player.commodities[type] + delta } }
+    : { ...player, resources: { ...player.resources, [type]: player.resources[type] + delta } }
 }
 
 export function reducePlayers(players: Player[], action: GameAction, fullState: GameState): Player[] {
@@ -176,12 +187,15 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
       )
     }
     case 'TRADE_RESOLVED':
+      // Player trades (unlike bank trades) can offer/want either a resource
+      // or a commodity on EACH side independently, so each side's delta has
+      // to route to its own bucket rather than always touching `resources`.
       return players.map((p) => {
         if (p.id === action.fromPlayerId) {
-          return { ...p, resources: { ...p.resources, [action.offerResource]: p.resources[action.offerResource] - 1, [action.wantResource]: p.resources[action.wantResource] + 1 } }
+          return applyCardDelta(applyCardDelta(p, action.offerCard, -1), action.wantCard, 1)
         }
         if (p.id === action.toPlayerId) {
-          return { ...p, resources: { ...p.resources, [action.wantResource]: p.resources[action.wantResource] - 1, [action.offerResource]: p.resources[action.offerResource] + 1 } }
+          return applyCardDelta(applyCardDelta(p, action.wantCard, -1), action.offerCard, 1)
         }
         return p
       })

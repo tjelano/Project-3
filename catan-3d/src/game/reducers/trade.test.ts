@@ -3,7 +3,7 @@ import { reduceTrade, initialTradeState } from './trade'
 import { initialGameState } from '../gameState'
 import type { PendingTrade } from '../../components/hud/TradeOfferPrompt'
 
-const OFFER: PendingTrade = { fromPlayerId: 1, toPlayerId: 2, offerResource: 'brick', wantResource: 'grain' }
+const OFFER: PendingTrade = { fromPlayerId: 1, toPlayerId: 2, offerCard: 'brick', wantCard: 'grain' }
 
 describe('reduceTrade — PENDING_TRADE_SET', () => {
   it('stores the offered trade, leaves every other field untouched', () => {
@@ -13,7 +13,7 @@ describe('reduceTrade — PENDING_TRADE_SET', () => {
 
   it('replaces an already-pending offer rather than merging with it', () => {
     const dirty = { ...initialTradeState, pendingTrade: OFFER }
-    const next: PendingTrade = { fromPlayerId: 3, toPlayerId: 1, offerResource: 'ore', wantResource: 'wool' }
+    const next: PendingTrade = { fromPlayerId: 3, toPlayerId: 1, offerCard: 'ore', wantCard: 'wool' }
     const result = reduceTrade(dirty, { type: 'PENDING_TRADE_SET', trade: next }, initialGameState)
     expect(result.pendingTrade).toBe(next)
   })

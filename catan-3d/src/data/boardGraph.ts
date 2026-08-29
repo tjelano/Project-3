@@ -218,7 +218,7 @@ const PORT_TYPE_SEQUENCE: PortType[] = ['ore', '3:1', 'wool', '3:1', 'grain', '3
 // concave notch in an irregular player-drawn custom shape (a symmetric
 // built-in shape never has one, which is why this only ever showed up on
 // a custom board).
-function outwardEdgeAngle(graph: BoardGraph, edge: BoardEdge): number {
+function outwardEdgeAngle(graph: BoardGraph, tileById: Map<string, HexTileData>, edge: BoardEdge): number {
   const a = graph.vertexById.get(edge.a)!
   const b = graph.vertexById.get(edge.b)!
   const dx = b.x - a.x
@@ -227,7 +227,14 @@ function outwardEdgeAngle(graph: BoardGraph, edge: BoardEdge): number {
 
   const tilesA = graph.vertexTileIds.get(edge.a) ?? []
   const tilesB = new Set(graph.vertexTileIds.get(edge.b) ?? [])
-  const adjacentTileId = tilesA.find((id) => tilesB.has(id))
+  const sharedTileIds = tilesA.filter((id) => tilesB.has(id))
+  // Prefer the LAND tile among the (1 or 2) tiles sharing this edge — the
+  // dock should point AWAY from land, out toward the water/void. For a pure
+  // perimeter edge (1 tile, no adjacent water) that's just the one tile,
+  // same as before; for a coastal land/water edge (2 tiles) this picks the
+  // land one specifically, since array order between the pair isn't
+  // otherwise meaningful.
+  const adjacentTileId = sharedTileIds.find((id) => tileById.get(id)?.biome !== 'sea') ?? sharedTileIds[0]
   const tileCenter = adjacentTileId ? graph.tileCenters.get(adjacentTileId) : undefined
   const reference = tileCenter ? { x: edge.x - tileCenter.x, z: edge.z - tileCenter.z } : edge
 
@@ -236,21 +243,31 @@ function outwardEdgeAngle(graph: BoardGraph, edge: BoardEdge): number {
   return Math.atan2(normal.x, normal.z)
 }
 
-// Ports sit on fixed, procedurally-derived boundary edges — never
+// Ports sit on fixed, procedurally-derived COASTAL edges — never
 // randomized, since only tile biome/number placement is meant to change
-// between games, not the underlying grid shape.
-export function assignPorts(graph: BoardGraph): Port[] {
-  const boundaryEdges = graph.edges.filter((edge) => {
-    const tilesA = graph.vertexTileIds.get(edge.a) ?? []
-    const tilesB = new Set(graph.vertexTileIds.get(edge.b) ?? [])
-    const sharedCount = tilesA.filter((id) => tilesB.has(id)).length
-    return sharedCount === 1 // shared by exactly one tile = on the perimeter
+// between games, not the underlying grid shape. "Coastal" means an edge
+// bordering exactly one LAND tile and nothing else land-side: either the
+// graph's true outer perimeter (1 tile total, and it's land — a boundary
+// edge whose one tile is water, e.g. the outer edge of a painted water
+// ring, is NOT coastal, since there's no dock to place from further out)
+// or an interior edge between one land tile and one water tile (the real
+// shoreline once BoardShapeEditor lets water be a real tile in the shape,
+// not just implied empty space beyond the land). An edge between two land
+// tiles, or two water tiles, is interior either way and never coastal.
+export function assignPorts(graph: BoardGraph, tileById: Map<string, HexTileData>): Port[] {
+  const isLand = (tileId: string) => tileById.get(tileId)?.biome !== 'sea'
+
+  const coastalEdges = graph.edges.filter((edge) => {
+    const tileIds = graph.edgeTileIds.get(edge.id) ?? []
+    if (tileIds.length === 1) return isLand(tileIds[0])
+    if (tileIds.length === 2) return isLand(tileIds[0]) !== isLand(tileIds[1])
+    return false
   })
 
   // Sorting order only needs to walk the perimeter roughly in sequence —
   // the radial angle is fine for that, unlike for the outward-facing
   // rotation itself.
-  const sorted = [...boundaryEdges].sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x))
+  const sorted = [...coastalEdges].sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x))
 
   if (sorted.length === 0) return []
 
@@ -265,7 +282,7 @@ export function assignPorts(graph: BoardGraph): Port[] {
       type,
       x: edge.x,
       z: edge.z,
-      angle: outwardEdgeAngle(graph, edge),
+      angle: outwardEdgeAngle(graph, tileById, edge),
     }
   })
 }

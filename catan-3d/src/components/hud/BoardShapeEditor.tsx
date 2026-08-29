@@ -88,22 +88,30 @@ export function BoardShapeEditor({
     })
   }
 
-  // Cell not yet in the shape: adds it, no biome painted (unpainted draws
-  // randomly from the land pool at build time — see BIOME_PALETTE's own
-  // comment for why sea/gold can't come from that pool by accident). Cell
-  // already in the shape ("isLand" — a legacy name from before sea/gold
-  // were paintable; it really means "in the shape," not literally land)
-  // with a biome brush active: paints that biome, stays in the shape either
-  // way. With the eraser active: clears any painted biome, stays in the
-  // shape. With no brush selected: the original toggle-off — removes it
-  // from the shape, and clears any paint on it too, so a tile that's
-  // re-added later doesn't resurrect stale paint from a previous edit.
+  // Cell not yet in the shape: adds it. With a biome brush active, paints
+  // it in the SAME click — previously this added the tile unpainted and
+  // only applied the brush on a second click once the tile already existed,
+  // which for a brush like Sea/Gold (never drawn randomly — see
+  // BIOME_PALETTE's own comment) meant nothing visibly happened on the
+  // first click at all. With no brush (or the eraser) selected, adds it
+  // unpainted, same as before — unpainted draws randomly from the standard
+  // land pool at build time. Cell already in the shape ("isLand" — a legacy
+  // name from before sea/gold were paintable; it really means "in the
+  // shape," not literally land) with a biome brush active: paints that
+  // biome, stays in the shape either way. With the eraser active: clears
+  // any painted biome, stays in the shape. With no brush selected: the
+  // original toggle-off — removes it from the shape, and clears any paint
+  // on it too, so a tile that's re-added later doesn't resurrect stale
+  // paint from a previous edit.
   const handleTileClick = (cell: BoardCell) => {
     if (mode !== 'editing') return
     const key = cellKey(cell)
     const isLand = selected.has(key)
     if (!isLand) {
       toggleCell(cell)
+      if (activeBrush !== null && activeBrush !== 'erase') {
+        setPaintedBiomes((prev) => new Map(prev).set(key, activeBrush))
+      }
       return
     }
     if (activeBrush === null) {

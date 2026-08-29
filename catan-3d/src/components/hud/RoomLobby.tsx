@@ -62,6 +62,7 @@ type RoomLobbyProps =
       role: 'host'
       targetCount: number
       gameRules: GameRules
+      seafarers: boolean
       boardShapeId?: BoardShapeId
       customBoardShape?: CustomBoardShape
       onStart: (info: GameStartInfo) => void
@@ -146,6 +147,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       names,
       hostName,
       receivedBoardShapeId,
+      receivedSeafarers,
       receivedGameRules,
       receivedCustomCells,
       receivedCustomName,
@@ -172,6 +174,7 @@ export function RoomLobby(props: RoomLobbyProps) {
           }),
         gameRules: receivedGameRules,
         boardShapeId: receivedBoardShapeId,
+        seafarers: receivedSeafarers,
         customBoardCells: receivedCustomCells,
         customBoardName: receivedCustomName,
         customBoardBiomeOverrides: receivedCustomBiomeOverrides,
@@ -326,6 +329,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       names,
       selfName,
       currentBoardShapeId ?? 'standard',
+      props.seafarers,
       props.gameRules,
       currentCustomBoardShape?.cells,
       currentCustomBoardShape?.name,
@@ -339,6 +343,7 @@ export function RoomLobby(props: RoomLobbyProps) {
       colorTokens,
       gameRules: props.gameRules,
       boardShapeId: currentBoardShapeId,
+      seafarers: props.seafarers,
       customBoardCells: currentCustomBoardShape?.cells,
       customBoardName: currentCustomBoardShape?.name,
       customBoardBiomeOverrides: currentCustomBoardShape?.biomeOverrides,

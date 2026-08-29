@@ -28,25 +28,25 @@ export const BIOME_COLORS: Record<Biome, string> = {
 // match would leave them floating above the shoreline instead of resting
 // on it.
 export const BIOME_ELEVATION: Record<Biome, number> = {
-  hills: 0.15,
-  mountains: 0.31,
-  forest: 0.21,
-  desert: 0.245,
-  fields: 0.13,
-  pasture: 0.12,
+  hills: 0.25,
+  mountains: 0.41,
+  forest: 0.31,
+  desert: 0.345,
+  fields: 0.23,
+  pasture: 0.22,
   // PLACEHOLDER — not measured from WaterHexTile.glb's real geometry the way
   // the 6 values above were (see this plan's Global Constraints). Sits below
   // every land elevation so water reads as "lower" than the island; verify
   // visually via the dev server once Task 2 wires the model in, and adjust
   // this one constant if it clips or floats.
-  sea: 0.05,
+  sea: -0.01,
   // PLACEHOLDER — gold-tile.glb is real art now, but this value is still
   // fields' own already-measured elevation, carried over from when gold
   // reused fields' model. Not yet measured from gold-tile.glb's own
   // geometry the way the 6 land values above were; verify visually via the
   // dev server and adjust this one constant if it clips or floats (same
   // treatment as sea's own placeholder above).
-  gold: 0.13,
+  gold: 0.23,
 }
 
 // Edit this directly to move every settlement/road/hover-ghost up (higher)
@@ -55,7 +55,24 @@ export const BIOME_ELEVATION: Record<Biome, number> = {
 // there's no single tile to derive a "correct" height from; started at
 // 0.31 (mountains' own BIOME_ELEVATION, the tallest biome) so nothing
 // clips into any tile, at the cost of floating a bit above shorter ones.
-export const STRUCTURE_ELEVATION = 0.10
+export const STRUCTURE_ELEVATION = 0.20
+
+// World-space Y for a flat overlay meant to sit on a tile's RIM/edge area
+// (RobberLayer/MerchantLayer/TileSwapLayer's always-on glow + hover/hit
+// meshes) — NOT the same as TILE_HEIGHT/2 + BIOME_ELEVATION[biome], which
+// is calibrated to each biome's CENTRE plateau (where the terrain bump/
+// decorations differ most). Measured empirically via a straight-down
+// raycast against the real authored models at 8 points around each biome's
+// own rim (radius 0.75, clear of centre decorations): the 6 land biomes
+// (plus gold, which reuses fields' model) all converged to ~0.39-0.42
+// regardless of their own (much more varied) centre height — the land rim/
+// border geometry turns out to be near-identical across biomes even though
+// the terrain in the middle isn't. Sea uses its own separate WaterHexTile.glb
+// model, sitting notably lower (~0.286 measured) — a Pirate/ship overlay on
+// water needs TILE_OVERLAY_ELEVATION_SEA, not this one, or it floats well
+// above the actual water surface.
+export const TILE_OVERLAY_ELEVATION = 0.41
+export const TILE_OVERLAY_ELEVATION_SEA = 0.29
 
 export interface HexTileData {
   id: string
@@ -200,6 +217,16 @@ function ringAround(landCells: BoardCell[]): BoardCell[] {
     }
   }
   return ring
+}
+
+// Two-hex-deep water border for buildHexBoard's ensureSea, built by calling
+// ringAround twice (once around `cells`, once around cells+ring1) rather
+// than a bespoke BFS — the second call's own land/seen-key exclusion
+// already guarantees ring2 has no overlap with cells or ring1.
+function seaRingAround(cells: BoardCell[]): BoardCell[] {
+  const ring1 = ringAround(cells)
+  const ring2 = ringAround([...cells, ...ring1])
+  return [...ring1, ...ring2]
 }
 
 // Computed once at module scope so both BOARD_SHAPES (the cell list) and
@@ -512,6 +539,12 @@ export function buildHexBoard(
   shapeId: BoardShapeId = 'standard',
   customCells?: BoardCell[],
   customBiomeOverrides?: Record<string, Biome>,
+  // Seafarers toggle (GameSetupMenu.tsx) — when true and the resolved shape
+  // has no 'sea' cell of its own, surrounds it with a 2-deep ring of sea
+  // hexes so ships/the pirate become playable on any map, not just the
+  // purpose-built seafarersBasic shape. A no-op for shapes that already
+  // have water (seafarersBasic, or a custom shape someone painted sea onto).
+  ensureSea?: boolean,
 ): HexTileData[] {
   const isCustom = customCells != null && customCells.length > 0
   // shapeId can arrive from an online peer's game-started broadcast, which
@@ -523,11 +556,18 @@ export function buildHexBoard(
   if (!isCustom && !(shapeId in BOARD_SHAPES)) {
     console.error('[Catan] Unknown board shape id, falling back to standard:', shapeId)
   }
-  const cells = isCustom ? customCells : (BOARD_SHAPES[shapeId] ?? BOARD_SHAPES.standard)
+  let cells = isCustom ? customCells : (BOARD_SHAPES[shapeId] ?? BOARD_SHAPES.standard)
   // Overrides only apply to the shapeId path — a player's own freshly-drawn
   // custom shape in the editor always gets the automatic ratio, regardless
   // of what a promoted built-in with the same tile count happens to use.
   const desertOverride = isCustom ? undefined : DESERT_COUNT_OVERRIDES[shapeId]
-  const biomeOverrides = isCustom ? customBiomeOverrides : BIOME_OVERRIDES_BY_SHAPE[shapeId]
+  let biomeOverrides = isCustom ? customBiomeOverrides : BIOME_OVERRIDES_BY_SHAPE[shapeId]
+
+  if (ensureSea && !Object.values(biomeOverrides ?? {}).includes('sea')) {
+    const ring = seaRingAround(cells)
+    cells = [...cells, ...ring]
+    biomeOverrides = { ...biomeOverrides, ...Object.fromEntries(ring.map((c) => [`${c.col}-${c.row}`, 'sea' as const])) }
+  }
+
   return buildHexBoardFromCells(cells, seed, desertOverride, biomeOverrides)
 }

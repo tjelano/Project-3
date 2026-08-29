@@ -262,11 +262,11 @@ describe('reducePlayers — PILLAGE_CITY', () => {
 })
 
 describe('reducePlayers — TRADE_RESOLVED', () => {
-  it('swaps 1 offerResource for 1 wantResource between the two traders', () => {
+  it('swaps 1 offerCard for 1 wantCard between the two traders', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 2, brick: 2, wool: 0, grain: 0, ore: 0 } }))
     const result = reducePlayers(
       players,
-      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerResource: 'lumber', wantResource: 'brick' },
+      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerCard: 'lumber', wantCard: 'brick' },
       initialGameState,
     )
     const from = result.find((p) => p.id === players[0].id)!
@@ -281,10 +281,29 @@ describe('reducePlayers — TRADE_RESOLVED', () => {
     const players = createInitialPlayers(3)
     const result = reducePlayers(
       players,
-      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerResource: 'lumber', wantResource: 'brick' },
+      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerCard: 'lumber', wantCard: 'brick' },
       initialGameState,
     )
     expect(result.find((p) => p.id === players[2].id)!).toEqual(players[2])
+  })
+
+  it('routes a commodity offered for a resource through the correct buckets on both sides', () => {
+    const players = createInitialPlayers(2).map((p) => ({
+      ...p,
+      resources: { lumber: 0, brick: 0, wool: 0, grain: 2, ore: 0 },
+      commodities: { paper: 2, cloth: 0, coin: 0 },
+    }))
+    const result = reducePlayers(
+      players,
+      { type: 'TRADE_RESOLVED', fromPlayerId: players[0].id, toPlayerId: players[1].id, offerCard: 'paper', wantCard: 'grain' },
+      initialGameState,
+    )
+    const from = result.find((p) => p.id === players[0].id)!
+    const to = result.find((p) => p.id === players[1].id)!
+    expect(from.commodities.paper).toBe(1)
+    expect(from.resources.grain).toBe(3)
+    expect(to.commodities.paper).toBe(3)
+    expect(to.resources.grain).toBe(1)
   })
 })
 

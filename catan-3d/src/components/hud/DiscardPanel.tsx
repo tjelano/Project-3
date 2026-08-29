@@ -1,3 +1,15 @@
+import {
+  COMMODITY_LABELS,
+  COMMODITY_ORDER,
+  RESOURCE_LABELS,
+  RESOURCE_ORDER,
+  type Commodities,
+  type CommodityType,
+  type Resources,
+  type ResourceType,
+} from '../../game/types'
+import { HAND_STACK_THRESHOLD } from '../PlayerHand3D'
+
 // Shown while gamePhase === 'discard' (a natural 7 caught someone with more
 // than 7 cards). Frosted/dimmed like the other modals, but deliberately
 // NOT a full pointer-events-auto blocker: the whole board and the 3D hand
@@ -9,14 +21,81 @@ export function DiscardPanel({
   requiredCount,
   selectedCount,
   onConfirm,
+  resources,
+  commodities,
+  discardSelection,
+  onToggleDiscard,
 }: {
   isMyDiscardTurn: boolean
   discardingPlayerName: string
   requiredCount: number
   selectedCount: number
   onConfirm: () => void
+  resources: Resources
+  commodities: Commodities
+  discardSelection: string[]
+  onToggleDiscard: (cardId: string) => void
 }) {
   const remaining = requiredCount - selectedCount
+
+  // Mirrors PlayerHand3D's own buildCardSlots threshold — past this many
+  // resource+commodity cards, the 3D hand collapses each type into one
+  // sprite, so clicking a specific card there no longer works as a
+  // selection gesture. These +/- steppers pick specific "<type>-<index>"
+  // ids on the player's behalf instead, via the exact same onToggleDiscard
+  // PlayerHand3D's own card clicks already call.
+  const tradeableTotal =
+    RESOURCE_ORDER.reduce((sum, r) => sum + resources[r], 0) + COMMODITY_ORDER.reduce((sum, c) => sum + commodities[c], 0)
+  const stacked = tradeableTotal > HAND_STACK_THRESHOLD
+
+  const stepperRow = (type: ResourceType | CommodityType, label: string, total: number) => {
+    if (total === 0) return null
+    const selectedOfType = discardSelection.filter((id) => id.startsWith(`${type}-`)).length
+    const addOne = () => {
+      for (let i = 0; i < total; i++) {
+        const id = `${type}-${i}`
+        if (!discardSelection.includes(id)) {
+          onToggleDiscard(id)
+          return
+        }
+      }
+    }
+    const removeOne = () => {
+      for (let i = total - 1; i >= 0; i--) {
+        const id = `${type}-${i}`
+        if (discardSelection.includes(id)) {
+          onToggleDiscard(id)
+          return
+        }
+      }
+    }
+    return (
+      <div key={type} className="flex items-center justify-between gap-2 text-xs text-white/80">
+        <span>{label}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={selectedOfType === 0}
+            onClick={removeOne}
+            className="h-5 w-5 rounded bg-white/10 font-display text-sm leading-none hover:bg-white/20 disabled:opacity-30"
+          >
+            −
+          </button>
+          <span className="w-8 text-center font-data">
+            {selectedOfType}/{total}
+          </span>
+          <button
+            type="button"
+            disabled={selectedOfType >= total}
+            onClick={addOne}
+            className="h-5 w-5 rounded bg-white/10 font-display text-sm leading-none hover:bg-white/20 disabled:opacity-30"
+          >
+            +
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -44,6 +123,12 @@ export function DiscardPanel({
             <p className="mt-2 font-display text-lg text-white">
               {remaining > 0 ? `Select ${remaining} more card${remaining === 1 ? '' : 's'} to discard` : 'Ready to discard'}
             </p>
+            {stacked && (
+              <div className="mt-3 flex flex-col gap-1.5 text-left">
+                {RESOURCE_ORDER.map((resource) => stepperRow(resource, RESOURCE_LABELS[resource], resources[resource]))}
+                {COMMODITY_ORDER.map((commodity) => stepperRow(commodity, COMMODITY_LABELS[commodity], commodities[commodity]))}
+              </div>
+            )}
             <button
               type="button"
               disabled={remaining !== 0}

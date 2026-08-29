@@ -1,7 +1,19 @@
 import { useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
-import { TILE_HEIGHT, type HexTileData } from '../data/hexBoard'
+import {
+  BIOME_ELEVATION,
+  TILE_HEIGHT,
+  TILE_OVERLAY_ELEVATION,
+  TILE_OVERLAY_ELEVATION_SEA,
+  type HexTileData,
+} from '../data/hexBoard'
+
+// Sea uses its own separate (much lower) model — see
+// TILE_OVERLAY_ELEVATION_SEA's own comment in hexBoard.ts.
+function overlayElevationFor(biome: HexTileData['biome']): number {
+  return biome === 'sea' ? TILE_OVERLAY_ELEVATION_SEA : TILE_OVERLAY_ELEVATION
+}
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
 import { useClonedModel } from '../hooks/useClonedModel'
 import { ModelErrorBoundary } from './ModelErrorBoundary'
@@ -27,7 +39,7 @@ const PIRATE_HIGHLIGHT_COLOR = '#1ea6a6'
 // primitive itself needs no further offset — its OWN y=0 (chest height)
 // sits at the outer group's origin, and the outer group's origin is
 // already placed half a (scaled) model-height above the stand surface.
-const ROBBER_MODEL_HALF_HEIGHT = 0.9512
+const ROBBER_MODEL_HALF_HEIGHT = -0.2512
 const ROBBER_SCALE = 0.23
 
 // Sits above where a number token would be, so it visually stacks on top —
@@ -58,7 +70,7 @@ useGLTF.preload(robberModelUrl)
 function RobberToken({ tile, yOffset = 0 }: { tile: HexTileData; yOffset?: number }) {
   const instance = useClonedModel(robberModelUrl)
   return (
-    <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y + yOffset, tile.z]}>
+    <group position={[tile.x + ROBBER_X_OFFSET, ROBBER_Y + BIOME_ELEVATION[tile.biome] + yOffset, tile.z]}>
       <primitive object={instance} scale={ROBBER_SCALE} />
     </group>
   )
@@ -70,9 +82,9 @@ function RobberToken({ tile, yOffset = 0 }: { tile: HexTileData; yOffset?: numbe
 // trees) around it, so the tile itself needs to read as "the robber is
 // here" at a glance.
 function RobberTileGlow({ tile, color = ROBBER_HIGHLIGHT_COLOR }: { tile: HexTileData; color?: string }) {
-  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.060)
+  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.02)
   return (
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, overlayElevationFor(tile.biome), tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh geometry={glowGeometry}>
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.9} transparent opacity={0.45} depthWrite={false} />
       </mesh>
@@ -83,17 +95,15 @@ function RobberTileGlow({ tile, color = ROBBER_HIGHLIGHT_COLOR }: { tile: HexTil
 function RobberTileTarget({ tile, onSelect }: { tile: HexTileData; onSelect: () => void }) {
   const [hovered, setHovered] = useState(false)
 
-  // Both the hit target and the glow use terrain-CONFORMING geometry rather
-  // than a flat disc. A flat overlay at any single height either floats above
-  // the raised rim or sinks into the terraces; this hugs every fold. The two
-  // are lifted by different amounts so the glow never z-fights the picker.
+  // Flat overlays at TILE_OVERLAY_ELEVATION (empirically measured against
+  // the real authored models' own rim — see that constant's own comment).
+  // The two are lifted by different amounts so the glow never z-fights the
+  // picker.
   const pickGeometry = getTileOverlay(tile.biome, tile.id, 0.01)
   const glowGeometry = getTileOverlay(tile.biome, tile.id, 0.016)
 
   return (
-    // Same origin and scale as the tile mesh in CatanBoard, so terrain-local
-    // heights line up exactly.
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, overlayElevationFor(tile.biome), tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh
         geometry={pickGeometry}
         onPointerOver={(event: ThreeEvent<PointerEvent>) => {

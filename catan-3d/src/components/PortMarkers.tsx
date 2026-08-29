@@ -26,7 +26,7 @@ const DOCK_OFFSET = -0.06
 // authoring convention as every other model in this pack — so lifting by
 // half that (scaled) height brings its own base down to local y=0, the
 // same "resting surface" every other group in this file already assumes.
-const DOCK_MODEL_HALF_HEIGHT = 0.0001
+const DOCK_MODEL_HALF_HEIGHT = 0.6001
 const DOCK_SCALE = 0.35
 const DOCK_Y = DOCK_MODEL_HALF_HEIGHT * DOCK_SCALE
 

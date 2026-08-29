@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
-import { TILE_HEIGHT, STRUCTURE_ELEVATION } from '../data/hexBoard'
+import { TILE_HEIGHT, STRUCTURE_ELEVATION, TILE_OVERLAY_ELEVATION_SEA } from '../data/hexBoard'
 import type { BoardEdge, BoardGraph, BoardVertex } from '../data/boardGraph'
 import {
   IMPROVEMENT_TRACK_ORDER,
@@ -11,7 +11,7 @@ import {
   type Player,
   type PlayerColorToken,
 } from '../game/types'
-import { CityModel, RoadModel, SettlementModel } from './GamePieces'
+import { CityModel, RoadModel, ShipModel, SettlementModel } from './GamePieces'
 import type { HoverChangedPayload } from '../multiplayer/useRoomChannel'
 
 // What a vertex/edge slot reports on hover — vertexId/edgeId are mutually
@@ -37,6 +37,13 @@ const CITY_WALL_HEIGHT = 0.16
 
 const SETTLEMENT_GLOW = '#7fe7ff'
 const ROAD_GLOW = '#ffd27f'
+const SHIP_GLOW = '#7fe7ff'
+// A ship sits over water, not land — TILE_HEIGHT/2 + STRUCTURE_ELEVATION
+// (every other piece's height) is calibrated against the tallest LAND
+// biome and would float a ship well above the real water surface. A small
+// lift above TILE_OVERLAY_ELEVATION_SEA (the water surface's own measured
+// height) keeps it looking like it's actually floating.
+const SHIP_ELEVATION = TILE_OVERLAY_ELEVATION_SEA + 0.03
 
 // A ghost preview needs SOME piece geometry to borrow — GhostModel below
 // immediately overwrites every mesh's material with the shared hologram
@@ -209,6 +216,7 @@ const EdgeSlot = memo(function EdgeSlot({
   b,
   ownerId,
   ownerColorToken,
+  isSeaEdge,
   onBuild,
   locked,
   pickerActive,
@@ -221,6 +229,10 @@ const EdgeSlot = memo(function EdgeSlot({
   b: BoardVertex
   ownerId: number | undefined
   ownerColorToken: PlayerColorToken | undefined
+  // An edge bordering at least one Sea tile needs a ship instead of a road
+  // (CN3083) — App.tsx's seaEdgeIds decides this once per edge, not
+  // per-render here, since it needs the board's own tile biomes to answer.
+  isSeaEdge: boolean
   onBuild: (edgeId: string) => void
   locked: boolean
   // Cities & Knights Diplomacy — true while the LOCAL viewer has an active
@@ -229,7 +241,8 @@ const EdgeSlot = memo(function EdgeSlot({
   // exists" branch below normally renders with no hitbox at all; this prop
   // re-opens exactly that one hitbox for Diplomacy's pick, reusing the same
   // onBuild callback ordinary road placement already uses rather than a
-  // second callback prop.
+  // second callback prop. Diplomacy only ever targets a ROAD (CN3087), so
+  // this never applies on a sea edge regardless of what pickerActive says.
   pickerActive: boolean
   remoteHighlighted: boolean
   remoteColor: string | undefined
@@ -238,19 +251,22 @@ const EdgeSlot = memo(function EdgeSlot({
   const [hovered, setHovered] = useState(false)
   const length = Math.hypot(b.x - a.x, b.z - a.z)
   const angle = Math.atan2(b.x - a.x, b.z - a.z)
+  const elevation = isSeaEdge ? SHIP_ELEVATION : TILE_HEIGHT / 2 + STRUCTURE_ELEVATION
+  const glowColor = isSeaEdge ? SHIP_GLOW : ROAD_GLOW
+  const PieceModel = isSeaEdge ? ShipModel : RoadModel
 
-  // A road has already been built here — render it permanently in the
+  // A road/ship has already been built here — render it permanently in the
   // owner's color instead of a hoverable hitbox, UNLESS a Diplomacy pick is
-  // active, in which case it also gets an (invisible) clickable hitbox so
-  // App.tsx's buildRoadRaw can route the click to playDiplomacy instead of
-  // the ordinary build flow.
+  // active on a LAND edge, in which case it also gets an (invisible)
+  // clickable hitbox so App.tsx's buildRoadRaw can route the click to
+  // playDiplomacy instead of the ordinary build flow.
   if (ownerId != null) {
     // Same data-integrity-only fallback as VertexSlot above.
     const colorToken = ownerColorToken ?? 'player-1'
     return (
-      <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
-        <RoadModel colorToken={colorToken} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
-        {pickerActive && !locked && (
+      <group position={[edge.x, elevation, edge.z]} rotation={[0, angle, 0]}>
+        <PieceModel colorToken={colorToken} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        {pickerActive && !isSeaEdge && !locked && (
           <mesh
             onClick={(event: ThreeEvent<MouseEvent>) => {
               event.stopPropagation()
@@ -266,7 +282,7 @@ const EdgeSlot = memo(function EdgeSlot({
   }
 
   return (
-    <group position={[edge.x, TILE_HEIGHT / 2 + STRUCTURE_ELEVATION, edge.z]} rotation={[0, angle, 0]}>
+    <group position={[edge.x, elevation, edge.z]} rotation={[0, angle, 0]}>
       <mesh
         onPointerOver={
           locked
@@ -299,16 +315,16 @@ const EdgeSlot = memo(function EdgeSlot({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* ghost road: the real timber-log model, holographic — same
+      {/* ghost road/ship: the real model, holographic — same
           own-hover-vs-active-player-color split as VertexSlot above. */}
       {hovered && (
-        <GhostModel color={ROAD_GLOW}>
-          <RoadModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        <GhostModel color={glowColor}>
+          <PieceModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
         </GhostModel>
       )}
       {remoteHighlighted && (
-        <GhostModel color={remoteColor ?? ROAD_GLOW}>
-          <RoadModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
+        <GhostModel color={remoteColor ?? glowColor}>
+          <PieceModel colorToken={GHOST_GEOMETRY_COLOR} span={length * (EDGE_LENGTH_SCALE - 0.05)} />
         </GhostModel>
       )}
     </group>
@@ -329,8 +345,18 @@ interface BoardInteractionsProps {
   // the ring on the exact right city, same shape as metropolisVertexIds
   // just above.
   cityWalls: ReadonlySet<string>
+  // CN3083 ships — a separate piece type from roads, restricted to edges
+  // bordering the sea (seaEdgeIds below decides which). Both maps use the
+  // same "edge id -> owning player id" shape; an edge is only ever a key in
+  // ONE of the two, never both.
+  ships: Record<string, number>
+  // Which edges border at least one Sea tile — App.tsx's own precomputed
+  // Set (needs the board's tile biomes, not available here). Decides per
+  // edge whether it renders/builds as a ship or a road.
+  seaEdgeIds: ReadonlySet<string>
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
+  onBuildShip: (edgeId: string) => void
   locked?: boolean
   // Cities & Knights Diplomacy — see EdgeSlot's own `pickerActive` comment.
   // Scoped to the LOCAL viewer only (App.tsx passes
@@ -349,11 +375,14 @@ export const BoardInteractions = memo(function BoardInteractions({
   graph,
   settlements,
   roads,
+  ships,
+  seaEdgeIds,
   players,
   metropolisVertexIds,
   cityWalls,
   onBuildSettlement,
   onBuildRoad,
+  onBuildShip,
   locked = false,
   roadPickerActive = false,
   remoteHover,
@@ -390,22 +419,27 @@ export const BoardInteractions = memo(function BoardInteractions({
           onHoverChange={onHoverChange}
         />
       ))}
-      {graph.edges.map((edge) => (
-        <EdgeSlot
-          key={edge.id}
-          edge={edge}
-          a={graph.vertexById.get(edge.a)!}
-          b={graph.vertexById.get(edge.b)!}
-          ownerId={roads[edge.id]}
-          ownerColorToken={roads[edge.id] != null ? colorTokenByPlayerId.get(roads[edge.id]!) : undefined}
-          onBuild={onBuildRoad}
-          locked={locked}
-          pickerActive={roadPickerActive}
-          remoteHighlighted={remoteHover.edgeId === edge.id}
-          remoteColor={remoteColor}
-          onHoverChange={onHoverChange}
-        />
-      ))}
+      {graph.edges.map((edge) => {
+        const isSeaEdge = seaEdgeIds.has(edge.id)
+        const ownerId = isSeaEdge ? ships[edge.id] : roads[edge.id]
+        return (
+          <EdgeSlot
+            key={edge.id}
+            edge={edge}
+            a={graph.vertexById.get(edge.a)!}
+            b={graph.vertexById.get(edge.b)!}
+            ownerId={ownerId}
+            ownerColorToken={ownerId != null ? colorTokenByPlayerId.get(ownerId) : undefined}
+            isSeaEdge={isSeaEdge}
+            onBuild={isSeaEdge ? onBuildShip : onBuildRoad}
+            locked={locked}
+            pickerActive={roadPickerActive}
+            remoteHighlighted={remoteHover.edgeId === edge.id}
+            remoteColor={remoteColor}
+            onHoverChange={onHoverChange}
+          />
+        )
+      })}
     </group>
   )
 })

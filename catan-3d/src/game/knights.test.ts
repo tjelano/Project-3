@@ -124,10 +124,11 @@ describe('canBuildCityWall', () => {
     const [player] = createInitialPlayers(1)
     player.resources = { ...emptyResources(), brick: 2 }
     const settlements: Record<string, Building> = { V1: { ownerId: player.id, type: 'city' } }
-    expect(canBuildCityWall(player, 'V1', settlements, 0)).toBe(true)
-    expect(canBuildCityWall(player, 'V1', settlements, 3)).toBe(false) // board-wide cap hit
+    const noWater = new Set<string>()
+    expect(canBuildCityWall(player, 'V1', settlements, 0, noWater)).toBe(true)
+    expect(canBuildCityWall(player, 'V1', settlements, 3, noWater)).toBe(false) // board-wide cap hit
     player.cityWalls = ['V1']
-    expect(canBuildCityWall(player, 'V1', settlements, 1)).toBe(false) // already walled
+    expect(canBuildCityWall(player, 'V1', settlements, 1, noWater)).toBe(false) // already walled
   })
 
   it('rejects a settlement (not yet a city) or a vertex owned by someone else', () => {
@@ -137,8 +138,16 @@ describe('canBuildCityWall', () => {
       V1: { ownerId: player.id, type: 'settlement' },
       V2: { ownerId: 999, type: 'city' },
     }
-    expect(canBuildCityWall(player, 'V1', settlements, 0)).toBe(false)
-    expect(canBuildCityWall(player, 'V2', settlements, 0)).toBe(false)
+    const noWater = new Set<string>()
+    expect(canBuildCityWall(player, 'V1', settlements, 0, noWater)).toBe(false)
+    expect(canBuildCityWall(player, 'V2', settlements, 0, noWater)).toBe(false)
+  })
+
+  it('rejects a city on a vertex that touches water', () => {
+    const [player] = createInitialPlayers(1)
+    player.resources = { ...emptyResources(), brick: 2 }
+    const settlements: Record<string, Building> = { V1: { ownerId: player.id, type: 'city' } }
+    expect(canBuildCityWall(player, 'V1', settlements, 0, new Set(['V1']))).toBe(false)
   })
 })
 

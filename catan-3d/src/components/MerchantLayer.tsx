@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
-import { TILE_HEIGHT, type Biome, type HexTileData } from '../data/hexBoard'
+import { BIOME_ELEVATION, TILE_HEIGHT, TILE_OVERLAY_ELEVATION, type Biome, type HexTileData } from '../data/hexBoard'
 import { getTileEdgeOverlay, getTileOverlay } from '../three/hexTerrain'
 import type { Building } from '../game/types'
 
@@ -42,7 +42,7 @@ const MERCHANT_X_OFFSET = -0.55
 
 function MerchantToken({ tile }: { tile: HexTileData }) {
   return (
-    <mesh position={[tile.x + MERCHANT_X_OFFSET, MERCHANT_Y, tile.z]}>
+    <mesh position={[tile.x + MERCHANT_X_OFFSET, MERCHANT_Y + BIOME_ELEVATION[tile.biome], tile.z]}>
       <coneGeometry args={[MERCHANT_CONE_RADIUS, MERCHANT_CONE_HEIGHT, 6]} />
       <meshStandardMaterial color={MERCHANT_MARKER_COLOR} emissive={MERCHANT_MARKER_COLOR} emissiveIntensity={0.5} />
     </mesh>
@@ -53,9 +53,9 @@ function MerchantToken({ tile }: { tile: HexTileData }) {
 // RobberTileGlow — the placeholder marker alone can get lost against taller
 // terrain, so the tile itself needs to read as "the Merchant is here" too.
 function MerchantTileGlow({ tile }: { tile: HexTileData }) {
-  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.06)
+  const glowGeometry = getTileEdgeOverlay(tile.biome, tile.id, 0.02)
   return (
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, TILE_OVERLAY_ELEVATION, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh geometry={glowGeometry}>
         <meshStandardMaterial
           color={MERCHANT_HIGHLIGHT_COLOR}
@@ -81,7 +81,7 @@ function MerchantTileTarget({ tile, onSelect }: { tile: HexTileData; onSelect: (
   const glowGeometry = getTileOverlay(tile.biome, tile.id, 0.016)
 
   return (
-    <group position={[tile.x, TILE_HEIGHT / 2, tile.z]} scale={[0.985, 1, 0.985]}>
+    <group position={[tile.x, TILE_OVERLAY_ELEVATION, tile.z]} scale={[0.985, 1, 0.985]}>
       <mesh
         geometry={pickGeometry}
         onPointerOver={(event: ThreeEvent<PointerEvent>) => {

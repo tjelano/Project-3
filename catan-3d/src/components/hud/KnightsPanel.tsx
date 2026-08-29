@@ -1,4 +1,5 @@
 import { KNIGHT_STRENGTH_LABELS, KNIGHT_STRENGTH_ORDER, type KnightPiece, type Player } from '../../game/types'
+import { CollapsibleSection } from './CollapsibleSection'
 
 export interface KnightsPanelProps {
   player: Player
@@ -48,35 +49,47 @@ export function KnightsPanel({
   onCancelAction,
 }: KnightsPanelProps) {
   const actionArmed = recruitPending || armedKnightId != null
-  const slots: { strength: (typeof KNIGHT_STRENGTH_ORDER)[number]; knight: KnightPiece | undefined }[] = []
+  // One row per OWNED knight (each needs its own Activate/Promote/Move/etc
+  // controls), plus at most one combined "N/total" row per strength for the
+  // remaining not-yet-recruited capacity — rendering that capacity as one
+  // empty slot per remaining token used to repeat the same tier label and
+  // Recruit button N times in a row.
+  const slots: { strength: (typeof KNIGHT_STRENGTH_ORDER)[number]; knight: KnightPiece | undefined; ownedCount?: number; total?: number }[] = []
   for (const strength of KNIGHT_STRENGTH_ORDER) {
     const owned = player.knightPieces.filter((k) => k.strength === strength)
     const inSupply = player.knightSupply[strength]
-    for (let i = 0; i < owned.length; i++) slots.push({ strength, knight: owned[i] })
-    for (let i = 0; i < inSupply; i++) slots.push({ strength, knight: undefined })
+    for (const knight of owned) slots.push({ strength, knight })
+    if (inSupply > 0) slots.push({ strength, knight: undefined, ownedCount: owned.length, total: owned.length + inSupply })
   }
 
   return (
-    <div className="pointer-events-auto flex w-full flex-col gap-2 rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-body text-[10px] tracking-[0.2em] text-white/60 uppercase">Knights</span>
-        {actionArmed && (
-          <button
-            type="button"
-            onClick={onCancelAction}
-            className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-white/80 hover:bg-white/20"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
+    <div className="pointer-events-auto w-full rounded-2xl border border-glass-border bg-glass p-3 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <CollapsibleSection
+        icon="⚔️"
+        label="Knights"
+        defaultOpen
+        headerExtra={
+          actionArmed && (
+            <button
+              type="button"
+              onClick={onCancelAction}
+              className="rounded bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-white/80 hover:bg-white/20"
+            >
+              Cancel
+            </button>
+          )
+        }
+      >
       <div className="flex flex-col gap-1.5">
         {slots.map((slot, index) => (
           <div
             key={slot.knight?.id ?? `empty-${slot.strength}-${index}`}
             className="flex items-center justify-between gap-2 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] text-white/80"
           >
-            <span>{KNIGHT_STRENGTH_LABELS[slot.strength]}</span>
+            <span className="flex items-center gap-2">
+              <span className="w-[74px]">{KNIGHT_STRENGTH_LABELS[slot.strength]}</span>
+              {!slot.knight && <span className="text-white/40">{slot.ownedCount}/{slot.total}</span>}
+            </span>
             {/* onRecruit always produces a basic-strength knight (no strength
                 parameter) — showing this on an empty strong/mighty slot would
                 misleadingly suggest clicking it recruits that strength. */}
@@ -151,6 +164,7 @@ export function KnightsPanel({
           </div>
         ))}
       </div>
+      </CollapsibleSection>
     </div>
   )
 }

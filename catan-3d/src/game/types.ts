@@ -268,6 +268,23 @@ export const COMMODITY_LABELS: Record<CommodityType, string> = {
   coin: 'Coin',
 }
 
+// Player-to-player trades (unlike bank trades) can offer/want either a
+// resource or a commodity — these three helpers are the single place that
+// decides which bucket a card type belongs to, shared by the trade reducer,
+// TradeModal's own gating, and the offer-display components, so the
+// COMMODITY_ORDER membership check never has to be re-derived per call site.
+export function isCommodityType(type: ResourceType | CommodityType): type is CommodityType {
+  return (COMMODITY_ORDER as readonly string[]).includes(type)
+}
+
+export function cardLabel(type: ResourceType | CommodityType): string {
+  return isCommodityType(type) ? COMMODITY_LABELS[type] : RESOURCE_LABELS[type]
+}
+
+export function ownedCardCount(player: { resources: Resources; commodities: Commodities }, type: ResourceType | CommodityType): number {
+  return isCommodityType(type) ? player.commodities[type] : player.resources[type]
+}
+
 // A single card the robber or Taxation can steal — either pool, picked
 // uniformly across a victim's whole hand. The two string-literal unions
 // never overlap, so RESOURCE_ORDER.includes(x) unambiguously tells you

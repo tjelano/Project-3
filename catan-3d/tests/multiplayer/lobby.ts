@@ -1,4 +1,4 @@
-import '../setup'
+import '../../src/testHarness'
 import type { Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 

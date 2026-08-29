@@ -20,9 +20,14 @@ Both browser tabs run against `vite --mode test`, reading a new `catan-3d/.env.t
 
 Two separate Playwright **browser contexts** (not two tabs sharing one context) — each gets its own page, matching how two genuinely different real users would connect. `clientId` is already `crypto.randomUUID()`-generated per mount (not derived from any shared storage), so this isn't strictly required for correctness today, but it removes any future footgun if that ever changes.
 
-Flow: tab A (host) creates a room; tab B (joiner) joins it — the same flow already verified manually via Playwright earlier in this project, blocked only by placeholder credentials until now. Once both tabs report `gameStarted`, the runner switches to script-driven mode.
+**Two distinct driving mechanisms, for two distinct phases:**
 
-**Startup sanity check:** before running any scenario, the runner confirms both tabs actually reached a connected Realtime state. If `.env.test.local` is missing or wrong, this fails immediately with a clear "can't connect to test Supabase project" message — not a mysterious timeout on the first scenario that looks like a convergence bug but is actually a setup problem.
+- **Pre-game lobby setup (one-time per run): real UI navigation.** Room creation, reading the room code, joining, and the House Rules/Seafarers toggles all happen in `GameSetupMenu.tsx`/`RoomLobby.tsx` — components that render *instead of* `App`'s main tree while `gameStarted` is still false. The test hook (below) is mounted inside `App()`, so it structurally cannot see any of this; there's no way to hook it without adding a second, earlier hook to a different component tree. Simplest fix: drive this part the same way it was already exercised manually via Playwright earlier in this project — fill the name/room-code fields, click Host/Join/Start, read the room code via the existing "Show room code" reveal + `.room-code-font` selector. This is a *one-time* sequence per scenario run, not the repeated per-action stream the test hook (below) exists to avoid clicking through — using real UI here doesn't undercut that reasoning.
+- **In-game actions (dozens per scenario): the test hook**, once both tabs report `gameStarted`.
+
+**What's actually been proven vs. what hasn't.** The UI navigation above (buttons found, forms filled, room code read) was confirmed working manually earlier in this project. What was *not* confirmed: the underlying Realtime connection completing end-to-end — it failed at `CHANNEL_ERROR`/DNS resolution (this dev environment's placeholder Supabase credentials) before presence could ever sync between the two tabs. That both tabs actually converge once pointed at a real backend is this design's hypothesis, not something already proven — it's exactly what the dedicated test project is for.
+
+**Startup sanity check:** before running any scenario, the runner confirms both tabs' `connectionStatus` (already tracked in `App.tsx` today, reused here — not new detection logic) reads `'connected'`. If `.env.test.local` is missing or wrong, this fails immediately with a clear "can't connect to test Supabase project" message — not a mysterious timeout on the first scenario that looks like a convergence bug but is actually a setup problem.
 
 ## Test hook
 
@@ -41,7 +46,7 @@ window.__catanTestHarness = {
     // to the existing raw-action function already defined in App.tsx
   },
   getState: () => GameState,
-  getStatus: () => { gameStarted: boolean; isMyTurn: boolean; roomCode: string | null },
+  getStatus: () => { gameStarted: boolean; isMyTurn: boolean; connectionStatus: string },
   getLastWarning: () => string | null,
 }
 ```

@@ -84,6 +84,26 @@ describe('calculateLongestRoad', () => {
     expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {}, knightOwnerByVertex)).toBe(5)
   })
 
+  it('is not blocked by an unowned empty vertex', () => {
+    const edges = chain('A', 'B', 'C', 'D', 'E', 'F') // 5 edges
+    const settlements: Record<string, Building> = { C: undefined as unknown as Building } // explicitly undefined
+    expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), settlements)).toBe(5)
+  })
+
+  it('is not blocked by an unowned empty knight vertex', () => {
+    const edges = chain('A', 'B', 'C')
+    expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {}, new Map([['B', undefined as unknown as number]]))).toBe(2)
+  })
+
+  it('evaluates adjacency without crashing on disconnected vertices', () => {
+    const edges = chain('A', 'B', 'C')
+    // An extra, unowned edge elsewhere in the graph shouldn't affect (or
+    // crash) the longest-road walk for the owned chain.
+    const extraGraph = { edges: [...edges, edge('E', 'X', 'Y')] } as BoardGraph
+    const roads = ownedBy(1, edges) // player doesn't own E
+    expect(calculateLongestRoad(1, roads, extraGraph, {})).toBe(2)
+  })
+
   it('with no knightOwnerByVertex argument, behaves exactly as before', () => {
     const edges = chain('A', 'B', 'C', 'D', 'E', 'F')
     expect(calculateLongestRoad(1, ownedBy(1, edges), graphOf(edges), {})).toBe(5)
@@ -169,6 +189,11 @@ describe('pickTrophyHolder', () => {
 
   it('picks the strongest qualifying challenger when the holder is broken', () => {
     expect(pickTrophyHolder(1, new Map([[1, 2], [2, 5], [3, 8]]), LR)).toBe(3)
+  })
+
+  it('leaves the trophy unclaimed when the holder drops below threshold and multiple challengers tie for the lead', () => {
+    expect(pickTrophyHolder(1, new Map([[1, 4], [2, 5], [3, 5]]), LR)).toBeNull()
+    expect(pickTrophyHolder(1, new Map([[1, 4], [3, 5], [2, 5]]), LR)).toBeNull()
   })
 
   it('treats a holder who vanished from the counts as unqualified', () => {

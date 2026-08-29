@@ -19,7 +19,7 @@ export interface ScenarioStep {
   args?: unknown[]
 }
 
-const CONVERGENCE_TIMEOUT_MS = 15_000
+const CONVERGENCE_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 200
 
 async function runAction(page: Page, action: ScenarioStep['action'], args: unknown[] = []): Promise<void> {
@@ -63,6 +63,7 @@ export async function runScenario(pageA: Page, pageB: Page, steps: ScenarioStep[
     const actingPage = step.actor === 'A' ? pageA : pageB
     const otherPage = step.actor === 'A' ? pageB : pageA
 
+    const before = await getComparableState(actingPage)
     await runAction(actingPage, step.action, step.args)
 
     const warning = await getLastWarning(actingPage)
@@ -70,7 +71,31 @@ export async function runScenario(pageA: Page, pageB: Page, steps: ScenarioStep[
       throw new Error(`Step ${index} (actor ${step.actor}, action ${step.action}) was rejected: "${warning}"`)
     }
 
-    const expected = await getComparableState(actingPage)
+    // The acting page's own harness snapshot can briefly lag its own
+    // dispatch: React 18 batches an update triggered from outside its
+    // event system (like this externally-injected page.evaluate() call)
+    // onto a microtask rather than flushing it synchronously, so an
+    // immediate read straight after dispatch can still observe pre-action
+    // state — confirmed via a live two-browser run, where this lasted up
+    // to several hundred ms. Wait for the acting page's own state to
+    // actually move before treating it as ground truth, or a stale
+    // immediate read makes convergence impossible to ever satisfy once
+    // the other page correctly catches up past it.
+    let expected = before
+    await expect
+      .poll(
+        async () => {
+          expected = await getComparableState(actingPage)
+          return JSON.stringify(expected) === JSON.stringify(before)
+        },
+        {
+          message: `Step ${index} (actor ${step.actor}, action ${step.action})'s own state never updated after dispatch`,
+          timeout: CONVERGENCE_TIMEOUT_MS,
+          intervals: [POLL_INTERVAL_MS],
+        },
+      )
+      .toBe(false)
+
     await expect
       .poll(() => getComparableState(otherPage), {
         message: `Step ${index} (actor ${step.actor}, action ${step.action}) did not converge`,

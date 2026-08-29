@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, type ElementRef, type RefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { OrbitControls } from '@react-three/drei'
@@ -28,7 +28,7 @@ export function OrbitTargetPan({
   controlsRef,
   enabled,
 }: {
-  controlsRef: RefObject<InstanceType<typeof OrbitControls> | null>
+  controlsRef: RefObject<ElementRef<typeof OrbitControls> | null>
   enabled: boolean
 }) {
   const { camera } = useThree()

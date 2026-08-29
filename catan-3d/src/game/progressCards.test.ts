@@ -66,9 +66,37 @@ describe('buildProgressCardDeck', () => {
     expect(deck.filter((c) => c === 'alchemy')).toHaveLength(2)
     expect(deck.filter((c) => c === 'engineering')).toHaveLength(1)
   })
+
+  it('handles missing quantity in composition (defaults to 0)', async () => {
+    // PROGRESS_CARD_DECK_COMPOSITION is a plain const export — overridden
+    // here via a getter spy (Vitest's supported way to stub a readonly ESM
+    // export) rather than mutating the real object, to verify the `?? 0`
+    // fallback on a composition entry that's missing its quantity.
+    const types = await import('./types')
+    const originalDeckComposition = types.PROGRESS_CARD_DECK_COMPOSITION
+
+    const mockComposition = {
+      ...originalDeckComposition,
+      science: {
+        ...originalDeckComposition.science,
+        alchemy: undefined as unknown as number,
+      },
+    }
+
+    vi.spyOn(types, 'PROGRESS_CARD_DECK_COMPOSITION', 'get').mockReturnValue(mockComposition)
+
+    const deck = buildProgressCardDeck('science')
+    expect(deck.filter((c) => c === 'alchemy')).toHaveLength(0)
+
+    vi.restoreAllMocks()
+  })
 })
 
 describe('isEligibleToDraw', () => {
+  it('negative levels never draw, handling edge cases', () => {
+    for (let redDie = 1; redDie <= 6; redDie++) expect(isEligibleToDraw(-1, redDie)).toBe(false)
+  })
+
   it('level 0 never draws, regardless of red die', () => {
     for (let redDie = 1; redDie <= 6; redDie++) expect(isEligibleToDraw(0, redDie)).toBe(false)
   })
@@ -110,6 +138,14 @@ describe('resolveEventDieDraws', () => {
     const players = [{ id: 1, cityImprovements: { science: 5, trade: 0, politics: 0 } }]
     const result = resolveEventDieDraws(players, 'science', 1, [], [1])
     expect(result.draws).toEqual([])
+    expect(result.remainingDeck).toEqual([])
+  })
+
+  it('ignores missing players from turnOrderIds without crashing', () => {
+    const players = [{ id: 1, cityImprovements: { science: 5, trade: 0, politics: 0 } }]
+    // turnOrderIds contains 99, which is not in the players array
+    const result = resolveEventDieDraws(players, 'science', 1, ['alchemy'], [99, 1])
+    expect(result.draws).toEqual([{ playerId: 1, card: 'alchemy' }])
     expect(result.remainingDeck).toEqual([])
   })
 })

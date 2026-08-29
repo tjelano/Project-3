@@ -214,9 +214,36 @@ describe('recruitableVertices', () => {
     const targets = recruitableVertices(1, graph, roads, settlements, new Map())
     expect(targets).toEqual(new Set(['A', 'B'])) // C excluded — occupied
   })
+
+  it('skips edges not owned by the player', () => {
+    const edges = [edge('AB', 'A', 'B'), edge('BC', 'B', 'C')]
+    const graph = graphOf(edges)
+    const roads = { ...ownedBy(1, [edges[0]]), ...ownedBy(2, [edges[1]]) }
+    const targets = recruitableVertices(1, graph, roads, {}, new Map())
+    expect(targets).toEqual(new Set(['A', 'B'])) // Only vertices from edge AB
+  })
+
+  it('excludes vertices already occupied by a knight', () => {
+    const edges = [edge('AB', 'A', 'B')]
+    const graph = graphOf(edges)
+    const roads = ownedBy(1, edges)
+    const knight: KnightPiece = { id: 'k1', ownerId: 1, strength: 'basic', active: false, vertexId: 'A' }
+    const knightsByVertex = knightsByVertexOf([knight])
+    const targets = recruitableVertices(1, graph, roads, {}, knightsByVertex)
+    expect(targets).toEqual(new Set(['B'])) // A is occupied
+  })
 })
 
 describe('knightMoveTargets', () => {
+  it('skips edges not owned by the player in adjacency', () => {
+    const edges = [edge('AB', 'A', 'B'), edge('BC', 'B', 'C')]
+    const graph = graphOf(edges)
+    const roads = { ...ownedBy(1, [edges[0]]), ...ownedBy(2, [edges[1]]) }
+    const knight: KnightPiece = { id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'A' }
+    const targets = knightMoveTargets(knight, graph, roads, {}, new Map())
+    expect(targets).toEqual(new Set(['B']))
+  })
+
   it('reaches empty vertices along the owner continuous route, passing through own pieces', () => {
     const edges = [edge('AB', 'A', 'B'), edge('BC', 'B', 'C'), edge('CD', 'C', 'D')]
     const graph = graphOf(edges)
@@ -236,6 +263,13 @@ describe('knightMoveTargets', () => {
     const settlements: Record<string, Building> = { B: { ownerId: 2, type: 'settlement' } }
     const targets = knightMoveTargets(knight, graph, roads, settlements, new Map())
     expect(targets).toEqual(new Set()) // B blocks, C unreachable
+  })
+
+  it('handles isolated knight with no roads correctly', () => {
+    const graph = graphOf([])
+    const knight: KnightPiece = { id: 'k1', ownerId: 1, strength: 'basic', active: true, vertexId: 'A' }
+    const targets = knightMoveTargets(knight, graph, {}, {}, new Map())
+    expect(targets).toEqual(new Set()) // No roads, nowhere to move
   })
 })
 
@@ -344,7 +378,10 @@ describe('resolveBarbarianAttack', () => {
   it('a tie for highest contributor awards no VP — both are marked tied, each draws a card instead', () => {
     const p1 = playerWithCities(1, [{ id: 'k1', ownerId: 1, strength: 'strong', active: true, vertexId: 'X' }]) // 2
     const p2 = playerWithCities(2, [{ id: 'k2', ownerId: 2, strength: 'strong', active: true, vertexId: 'Y' }]) // 2
-    const settlements = settlementsFor([{ vertexId: 'A', ownerId: 1, type: 'city' }]) // barbarian strength 1, defense 4, defenders win easily
+    const settlements = settlementsFor([
+      { vertexId: 'A', ownerId: 1, type: 'city' },
+      { vertexId: 'B', ownerId: 2, type: 'settlement' },
+    ]) // barbarian strength 1, defense 4, defenders win easily, settlement B is ignored
     const result = resolveBarbarianAttack([p1, p2], settlements)
     expect(result.defendersWin).toBe(true)
     expect(result.winners).toEqual(
@@ -386,9 +423,10 @@ describe('resolveBarbarianAttack', () => {
     const settlements = settlementsFor([
       { vertexId: 'A', ownerId: 1, type: 'city' },
       { vertexId: 'B', ownerId: 2, type: 'city' },
+      { vertexId: 'C', ownerId: 2, type: 'settlement' }, // Settlement should not be pillageable
     ])
     const result = resolveBarbarianAttack([p1, p2], settlements)
-    expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B'] }])
+    expect(result.pillageTargets).toEqual([{ playerId: 2, eligibleCityVertexIds: ['B'] }]) // C is ignored
   })
 
   it('skips a metropolis-only or cityless player when they are the lowest tier, cascading to the next tier', () => {

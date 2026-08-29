@@ -122,6 +122,8 @@ export function pickTrophyHolder(
     if (count > winnerCount) {
       winnerId = playerId
       winnerCount = count
+    } else if (count === winnerCount && winnerId !== prevHolderId) {
+      winnerId = null
     }
   }
 

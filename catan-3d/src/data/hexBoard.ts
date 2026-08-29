@@ -79,19 +79,6 @@ export type BoardShapeId =
   | 'bigBasic'
   | 'seafarersBasic'
 
-export const BOARD_SHAPE_LABELS: Record<BoardShapeId, string> = {
-  standard: 'Standard',
-  newfoundland: 'Found Island',
-  peanut: 'Twin Island',
-  bigPeanut: 'Big Peanut',
-  apocalypse: 'Apocalypse',
-  newIsland: 'New Island',
-  northAmerica: 'North America',
-  southAmerica: 'South America',
-  bigBasic: 'Big Basic',
-  seafarersBasic: 'Seafarers Basic',
-}
-
 // One land hex, addressed in "odd-q" vertical offset coordinates — the
 // standard scheme for column-based hex grids. Even columns sit at integer
 // multiples of ROW_SPACING; odd columns are shifted down by half a row (see

@@ -8,9 +8,34 @@ import type { Actor } from './harness'
 import type { TestHarnessGraph, CatanTestHarness } from '../../src/testHarness'
 import type { Biome } from '../../src/data/hexBoard'
 
+// Seafarers: an edge is open ocean when EVERY flanking tile is sea (as
+// opposed to "coastal," where at least one flanking tile is land) — the
+// same distinction App.tsx's own coastalEdgeIds computes at runtime. This
+// matters because buildRoad now defaults onto coastal edges (see App.tsx's
+// buildRoadRaw); only true open ocean forces buildShip, so anything picking
+// a road-buildable edge has to use this exact classification rather than
+// "any edge touching a sea tile."
+function isOpenOceanEdge(graph: TestHarnessGraph, tileById: Map<string, { biome: Biome }>, edgeId: string): boolean {
+  const tileIds = graph.edgeTileIds[edgeId] ?? []
+  return tileIds.length > 0 && tileIds.every((id) => tileById.get(id)?.biome === 'sea')
+}
+
+// The first ROAD-buildable edge touching `vertexId` — skips open ocean, not
+// just "the first edge in the list": on a non-Seafarers board (no sea
+// tiles at all) this is every caller's original behavior unchanged, but on
+// a Seafarers board a coastal vertex's first-listed edge can easily BE open
+// ocean, which buildRoad rejects (CodeRabbit review, PR #74 — a real gap
+// once ship-longest-route.spec.ts started calling this on Seafarers
+// vertices; the two live runs that passed before this fix just got lucky
+// on vertex-edge ordering, not proof the gap was safe). A land-touching
+// vertex always has at least 2 non-open-ocean edges (every edge bordering
+// its land tile has that tile as a non-sea flanking tile), so this never
+// throws for a vertex findBestBiomeVertex/findShipCapeCandidates would
+// actually hand it.
 export function firstEdgeAt(graph: TestHarnessGraph, vertexId: string): string {
-  const edgeId = graph.vertexEdgeIds[vertexId]?.[0]
-  if (!edgeId) throw new Error(`No edge found touching vertex ${vertexId}`)
+  const tileById = new Map(graph.tiles.map((t) => [t.id, t]))
+  const edgeId = (graph.vertexEdgeIds[vertexId] ?? []).find((id) => !isOpenOceanEdge(graph, tileById, id))
+  if (!edgeId) throw new Error(`No road-buildable (non-open-ocean) edge found touching vertex ${vertexId}`)
   return edgeId
 }
 
@@ -94,6 +119,96 @@ export function findBestBiomeVertex(
 
 export function pageForActor(pageA: Page, pageB: Page, actor: Actor): Page {
   return actor === 'A' ? pageA : pageB
+}
+
+// A "cape": a legal settlement spot (touches at least one land tile) that
+// ALSO has at least one open-ocean edge of its own — a vertex where two sea
+// tiles meet a land tile. Landing a settlement here lets the setup-phase
+// free piece (CN3083 p.3: a coastal starting settlement may take a ship
+// instead of a road) be a ship on the very first hop, so a chain walked
+// from it can stay ALL-ship end to end. That matters because
+// calculateLongestRoad (game/trophies.ts) only lets a road/ship type
+// change count as one continuous route at a vertex where the player has a
+// building — an all-ship chain sidesteps that rule entirely instead of
+// needing a second settlement placed mid-chain to bridge a type change.
+// Returns every candidate (not just the best), ranked by forest/pasture
+// exposure (lumber/wool — SHIP_COST) so a caller can fall back to the next
+// candidate if the best one's local sea pocket turns out too shallow for
+// the chain length it needs.
+export function findShipCapeCandidates(
+  graph: TestHarnessGraph,
+  occupied: ReadonlySet<string>,
+): { vertexId: string; firstShipEdgeId: string }[] {
+  const tileById = new Map(graph.tiles.map((t) => [t.id, t]))
+  const candidates: { vertexId: string; firstShipEdgeId: string; score: number }[] = []
+  for (const vertex of graph.vertices) {
+    if (occupied.has(vertex.id)) continue
+    const touchingTiles = (graph.vertexTileIds[vertex.id] ?? [])
+      .map((id) => tileById.get(id))
+      .filter((t): t is NonNullable<typeof t> => t != null)
+    if (!touchingTiles.some((t) => t.biome !== 'sea')) continue
+    const firstShipEdgeId = (graph.vertexEdgeIds[vertex.id] ?? []).find((id) => isOpenOceanEdge(graph, tileById, id))
+    if (!firstShipEdgeId) continue
+    const score = touchingTiles.filter((t) => t.biome === 'forest' || t.biome === 'pasture').length
+    candidates.push({ vertexId: vertex.id, firstShipEdgeId, score })
+  }
+  candidates.sort((a, b) => b.score - a.score)
+  return candidates
+}
+
+// Walks a chain of exactly `length` connected open-ocean edges, starting
+// from `startEdgeId` (already known to touch `startVertexId`). DFS with
+// backtracking, not a greedy walk — a sea-ring vertex can have as few as 2
+// usable neighbors, so a purely greedy pick can dead-end short of `length`
+// even when a full-length path exists via a different branch. Returns null
+// (not a throw) when no full-length chain exists from this start — expected
+// for a cape whose local sea pocket is too shallow, not an error; callers
+// like findShipCapeWithChain below try the next candidate instead.
+export function findShipChain(
+  graph: TestHarnessGraph,
+  startVertexId: string,
+  startEdgeId: string,
+  length: number,
+): string[] | null {
+  const tileById = new Map(graph.tiles.map((t) => [t.id, t]))
+  const edgeById = new Map(graph.edges.map((e) => [e.id, e]))
+  const otherEndOf = (edgeId: string, vertexId: string): string => {
+    const edge = edgeById.get(edgeId)!
+    return edge.a === vertexId ? edge.b : edge.a
+  }
+
+  const walk = (vertexId: string, path: string[], visitedVertices: Set<string>): string[] | null => {
+    if (path.length === length) return path
+    for (const edgeId of graph.vertexEdgeIds[vertexId] ?? []) {
+      if (path.includes(edgeId)) continue
+      if (!isOpenOceanEdge(graph, tileById, edgeId)) continue
+      const next = otherEndOf(edgeId, vertexId)
+      if (visitedVertices.has(next)) continue
+      visitedVertices.add(next)
+      const result = walk(next, [...path, edgeId], visitedVertices)
+      if (result) return result
+      visitedVertices.delete(next)
+    }
+    return null
+  }
+
+  const firstNext = otherEndOf(startEdgeId, startVertexId)
+  return walk(firstNext, [startEdgeId], new Set([startVertexId, firstNext]))
+}
+
+// Tries every cape candidate in rank order until one yields a full-length
+// all-ship chain — the top-scoring cape by lumber/wool exposure isn't
+// guaranteed to sit in a deep enough sea pocket for `length` edges.
+export function findShipCapeWithChain(
+  graph: TestHarnessGraph,
+  occupied: ReadonlySet<string>,
+  length: number,
+): { vertexId: string; chain: string[] } {
+  for (const candidate of findShipCapeCandidates(graph, occupied)) {
+    const chain = findShipChain(graph, candidate.vertexId, candidate.firstShipEdgeId, length)
+    if (chain) return { vertexId: candidate.vertexId, chain }
+  }
+  throw new Error(`findShipCapeWithChain: no coastal vertex on this board reaches a ${length}-edge open-ocean chain`)
 }
 
 type BypassAction = 'discard' | 'chooseRobber' | 'moveRobber'

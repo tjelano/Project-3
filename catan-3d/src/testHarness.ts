@@ -20,6 +20,13 @@ export interface TestHarnessGraph {
   // often, and falls back to a bounded number of real dice rolls for
   // whatever a placement alone couldn't cover.
   vertexTileIds: Record<string, string[]>
+  // edge id -> the ids of the 1-2 tiles that flank it. Lets a scenario
+  // tell whether a specific edge borders the sea (any flanking tile has
+  // biome 'sea') — the same check App.tsx's own edgeTouchesSea makes —
+  // which matters because ships can ONLY be placed on such edges. Needed
+  // by the Seafarers ship scenario to walk a coastal chain, choosing ship
+  // vs. road per edge based on its actual terrain rather than assuming.
+  edgeTileIds: Record<string, string[]>
   tiles: { id: string; biome: Biome; number: number | null }[]
 }
 

@@ -324,6 +324,25 @@ function App() {
     }
     return result
   }, [graph, tileById])
+  // Subset of seaEdgeIds that ALSO touches a non-sea tile — the actual
+  // coastline, distinct from open ocean (both of an edge's flanking tiles
+  // are sea). CN3083 p.2, confirmed verbatim in
+  // docs/superpowers/specs/references/seafarers-rules-reference.md:
+  // "Ships are placed on the empty edges of sea hexes. Ships and roads may
+  // not occupy the same coastal edge." That second sentence only makes
+  // sense if a coastal edge is legal for EITHER piece — otherwise there'd
+  // be nothing to state. A prior implementation collapsed this into a
+  // single seaEdgeIds check and forced every sea-touching edge (coastal
+  // included) to be a ship, silently blocking a legal road placement right
+  // at the shore — found live, reported by the user, and corrected here.
+  const coastalEdgeIds = useMemo(() => {
+    const result = new Set<string>()
+    for (const edgeId of seaEdgeIds) {
+      const tileIds = graph.edgeTileIds.get(edgeId) ?? []
+      if (tileIds.some((id) => tileById.get(id)?.biome !== 'sea')) result.add(edgeId)
+    }
+    return result
+  }, [graph, tileById, seaEdgeIds])
   // Which seat the setup snake (and the first real turn right after it)
   // starts from — randomized per game in resetGame instead of always being
   // seat 0 (the host), so the host isn't guaranteed to go first every match.
@@ -2581,26 +2600,26 @@ function App() {
     }
   }
 
-  // Recomputed whenever roads/settlements change — cheap given how few
-  // roads a player ever has (max 15), so a plain per-player DFS is fine.
-  //
-  // Deliberately does NOT pass gameState.board.ships (calculateLongestRoad's
-  // optional 6th argument) yet — no UI can place a ship yet, per this plan's
-  // own scope. When a future sub-plan wires ship placement into the UI, this
-  // needs BOTH gameState.board.ships added as the 6th positional argument
-  // below AND gameState.board.ships added to this useMemo's dependency
-  // array — otherwise the memo goes stale and stops recomputing when ships
-  // change.
+  // Recomputed whenever roads/ships/settlements change — cheap given how
+  // few roads+ships a player ever has (max 15 of each), so a plain
+  // per-player DFS is fine.
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
       lengths.set(
         player.id,
-        calculateLongestRoad(player.id, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex),
+        calculateLongestRoad(
+          player.id,
+          gameState.board.roads,
+          graph,
+          gameState.board.settlements,
+          knightOwnerByVertex,
+          gameState.board.ships,
+        ),
       )
     }
     return lengths
-  }, [players, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex])
+  }, [players, gameState.board.roads, gameState.board.ships, graph, gameState.board.settlements, knightOwnerByVertex])
 
   const knightCounts = useMemo(() => {
     const counts = new Map<number, number>()
@@ -3214,13 +3233,17 @@ function App() {
       warn('That edge is already occupied.')
       return
     }
-    // Mirrors buildShipRaw's own complementary check — an edge bordering the
-    // sea needs a ship, not a road (CN3083). Previously unenforced because
-    // ships had no click target of their own to fall back to; now that
-    // BoardInteractions renders a ship slot on these edges instead of a
-    // road slot, this can never be the ONLY option for a coastal placement.
-    if (edgeTouchesSea(edgeId)) {
-      warn('That edge borders the sea — build a ship there instead.')
+    // Open ocean (both flanking tiles are sea, no land at all) needs a
+    // ship — a road can't be built where there's nothing but water on
+    // either side. A COASTAL edge (sea on one side, land on the other) is
+    // legal for a road too (CN3083 p.2: "Ships and roads may not occupy
+    // the same coastal edge" only makes sense if a coastal edge is legal
+    // for either) — BoardInteractions' click handler decides which piece a
+    // coastal click actually builds (road, by default; see its own
+    // isBuildableAsShip comment), so this guard only needs to reject the
+    // impossible case.
+    if (edgeTouchesSea(edgeId) && !coastalEdgeIds.has(edgeId)) {
+      warn('That edge is open ocean — build a ship there instead.')
       return
     }
     if (isSetup) {
@@ -7302,6 +7325,7 @@ function App() {
         edges: graph.edges,
         vertexEdgeIds: Object.fromEntries(graph.vertexEdgeIds),
         vertexTileIds: Object.fromEntries(graph.vertexTileIds),
+        edgeTileIds: Object.fromEntries(graph.edgeTileIds),
         tiles: tiles.map((t) => ({ id: t.id, biome: t.biome, number: t.number })),
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
@@ -7455,6 +7479,7 @@ function App() {
             roads={gameState.board.roads}
             ships={gameState.board.ships}
             seaEdgeIds={seaEdgeIds}
+            coastalEdgeIds={coastalEdgeIds}
             players={players}
             metropolisVertexIds={metropolisVertexIds}
             onBuildSettlement={buildSettlement}

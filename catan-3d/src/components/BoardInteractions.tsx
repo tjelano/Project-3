@@ -354,6 +354,11 @@ interface BoardInteractionsProps {
   // Set (needs the board's tile biomes, not available here). Decides per
   // edge whether it renders/builds as a ship or a road.
   seaEdgeIds: ReadonlySet<string>
+  // Subset of seaEdgeIds that ALSO borders land — the actual coastline,
+  // distinct from open ocean (both flanking tiles are sea, no land at
+  // all). A coastal edge defaults to a road here — open ocean is the only
+  // case that forces a ship.
+  coastalEdgeIds: ReadonlySet<string>
   onBuildSettlement: (vertexId: string) => void
   onBuildRoad: (edgeId: string) => void
   onBuildShip: (edgeId: string) => void
@@ -377,6 +382,7 @@ export const BoardInteractions = memo(function BoardInteractions({
   roads,
   ships,
   seaEdgeIds,
+  coastalEdgeIds,
   players,
   metropolisVertexIds,
   cityWalls,
@@ -420,8 +426,26 @@ export const BoardInteractions = memo(function BoardInteractions({
         />
       ))}
       {graph.edges.map((edge) => {
-        const isSeaEdge = seaEdgeIds.has(edge.id)
-        const ownerId = isSeaEdge ? ships[edge.id] : roads[edge.id]
+        // Open ocean (touches sea, no land at all) is the only case that
+        // forces a ship — a coastal edge (touches both) defaults straight
+        // to a road, same as a land-only edge. isBuildableAsShip, not the
+        // broader "touches any sea tile," is what should drive both the
+        // click routing AND the hover-ghost/ownership lookup below: a
+        // coastal edge holding a road (the new default) still needs
+        // `roads[edge.id]` checked, not `ships[edge.id]`, or an actually-
+        // built road there would render as if the edge were still empty.
+        const isBuildableAsShip = seaEdgeIds.has(edge.id) && !coastalEdgeIds.has(edge.id)
+        const shipOwnerId = ships[edge.id]
+        const roadOwnerId = roads[edge.id]
+        const ownerId = roadOwnerId ?? shipOwnerId
+        const onBuild = isBuildableAsShip ? onBuildShip : onBuildRoad
+        // A coastal edge can end up holding either piece (a road by
+        // default, or a ship relocated onto it — ship movement still
+        // allows any sea-touching edge, coastal included). Once occupied,
+        // render whichever piece is ACTUALLY there rather than what an
+        // empty click would build; only fall back to the click-outcome
+        // guess for the hover-ghost on a still-empty edge.
+        const rendersAsShip = ownerId != null ? shipOwnerId != null : isBuildableAsShip
         return (
           <EdgeSlot
             key={edge.id}
@@ -430,8 +454,8 @@ export const BoardInteractions = memo(function BoardInteractions({
             b={graph.vertexById.get(edge.b)!}
             ownerId={ownerId}
             ownerColorToken={ownerId != null ? colorTokenByPlayerId.get(ownerId) : undefined}
-            isSeaEdge={isSeaEdge}
-            onBuild={isSeaEdge ? onBuildShip : onBuildRoad}
+            isSeaEdge={rendersAsShip}
+            onBuild={onBuild}
             locked={locked}
             pickerActive={roadPickerActive}
             remoteHighlighted={remoteHover.edgeId === edge.id}

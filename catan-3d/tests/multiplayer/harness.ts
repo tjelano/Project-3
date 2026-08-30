@@ -111,17 +111,38 @@ export async function runScenario(pageA: Page, pageB: Page, steps: ScenarioStep[
     // — either they end up equal (and changed from `before`, so a step
     // that's a genuine no-op doesn't vacuously "converge" on itself), or
     // they don't and the timeout's diff shows exactly what still differs.
+    // A single matching poll can be transient — either a later broadcast
+    // landing right after (e.g. Longest Road/Largest Army, recomputed
+    // host-side only and broadcast SEPARATELY from the piece placement
+    // itself; CodeRabbit review, PR #71), or BOTH pages' test-hook
+    // snapshots lagging the true reducer state by roughly the same amount
+    // at once — mutually consistent with each other, matched, yet still
+    // behind what the very next scripted action actually needs to see
+    // (e.g. setupStage having genuinely advanced to 'road'). The second
+    // case is a stable-but-wrong plateau, not a flicker — a short 2-poll
+    // confirmation (~400ms) can land entirely inside it. Require the
+    // match to hold for STABILIZATION_POLLS consecutive polls (~1s of
+    // real time at POLL_INTERVAL_MS) instead, giving the test hook's own
+    // effect-driven refresh real wall-clock room to catch up fully before
+    // this step is trusted as done.
+    const STABILIZATION_POLLS = 5
     let actingState = before
     let otherState = await getComparableState(otherPage)
     let converged = false
+    let consecutiveMatches = 0
     const deadline = Date.now() + CONVERGENCE_TIMEOUT_MS
     while (Date.now() < deadline) {
       ;[actingState, otherState] = await Promise.all([getComparableState(actingPage), getComparableState(otherPage)])
       const changed = JSON.stringify(actingState) !== JSON.stringify(before)
       const matched = JSON.stringify(actingState) === JSON.stringify(otherState)
       if (changed && matched) {
-        converged = true
-        break
+        consecutiveMatches += 1
+        if (consecutiveMatches >= STABILIZATION_POLLS) {
+          converged = true
+          break
+        }
+      } else {
+        consecutiveMatches = 0
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     }

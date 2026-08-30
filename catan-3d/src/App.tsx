@@ -1693,6 +1693,19 @@ function App() {
     // this event; it only ever happens via TURN_PASSED, sent when the
     // roller clicks their own End Turn button.
     onDiceRolled: (payload) => {
+      // Test mode: same reasoning as triggerDiceAttempt (the roller's own
+      // bypass) — beginDiceAnimation only sets local UI state and starts
+      // Dice3D's animation; the real game-state application (applyRollResult:
+      // resources, hasRolledThisTurn, totalRollsThisGame) only happens in
+      // handleDiceSettled, Dice3D's onSettled callback. Dice3D lives inside
+      // the Canvas, which is skipped entirely in test mode, so that callback
+      // would never fire and a receiving client would never apply a roll it
+      // didn't make itself. Apply it directly from the broadcast payload,
+      // bypassing the visual mirror the same way the roller's own path does.
+      if (import.meta.env.MODE === 'test') {
+        applyRollResult(payload.dice[0] + payload.dice[1], payload.dice[0] === payload.dice[1], payload.playerId)
+        return
+      }
       setDiceDisplayMode('remote')
       beginDiceAnimation(payload.dice[0], payload.dice[1], payload.eventDie, payload.playerId)
     },

@@ -13,6 +13,7 @@ defaults:
 jobs:
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,6 +26,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +39,7 @@ jobs:
 
   unit-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,6 +57,16 @@ jobs:
   multiplayer:
     runs-on: ubuntu-latest
     needs: [typecheck, lint, unit-test]
+    # A GitHub-hosted job with no explicit cap defaults to 360 minutes —
+    # the first real run silently hung for hours with no per-job bound to
+    # catch it (Playwright's own 1_050_000ms/17.5min test-level timeout,
+    # playwright.config.ts, only covers the test run itself; the actual
+    # hang was earlier, in `playwright install --with-deps`, before
+    # Playwright's own timeout was ever in play — see the env var below).
+    # 25 covers realistic worst case (install + a genuinely slow live-
+    # network suite) with real headroom, while still failing fast instead
+    # of silently blocking for hours on a repeat of the same class of hang.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,7 +75,18 @@ jobs:
           cache: npm
           cache-dependency-path: catan-3d/package-lock.json
       - run: npm ci
+      # NEEDRESTART_MODE=a (automatic, no prompt) — --with-deps runs
+      # apt-get install, which on a fresh Ubuntu runner can trigger
+      # needrestart's "which services should be restarted?" interactive
+      # prompt. There's no TTY to answer it in CI, so without this the
+      # step (and everything after it) hangs indefinitely instead of
+      # failing — exactly what happened on this workflow's first real
+      # run: stuck in_progress for hours with no error, no timeout,
+      # nothing in the job logs (GitHub only persists logs for a
+      # completed job, so a step hung this early never produced any).
       - run: npx playwright install --with-deps chromium
+        env:
+          NEEDRESTART_MODE: a
       # Writes the exact file a local dev would create by hand from
       # .env.test.local.example — matches the real, already-proven code
       # path instead of relying on Vite forwarding VITE_-prefixed

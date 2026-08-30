@@ -1,14 +1,16 @@
 import { defineConfig } from '@playwright/test'
 
-// A dedicated port (not 5173, npm run dev's default) for the test-mode
-// server — required, not cosmetic: reuseExistingServer means a dev server
-// the user already has running would otherwise get REUSED for this suite,
-// silently pointing every scenario at the real production Supabase project
-// (npm run dev's default mode reads .env.local, not .env.test.local) while
+// A dedicated port, well clear of 5173 (npm run dev's default) AND its
+// auto-increment range (Vite tries 5173, 5174, 5175... in sequence when a
+// port's taken, so a nearby port can still collide with a dev server that
+// got bumped up by an earlier stray process — this happened once with 5174).
+// Required, not cosmetic: reuseExistingServer means a dev server the user
+// already has running would otherwise get REUSED for this suite, silently
+// pointing every scenario at the real production Supabase project (npm run
+// dev's default mode reads .env.local, not .env.test.local) while
 // assertConnected passes happily, since production Realtime is reachable
-// too. A dedicated port makes that impossible: the two servers can never
-// collide.
-const TEST_SERVER_PORT = 5174
+// too. A port this far away makes that collision effectively impossible.
+const TEST_SERVER_PORT = 5299
 
 export default defineConfig({
   testDir: './tests',

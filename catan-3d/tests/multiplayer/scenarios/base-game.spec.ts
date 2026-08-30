@@ -11,6 +11,7 @@ import type { TestHarnessGraph } from '../../../src/testHarness'
 // range gives far more separation than that on a board this size, so
 // this doesn't need to reason about the graph's actual edge distances.
 function pickSpreadVertices(graph: TestHarnessGraph, count: number): string[] {
+  if (count < 2) throw new Error(`pickSpreadVertices: count must be >= 2 (got ${count}) — division by (count - 1) below`)
   const sorted = [...graph.vertices].sort((a, b) => a.x + a.z - (b.x + b.z))
   const picks: string[] = []
   for (let i = 0; i < count; i++) {

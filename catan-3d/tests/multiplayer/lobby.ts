@@ -1,3 +1,7 @@
+// Bare side-effect import, no bindings: pulls testHarness.ts's `declare
+// global` augmentation (for `window.__catanTestHarness`'s type) into this
+// tsconfig's compilation. Load-bearing, not dead code — removing it makes
+// every `window.__catanTestHarness` reference below fail to typecheck.
 import '../../src/testHarness'
 import type { Page } from '@playwright/test'
 import { expect } from '@playwright/test'
@@ -17,6 +21,22 @@ import { expect } from '@playwright/test'
 export async function hostRoom(page: Page): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'Host Online' }).click()
+  // Without this, base-game.spec.ts's rollDice steps are ~1-in-6 flaky: a
+  // 7 rolled with nobody over the card limit sends gamePhase to
+  // 'chooseRobberOrPirate' (App.tsx), which the scenario's fixed step list
+  // doesn't handle. The scenario only ever rolls twice, and this house
+  // rule (DEFAULT_GAME_RULES.noSevensFirstTwoRolls is false) exists
+  // specifically to suppress 7s on exactly the first two rolls of a game.
+  // House Rules is its own tab (defaults to Expansions) — GameSetupMenu.tsx's
+  // activeTab state — not always-visible content, so it must be selected
+  // before the checkbox exists in the DOM.
+  await page.getByRole('button', { name: 'House Rules' }).click()
+  // force: true — HouseRules.tsx renders the real <input type="checkbox">
+  // as sr-only (visually hidden; a separate ToggleSwitch component is the
+  // visible affordance), so Playwright's default actionability check
+  // (which requires visibility) would otherwise hang waiting for a
+  // visibility change that's never coming, until the whole test times out.
+  await page.getByLabel('No 7s on first 2 rolls').check({ force: true })
   await page.getByRole('button', { name: 'Start Game' }).click()
   await page.getByRole('button', { name: "Select Orion's Keep" }).click()
   await page.getByRole('button', { name: 'Show room code' }).click()
@@ -51,8 +71,9 @@ export async function waitForGameStarted(page: Page): Promise<void> {
 
 // Fails fast with a clear, specific message if the test Supabase project
 // isn't actually reachable — e.g. .env.test.local missing or wrong —
-// rather than letting the first scenario step time out after 15s in a
-// way that looks like a convergence bug but is actually a setup problem.
+// rather than letting the first scenario step time out (CONVERGENCE_TIMEOUT_MS
+// in harness.ts) in a way that looks like a convergence bug but is
+// actually a setup problem.
 export async function assertConnected(page: Page, label: string): Promise<void> {
   try {
     await page.waitForFunction(

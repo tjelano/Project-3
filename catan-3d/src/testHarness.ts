@@ -19,9 +19,21 @@ export interface CatanTestHarness {
     rollDice: () => void
     buyDevCard: () => void
     playDevCard: (card: DevCardType) => void
+    // Unlike every other action here, endTurn has no legality guard of
+    // its own (no canPerformAction/isMyTurn/phase check) — the real UI
+    // gates it by only rendering the button when it's valid, which the
+    // test hook bypasses by design. A scenario step that calls this at
+    // the wrong time won't set getLastWarning(); it will silently
+    // advance the turn and broadcast, manufacturing a real divergence
+    // that reads as a sync bug. Scenario authors: sequence endTurn calls
+    // carefully, don't rely on rejection detection to catch a mistake here.
     endTurn: () => void
   }
   getState: () => GameState
+  // Reflects whatever board resetGame() last built. Called before the
+  // game has actually started (gameStarted still false), this returns
+  // the DEFAULT board, not the real match's board — plausible-looking
+  // but wrong vertex/edge ids. Call only after waitForGameStarted().
   getGraph: () => TestHarnessGraph
   getStatus: () => { gameStarted: boolean; isMyTurn: boolean; connectionStatus: string }
   getLastWarning: () => string | null

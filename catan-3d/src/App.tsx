@@ -3927,45 +3927,25 @@ function App() {
 
   // Test-only: resolves the viewer's own pending discard, if any, without
   // going through discardSelection (the 3D hand-picker's own state — a
-  // scenario has no hand to click). Greedily takes from whatever resources
-  // (then commodities, if Cities & Knights is on) this player actually
-  // holds, until `required` is reached — a scenario only needs the
-  // obligation cleared so gamePhase can leave 'discard', not any particular
-  // card chosen. applyDiscard dequeues this player unconditionally,
+  // scenario has no hand to click). autoDiscardCounts is the same
+  // resources-then-commodities greedy fallback already used for a player
+  // who never confirmed one in time (App.tsx's other reducePlayers call
+  // sites) — reused rather than reimplemented, so this stays correct on a
+  // Cities & Knights board (commodities on) the same way those call sites
+  // already are: applyDiscard dequeues this player unconditionally,
   // regardless of whether counts actually sums to `required` (unlike
-  // confirmDiscard's real UI path, which validates that before ever
-  // calling applyDiscard) — falling through to commodities matters even
-  // though no current scenario's board has them on, since an under-discard
-  // here wouldn't surface as a rejection or a stuck phase, just a player
-  // silently left holding more cards than they should (CodeRabbit finding
-  // on PR #72, verified against applyDiscard's own dequeue call before
-  // fixing).
+  // confirmDiscard's real UI path, which validates that first), so an
+  // under-discard here wouldn't surface as a rejection or a stuck phase,
+  // just a player silently left holding more cards than they should
+  // (CodeRabbit finding on PR #72 against an earlier, resources-only,
+  // hand-rolled version of this function).
   const discardForTest = () => {
     if (activeDiscarderId == null) return
     const player = playerById.get(activeDiscarderId)
     if (!player) return
     const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
     const required = Math.floor(handSize / 2)
-    const counts: Partial<Record<ResourceType | CommodityType, number>> = {}
-    let remaining = required
-    for (const type of RESOURCE_ORDER) {
-      if (remaining <= 0) break
-      const take = Math.min(player.resources[type], remaining)
-      if (take > 0) {
-        counts[type] = take
-        remaining -= take
-      }
-    }
-    if (gameRules.citiesAndKnightsCommodities) {
-      for (const type of COMMODITY_ORDER) {
-        if (remaining <= 0) break
-        const take = Math.min(player.commodities[type], remaining)
-        if (take > 0) {
-          counts[type] = take
-          remaining -= take
-        }
-      }
-    }
+    const counts = autoDiscardCounts(player.resources, player.commodities, required)
     applyDiscard(activeDiscarderId, counts)
     if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }

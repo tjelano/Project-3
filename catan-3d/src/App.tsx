@@ -3238,10 +3238,10 @@ function App() {
     // either side. A COASTAL edge (sea on one side, land on the other) is
     // legal for a road too (CN3083 p.2: "Ships and roads may not occupy
     // the same coastal edge" only makes sense if a coastal edge is legal
-    // for either) — BoardInteractions' click handler is the one place that
-    // decides which of the two a coastal click actually becomes, via the
-    // Road/Ship picker; this guard only needs to reject the impossible
-    // case.
+    // for either) — BoardInteractions' click handler decides which piece a
+    // coastal click actually builds (road, by default; see its own
+    // isBuildableAsShip comment), so this guard only needs to reject the
+    // impossible case.
     if (edgeTouchesSea(edgeId) && !coastalEdgeIds.has(edgeId)) {
       warn('That edge is open ocean — build a ship there instead.')
       return

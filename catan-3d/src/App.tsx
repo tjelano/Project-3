@@ -7194,7 +7194,11 @@ function App() {
         rollDice: wrap(rollDice),
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
-        endTurn: wrap(endTurn),
+        // handleEndTurn, not the raw endTurn — endTurn has no guards of its
+        // own (it assumes only handleEndTurn's click ever reaches it); wiring
+        // the raw version here meant a wrongly-timed scenario step could
+        // silently advance the turn instead of setting getLastWarning().
+        endTurn: wrap(handleEndTurn),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds is a native Map — converted to a plain object

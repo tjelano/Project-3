@@ -19,14 +19,11 @@ export interface CatanTestHarness {
     rollDice: () => void
     buyDevCard: () => void
     playDevCard: (card: DevCardType) => void
-    // Unlike every other action here, endTurn has no legality guard of
-    // its own (no canPerformAction/isMyTurn/phase check) — the real UI
-    // gates it by only rendering the button when it's valid, which the
-    // test hook bypasses by design. A scenario step that calls this at
-    // the wrong time won't set getLastWarning(); it will silently
-    // advance the turn and broadcast, manufacturing a real divergence
-    // that reads as a sync bug. Scenario authors: sequence endTurn calls
-    // carefully, don't rely on rejection detection to catch a mistake here.
+    // Wired to App.tsx's handleEndTurn (the guarded handler, same one the
+    // real End Turn button calls) — not the raw endTurn it delegates to,
+    // which has no guards of its own and assumes only handleEndTurn's
+    // click ever reaches it. A wrongly-timed scenario step gets a real
+    // getLastWarning() rejection here, same as every other action.
     endTurn: () => void
   }
   getState: () => GameState

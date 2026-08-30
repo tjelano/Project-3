@@ -1,5 +1,5 @@
 import type { GameState } from './game/gameState'
-import type { DevCardType } from './game/types'
+import type { DevCardType, GameRules, ImprovementTrack } from './game/types'
 import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
@@ -34,6 +34,11 @@ export interface CatanTestHarness {
     moveRobber: (tileId: string) => void
     buyDevCard: () => void
     playDevCard: (card: DevCardType) => void
+    buyCityImprovement: (track: ImprovementTrack) => void
+    // Local-only (not broadcast) — see its App.tsx wiring comment for why
+    // that's safe: called identically on every page before any game
+    // action, from gameRules already synced by the game-started broadcast.
+    setGameRules: (overrides: Partial<GameRules>) => void
     // Wired to App.tsx's handleEndTurn (the guarded handler, same one the
     // real End Turn button calls) — not the raw endTurn it delegates to,
     // which has no guards of its own and assumes only handleEndTurn's

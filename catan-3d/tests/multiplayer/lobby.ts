@@ -18,7 +18,10 @@ import { expect } from '@playwright/test'
 // JoinRoomModal's exact "Your name" aria-label was never verified this
 // session (only the joiner's was) — not worth guessing at, since nothing
 // here actually needs a custom host name.
-export async function hostRoom(page: Page, options: { citiesAndKnights?: boolean } = {}): Promise<string> {
+export async function hostRoom(
+  page: Page,
+  options: { citiesAndKnights?: boolean; seafarers?: boolean } = {},
+): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'Host Online' }).click()
   // Expansions is GameSetupMenu.tsx's default tab (ExpansionSelector.tsx) —
@@ -28,6 +31,15 @@ export async function hostRoom(page: Page, options: { citiesAndKnights?: boolean
   // pattern as the House Rules checkbox below.
   if (options.citiesAndKnights) {
     await page.getByLabel('Cities & Knights').check({ force: true })
+  }
+  // Seafarers has no GameRules flag (ExpansionSelector.tsx's own comment) —
+  // toggling it just threads GameStartInfo.seafarers through to
+  // buildHexBoard's ensureSea, which auto-surrounds whatever land shape
+  // gets picked below with a 2-deep sea ring. No board-shape change needed
+  // here as a result — every built-in shape becomes ship-eligible once this
+  // is on.
+  if (options.seafarers) {
+    await page.getByLabel('Seafarers').check({ force: true })
   }
   // Without this, base-game.spec.ts's rollDice steps are ~1-in-6 flaky: a
   // 7 rolled with nobody over the card limit sends gamePhase to

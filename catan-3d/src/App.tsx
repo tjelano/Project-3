@@ -1493,27 +1493,14 @@ function App() {
     // City-ownership guard — rejects a vertex that was never a pillageable
     // city for this player in the first place.
     const building = gameState.board.settlements[vertexId]
-    // TEMPORARY DEBUG — tracing the stuck pillage-banner bug. Logs which
-    // guard (if any) is silently blocking resolution. REMOVE once fixed.
-    if (!building || building.type !== 'city' || building.ownerId !== playerId) {
-      debugLog('applyPillage blocked — invalid building', { vertexId, playerId, building })
-      return false
-    }
+    if (!building || building.type !== 'city' || building.ownerId !== playerId) return false
     // Same-tick dedupe guard — see the ref's own comment above. Prevents
     // duplicate dispatchGameAction calls, which would double-fire both the
     // "city was pillaged" banner (via describeBoardAction) and the reducer
     // application (reduceBoard and reducePlayers both run against the same
     // action). Players-side state mutations now live in reducePlayers's
     // PILLAGE_CITY case, so the guard protects both reducer passes equally.
-    if (resolvedPillageVertexIdsRef.current.has(vertexId)) {
-      debugLog('applyPillage blocked — already in resolvedPillageVertexIdsRef', {
-        vertexId,
-        playerId,
-        alreadyResolved: [...resolvedPillageVertexIdsRef.current],
-      })
-      return false
-    }
-    debugLog('applyPillage resolving', { vertexId, playerId, isDeciding })
+    if (resolvedPillageVertexIdsRef.current.has(vertexId)) return false
     resolvedPillageVertexIdsRef.current.add(vertexId)
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     // The inform() banner now fires via dispatchGameAction -> describeBoardAction
@@ -2535,18 +2522,6 @@ function App() {
   // re-renders (pillageQueue's entries are the same references until
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
-    // TEMPORARY DEBUG — tracing the stuck pillage-banner bug: confirms
-    // whether this effect even fires, and what length it sees (if it's
-    // not exactly 1, the banner staying up and waiting for the timeout is
-    // actually correct behavior — the real question becomes why length
-    // isn't 1 for a player who only owns one city). REMOVE once fixed.
-    if (activePillageTarget) {
-      debugLog('pillage auto-resolve effect check', {
-        playerId: activePillageTarget.playerId,
-        eligibleCityVertexIds: activePillageTarget.eligibleCityVertexIds,
-        length: activePillageTarget.eligibleCityVertexIds.length,
-      })
-    }
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
       // Cascades into applyPillage's dispatch(PILLAGE_CITY)/dispatch(PILLAGE_QUEUE_ENTRY_REMOVED)
       // calls, same deliberate "self-heal" shape as the discard-queue effect
@@ -3451,21 +3426,6 @@ function App() {
   // for Task 7's per-player progress-card draw UI; on a barbarian win,
   // populates pillageQueue for Task 6's per-player pillage-target picker.
   const applyBarbarianAttackResult = (result: BarbarianAttackResult) => {
-    // TEMPORARY DEBUG — tracing a bug where the pillage-choice banner never
-    // clears. Checks whether pillageTargets ever comes out with a duplicate
-    // playerId or a duplicate vertexId within one target's own list (either
-    // would explain both the stuck banner and the "duplicate key" React
-    // warnings seen alongside it). REMOVE once that's confirmed/fixed.
-    debugLog('applyBarbarianAttackResult', {
-      barbarianStrength: result.barbarianStrength,
-      defenderStrength: result.defenderStrength,
-      defendersWin: result.defendersWin,
-      pillageTargets: result.pillageTargets,
-      duplicatePlayerIds: result.pillageTargets.length !== new Set(result.pillageTargets.map((t) => t.playerId)).size,
-      anyDuplicateVertexWithinTarget: result.pillageTargets.some(
-        (t) => t.eligibleCityVertexIds.length !== new Set(t.eligibleCityVertexIds).size,
-      ),
-    })
     dispatch({ type: 'BARBARIAN_ATTACK_SET', result })
     dispatch({ type: 'PILLAGE_QUEUE_SET', targets: result.pillageTargets })
     if (result.defendersWin) {

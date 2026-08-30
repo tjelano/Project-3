@@ -122,7 +122,7 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
-import { installTestHarness } from './testHarness'
+import { installTestHarness, rollTestDicePair } from './testHarness'
 
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -3464,6 +3464,27 @@ function App() {
   // until PhysicsDice3D's simulation actually settles. Broadcasting (for
   // online play) happens afterward, in handlePhysicsSettled, once there's a
   // real result to broadcast.
+  // Starts (or restarts, for a voided-7 reroll — handlePhysicsSettled's own
+  // no-sevens-first-two-rolls branch calls this too) a single dice-roll
+  // attempt. In real play this kicks off PhysicsDice3D's simulation and
+  // waits for onSettled (handlePhysicsSettled) to fire once the tumble
+  // resolves. In test mode there's no Canvas mounted to ever run that
+  // simulation (see the MODE-gated Canvas skip above) — apply a real,
+  // randomly-generated result directly through the exact same
+  // handlePhysicsSettled path the physics tumble would have used, not a
+  // separate/duplicated resolution. Statically eliminated from production
+  // the same way the rest of the test-only surface is.
+  const triggerDiceAttempt = () => {
+    if (import.meta.env.MODE === 'test') {
+      const [d1, d2] = rollTestDicePair()
+      handlePhysicsSettled(d1, d2)
+      return
+    }
+    playSfx('diceRoll')
+    setDiceDisplayMode('physics')
+    setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+  }
+
   const rollDice = () => {
     if (!canPerformAction()) return
     if (gamePhase !== 'playing' || isRolling) {
@@ -3480,9 +3501,7 @@ function App() {
     }
 
     setIsRolling(true)
-    playSfx('diceRoll')
-    setDiceDisplayMode('physics')
-    setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+    triggerDiceAttempt()
   }
 
   // PhysicsDice3D's settle callback — the physics simulation has just
@@ -3520,8 +3539,7 @@ function App() {
     // doubles handling below.
     if (gameRules.noSevensFirstTwoRolls && totalRollsThisGame < 2 && total === 7) {
       inform('Rolled a 7 on an early roll — rerolling (No 7s house rule).')
-      playSfx('diceRoll')
-      setPhysicsRoll((prev) => ({ rollId: (prev?.rollId ?? 0) + 1 }))
+      triggerDiceAttempt()
       return
     }
     // Only reachable for an ACCEPTED roll (a voided 7 returns above) — same
@@ -7306,6 +7324,21 @@ function App() {
 
   return (
     <div className="relative h-screen w-screen bg-board-navy">
+      {/* Skipped entirely in test mode: the multiplayer sync harness only
+          ever reads/writes GameState through the test hook (testHarness.ts)
+          and never looks at the rendered scene, but this is a genuinely
+          heavy, continuously-animating react-three-fiber board — GLB
+          models, shadows, OrbitControls damping. Running it anyway during
+          automated scenario runs measured as severe main-thread contention
+          (repeatedly observed "GPU stall due to ReadPixels" under headless
+          Chromium's software WebGL fallback), delaying ordinary JS
+          execution — including the test hook's own dispatch calls — by
+          tens of seconds at a stretch. Statically eliminated from
+          production the same way the rest of the test-only surface is.
+          rollDice has its own MODE-gated bypass (triggerDiceAttempt) for
+          the one piece of real game logic that otherwise depends on this
+          scene actually mounting (PhysicsDice3D's onSettled callback). */}
+      {import.meta.env.MODE !== 'test' && (
       <CanvasErrorBoundary>
         <Canvas
           key={canvasInstance}
@@ -7532,6 +7565,7 @@ function App() {
           <OrbitTargetPan controlsRef={orbitControlsRef} enabled={!isFreeCamActive} />
         </Canvas>
       </CanvasErrorBoundary>
+      )}
 
       {/* Free-cam hides the mouse cursor (pointer lock) the instant it's
           active, so without this hint there'd be no on-screen indication

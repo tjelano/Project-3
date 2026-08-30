@@ -53,3 +53,16 @@ declare global {
 export function installTestHarness(harness: CatanTestHarness): void {
   window.__catanTestHarness = harness
 }
+
+// Plain module-scope function, not inline Math.random() inside App()'s own
+// closure — eslint-plugin-react-hooks's purity rule flags a direct impure
+// call reachable from a component's render, but is opaque to (and so
+// doesn't flag) a call out to an ordinary imported function — same reason
+// game/progressCards.ts's rollEventDie exists as its own module-scope
+// function rather than inline in App.tsx. Used only by rollDice's
+// test-mode bypass (triggerDiceAttempt in App.tsx), which resolves a roll
+// directly instead of waiting on PhysicsDice3D's simulation — there's no
+// Canvas mounted to ever run it in test mode.
+export function rollTestDicePair(): [number, number] {
+  return [Math.floor(Math.random() * 6) + 1, Math.floor(Math.random() * 6) + 1]
+}

@@ -63,10 +63,22 @@ export async function startWhenFull(page: Page): Promise<void> {
 }
 
 export async function waitForGameStarted(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => window.__catanTestHarness?.getStatus().gameStarted === true,
-    { timeout: 20_000 },
-  )
+  // waitForFunction's real signature is (pageFunction, arg, options) — arg
+  // is required (or explicitly undefined) for options to land in the right
+  // slot. Omitting it, as an earlier version of this code did, silently
+  // matches the (pageFunction, arg?: any, options?) overload instead: the
+  // { timeout } object gets bound to `arg` (ignored, since this function
+  // takes no parameters) and options stays undefined, so the intended
+  // timeout was NEVER applied — Playwright fell back to its own default,
+  // masking this as unpredictable slowness with no timeout error to show
+  // for it. 90s (not the originally-guessed 20s): with the fix actually
+  // applying, a live run measured this genuinely taking up to ~50s — every
+  // browser context here is a fresh, uncached profile (Playwright starts
+  // one per run) hitting a cold dev server for the first time, unlike a
+  // real player's warm, cached browser.
+  await page.waitForFunction(() => window.__catanTestHarness?.getStatus().gameStarted === true, undefined, {
+    timeout: 90_000,
+  })
 }
 
 // Fails fast with a clear, specific message if the test Supabase project
@@ -76,9 +88,14 @@ export async function waitForGameStarted(page: Page): Promise<void> {
 // actually a setup problem.
 export async function assertConnected(page: Page, label: string): Promise<void> {
   try {
+    // See waitForGameStarted's comment — arg must be passed explicitly (or
+    // this timeout silently never applies). 45s, sized the same way: a
+    // live run measured this taking up to ~28s once the fix actually
+    // applied its timeout.
     await page.waitForFunction(
       () => window.__catanTestHarness?.getStatus().connectionStatus === 'connected',
-      { timeout: 15_000 },
+      undefined,
+      { timeout: 45_000 },
     )
   } catch {
     const status = await page

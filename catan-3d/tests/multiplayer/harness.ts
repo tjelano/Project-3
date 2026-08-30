@@ -19,7 +19,13 @@ export interface ScenarioStep {
   args?: unknown[]
 }
 
-const CONVERGENCE_TIMEOUT_MS = 30_000
+// A live run on real hardware (not a rendering-constrained sandbox) still
+// measured a genuine cross-page convergence taking longer than 30s once —
+// the receiving page's state was entirely unchanged (not partial/corrupt),
+// consistent with real Supabase Realtime latency rather than a logic bug.
+// 60s gives real headroom without masking an actual regression, which
+// would still show up as a real diff, just discovered later.
+const CONVERGENCE_TIMEOUT_MS = 60_000
 const POLL_INTERVAL_MS = 200
 
 async function runAction(page: Page, action: ScenarioStep['action'], args: unknown[] = []): Promise<void> {

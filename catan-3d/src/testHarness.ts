@@ -1,5 +1,6 @@
 import type { GameState } from './game/gameState'
 import type { DevCardType } from './game/types'
+import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
 // (data/boardGraph.ts) carries several fields as native Map objects,
@@ -9,6 +10,15 @@ export interface TestHarnessGraph {
   vertices: { id: string; x: number; z: number }[]
   edges: { id: string; a: string; b: string }[]
   vertexEdgeIds: Record<string, string[]>
+  // vertex id -> the ids of the (1-3) tiles that touch it. Combined with
+  // `tiles` below, lets a scenario pick a vertex adjacent to specific
+  // biomes — e.g. the dev-card purchase scenario needs a vertex touching
+  // mountains/fields/pasture so the setup-phase second-settlement resource
+  // kickstart (BoardGraph's own vertexTileIds, same source this mirrors)
+  // guarantees buyDevCard's 1 ore + 1 grain + 1 wool cost is affordable
+  // immediately, with no dependency on dice luck.
+  vertexTileIds: Record<string, string[]>
+  tiles: { id: string; biome: Biome }[]
 }
 
 export interface CatanTestHarness {

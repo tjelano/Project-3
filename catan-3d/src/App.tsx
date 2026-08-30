@@ -7232,13 +7232,15 @@ function App() {
         endTurn: wrap(handleEndTurn),
       },
       getState: () => gameState,
-      // graph.vertexEdgeIds is a native Map — converted to a plain object
-      // here since Map doesn't survive Playwright's page.evaluate()
-      // serialization (silently becomes {}).
+      // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to
+      // plain objects here since Map doesn't survive Playwright's
+      // page.evaluate() serialization (silently becomes {}).
       getGraph: () => ({
         vertices: graph.vertices,
         edges: graph.edges,
         vertexEdgeIds: Object.fromEntries(graph.vertexEdgeIds),
+        vertexTileIds: Object.fromEntries(graph.vertexTileIds),
+        tiles: tiles.map((t) => ({ id: t.id, biome: t.biome })),
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
       getLastWarning: () => lastWarningRef.current,

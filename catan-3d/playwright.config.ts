@@ -30,6 +30,19 @@ export default defineConfig({
   // genuine hang still ends the test eventually instead of running forever.
   timeout: 1_050_000,
   fullyParallel: false,
+  // Standard GitHub-hosted runners are 2 vCPU/7GB. Each scenario opens TWO
+  // full browser contexts (host + joiner); with Playwright's default
+  // worker count (2, matching the runner's own CPU count) that's up to 4
+  // concurrent Chromium instances plus the shared Vite dev server on a
+  // 2-core box. Suspected cause of CI's multiplayer job dying at a
+  // consistent ~60-90s mark across 5 straight attempts, independent of
+  // otherwise-unrelated fixes — GitHub's own infrastructure can tear down
+  // a runner it decides has gone unresponsive under resource pressure,
+  // which surfaces identically to an external cancellation. Serializing to
+  // 1 worker in CI trades run time for peak resource use; unset locally
+  // (undefined lets Playwright auto-detect, matching this sandbox's own
+  // faster multi-core runs all session).
+  workers: process.env.CI ? 1 : undefined,
   webServer: {
     command: `npx vite --mode test --port ${TEST_SERVER_PORT} --strictPort`,
     url: `http://localhost:${TEST_SERVER_PORT}`,

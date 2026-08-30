@@ -3925,6 +3925,33 @@ function App() {
     if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }
 
+  // Test-only: resolves the viewer's own pending discard, if any, without
+  // going through discardSelection (the 3D hand-picker's own state — a
+  // scenario has no hand to click). Greedily takes from whatever resources
+  // this player actually holds, in RESOURCE_ORDER, until `required` is
+  // reached — a scenario only needs the obligation cleared so gamePhase can
+  // leave 'discard', not any particular card chosen. Resources-only:
+  // commodities never reach this scenario's boards (Cities & Knights is off).
+  const discardForTest = () => {
+    if (activeDiscarderId == null) return
+    const player = playerById.get(activeDiscarderId)
+    if (!player) return
+    const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
+    const required = Math.floor(handSize / 2)
+    const counts: Partial<Record<ResourceType | CommodityType, number>> = {}
+    let remaining = required
+    for (const type of RESOURCE_ORDER) {
+      if (remaining <= 0) break
+      const take = Math.min(player.resources[type], remaining)
+      if (take > 0) {
+        counts[type] = take
+        remaining -= take
+      }
+    }
+    applyDiscard(activeDiscarderId, counts)
+    if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
+  }
+
   // Cities & Knights progress-card hand limit (4 cards, VP cards excluded —
   // see progressCardHandExcess). Deliberately the front of the queue only —
   // unlike activeDiscarderId above (which branches on onlineInfo for
@@ -7032,11 +7059,30 @@ function App() {
   // Declared here (not right beside isEffectiveHost, which it'd otherwise
   // sit next to) because it calls restoreFromSnapshot, declared just above.
   const prevConnectionStatusRef = useRef(connectionStatus)
+  // Whether this client has EVER reached 'connected' before the current
+  // effect firing — distinct from prevStatus, which only remembers the
+  // IMMEDIATELY PRIOR status. Without this, the very first connect (which
+  // routinely lands in the same render as gameStarted flipping true — the
+  // channel finishes subscribing right as Start Game's broadcast arrives)
+  // looks IDENTICAL to a genuine dropped-then-restored reconnect from this
+  // effect's point of view: prevStatus is whatever pre-connected value the
+  // status started at (e.g. 'connecting'), which is just as much "not
+  // connected" as a real drop would leave it. That falsely triggered a full
+  // restoreFromSnapshot() on every ordinary game start — rebuilding tiles,
+  // resetting onlineInfo (tearing down and recreating the Realtime channel
+  // via useRoomChannel's [roomCode] effect), and overwriting whatever the
+  // player had already done locally with a stale (or, for most players,
+  // nonexistent) snapshot — a real, reproducible source of first-broadcast
+  // loss right at the start of every match, not a test-only artifact.
+  const hasEverConnectedRef = useRef(false)
   useEffect(() => {
     const prevStatus = prevConnectionStatusRef.current
     prevConnectionStatusRef.current = connectionStatus
+    const wasEverConnectedBeforeThisTransition = hasEverConnectedRef.current
+    if (connectionStatus === 'connected') hasEverConnectedRef.current = true
     if (!onlineInfo || !gameStarted) return
     if (connectionStatus !== 'connected' || prevStatus === 'connected') return
+    if (!wasEverConnectedBeforeThisTransition) return
     void loadMatchSnapshot(onlineInfo.roomCode).then((snapshot) => {
       if (snapshot) restoreFromSnapshot(snapshot, onlineInfo)
     })
@@ -7223,6 +7269,9 @@ function App() {
         buildRoad: wrap(buildRoadRaw),
         buildShip: wrap(buildShipRaw),
         rollDice: wrap(rollDice),
+        discard: wrap(discardForTest),
+        chooseRobber: wrap(chooseRobber),
+        moveRobber: wrap(moveRobber),
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
         // handleEndTurn, not the raw endTurn — endTurn has no guards of its
@@ -7240,7 +7289,7 @@ function App() {
         edges: graph.edges,
         vertexEdgeIds: Object.fromEntries(graph.vertexEdgeIds),
         vertexTileIds: Object.fromEntries(graph.vertexTileIds),
-        tiles: tiles.map((t) => ({ id: t.id, biome: t.biome })),
+        tiles: tiles.map((t) => ({ id: t.id, biome: t.biome, number: t.number })),
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
       getLastWarning: () => lastWarningRef.current,

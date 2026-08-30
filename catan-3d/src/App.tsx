@@ -766,8 +766,23 @@ function App() {
   // off the front.
   const eventLogIdRef = useRef(0)
   const logEvent = (text: string, variant: BannerMessage['variant']) => {
-    eventLogIdRef.current += 1
-    setEventLog((prev) => [...prev.slice(-19), { id: eventLogIdRef.current, text, variant }])
+    // Captured into a local BEFORE the updater closure, not read again
+    // inside it — React 18 batches every setEventLog call made within the
+    // same synchronous handler (e.g. inform() called twice in a row for
+    // one dice roll: the roll announcement, then a 7's discard/robber
+    // consequence) and doesn't invoke their updater functions until the
+    // batch flushes. Reading eventLogIdRef.current lazily inside the
+    // updater — the bug this replaced — meant every one of those queued
+    // updaters saw whatever the ref had been mutated to by the LAST
+    // logEvent() call in the batch, not the value current when EACH was
+    // called: two+ log entries collapsed onto the same id (a real
+    // duplicate-key warning, reproduced live and root-caused this
+    // session), with the intermediate id values never appearing anywhere.
+    // nextKnightId (below) never had this bug — it returns its value
+    // immediately at call time instead of re-reading the ref from inside
+    // a later-executed closure.
+    const id = (eventLogIdRef.current += 1)
+    setEventLog((prev) => [...prev.slice(-19), { id, text, variant }])
   }
 
   // Read by the test harness's getLastWarning() (testHarness.ts) — cleared

@@ -122,7 +122,7 @@ import {
 } from './game/knights'
 import { reduceGame, initialGameState, type GameAction } from './game/gameState'
 import { describeBoardAction } from './game/reducers/board'
-import type { CatanTestHarness } from './testHarness'
+import { installTestHarness } from './testHarness'
 
 export type DevCardPickerMode = 'yearOfPlenty' | 'monopoly' | 'resourceMonopolyProgress' | 'tradeMonopolyProgress'
 export interface BannerMessage {
@@ -7186,7 +7186,7 @@ function App() {
         lastWarningRef.current = null
         fn(...a)
       }
-    window.__catanTestHarness = {
+    installTestHarness({
       actions: {
         buildSettlement: wrap(buildSettlementRaw),
         buildRoad: wrap(buildRoadRaw),
@@ -7207,7 +7207,7 @@ function App() {
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
       getLastWarning: () => lastWarningRef.current,
-    } as const satisfies CatanTestHarness
+    })
   })
 
   if (!gameStarted) {

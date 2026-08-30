@@ -22,7 +22,15 @@ export default defineConfig({
   webServer: {
     command: `npx vite --mode test --port ${TEST_SERVER_PORT} --strictPort`,
     url: `http://localhost:${TEST_SERVER_PORT}`,
-    reuseExistingServer: !process.env.CI,
+    // Always false, even locally: reuseExistingServer would trust
+    // WHATEVER responds on this port without checking it's actually this
+    // suite's own vite --mode test process — a leftover process from an
+    // earlier crashed run, or anything else squatting on the port, would
+    // get silently reused instead of caught. The dedicated port above
+    // already rules out the worst case (colliding with a real dev
+    // server), but "don't trust an unverified existing server" is worth
+    // the few extra seconds of a guaranteed-fresh start every run.
+    reuseExistingServer: false,
     timeout: 30_000,
   },
   use: {

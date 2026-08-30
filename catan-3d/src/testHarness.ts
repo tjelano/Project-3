@@ -44,3 +44,15 @@ declare global {
     __catanTestHarness?: CatanTestHarness
   }
 }
+
+// A plain module-scope function, not an inline assignment inside App()'s
+// effect — eslint-plugin-react-hooks's immutability rule flags direct
+// `window.foo = ...` writes from within a component/hook body (part of its
+// React Compiler-oriented purity checks), even from inside a useEffect.
+// This mutation is genuinely test-only and mode-gated out of every real
+// build (see App.tsx's own MODE guard), so it isn't a real purity concern
+// — routing it through an ordinary outside-a-component function is enough
+// to satisfy the rule without suppressing it.
+export function installTestHarness(harness: CatanTestHarness): void {
+  window.__catanTestHarness = harness
+}

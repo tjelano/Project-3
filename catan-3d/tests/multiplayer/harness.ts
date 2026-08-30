@@ -107,13 +107,29 @@ export async function runScenario(pageA: Page, pageB: Page, steps: ScenarioStep[
     // they don't and the timeout's diff shows exactly what still differs.
     let actingState = before
     let otherState = await getComparableState(otherPage)
+    let converged = false
     const deadline = Date.now() + CONVERGENCE_TIMEOUT_MS
     while (Date.now() < deadline) {
       ;[actingState, otherState] = await Promise.all([getComparableState(actingPage), getComparableState(otherPage)])
       const changed = JSON.stringify(actingState) !== JSON.stringify(before)
       const matched = JSON.stringify(actingState) === JSON.stringify(otherState)
-      if (changed && matched) break
+      if (changed && matched) {
+        converged = true
+        break
+      }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+
+    // If the acting page's own state never moved at all, both sides are
+    // still sitting at `before` and therefore still equal to each other —
+    // the loop above never breaks early, but the final toEqual() below
+    // would otherwise pass vacuously (converged-on-nothing) instead of
+    // reporting that the action produced no observable effect at all.
+    if (!converged && JSON.stringify(actingState) === JSON.stringify(before)) {
+      throw new Error(
+        `Step ${index} (actor ${step.actor}, action ${step.action}) produced no observable state ` +
+          `change on the acting page within ${CONVERGENCE_TIMEOUT_MS}ms`,
+      )
     }
 
     expect(otherState, `Step ${index} (actor ${step.actor}, action ${step.action}) did not converge`).toEqual(

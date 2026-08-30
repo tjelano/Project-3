@@ -46,18 +46,5 @@ export default defineConfig({
   },
   use: {
     baseURL: `http://localhost:${TEST_SERVER_PORT}`,
-    // Playwright's headless Chromium falls back to SwiftShader (software
-    // WebGL) by default, seen in this app's own dev tooling as repeated
-    // "GPU stall due to ReadPixels" console warnings and a main thread
-    // busy enough to delay ordinary JS execution for tens of seconds at a
-    // time — this app renders a continuous, heavy react-three-fiber scene.
-    // --use-angle=d3d11 requests real hardware rendering via ANGLE's
-    // Direct3D 11 backend (broadly supported on Windows) instead of the
-    // software fallback; --ignore-gpu-blocklist stops Chromium from
-    // refusing GPU access based on its own (often overly conservative)
-    // hardware allowlist in a headless/automated context.
-    launchOptions: {
-      args: ['--use-angle=d3d11', '--ignore-gpu-blocklist'],
-    },
   },
 })

@@ -2600,26 +2600,26 @@ function App() {
     }
   }
 
-  // Recomputed whenever roads/settlements change — cheap given how few
-  // roads a player ever has (max 15), so a plain per-player DFS is fine.
-  //
-  // Deliberately does NOT pass gameState.board.ships (calculateLongestRoad's
-  // optional 6th argument) yet — no UI can place a ship yet, per this plan's
-  // own scope. When a future sub-plan wires ship placement into the UI, this
-  // needs BOTH gameState.board.ships added as the 6th positional argument
-  // below AND gameState.board.ships added to this useMemo's dependency
-  // array — otherwise the memo goes stale and stops recomputing when ships
-  // change.
+  // Recomputed whenever roads/ships/settlements change — cheap given how
+  // few roads+ships a player ever has (max 15 of each), so a plain
+  // per-player DFS is fine.
   const longestRoadLengths = useMemo(() => {
     const lengths = new Map<number, number>()
     for (const player of players) {
       lengths.set(
         player.id,
-        calculateLongestRoad(player.id, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex),
+        calculateLongestRoad(
+          player.id,
+          gameState.board.roads,
+          graph,
+          gameState.board.settlements,
+          knightOwnerByVertex,
+          gameState.board.ships,
+        ),
       )
     }
     return lengths
-  }, [players, gameState.board.roads, graph, gameState.board.settlements, knightOwnerByVertex])
+  }, [players, gameState.board.roads, gameState.board.ships, graph, gameState.board.settlements, knightOwnerByVertex])
 
   const knightCounts = useMemo(() => {
     const counts = new Map<number, number>()

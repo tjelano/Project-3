@@ -17,18 +17,21 @@ export default defineConfig({
   // A full scenario is a real end-to-end run — lobby setup over real
   // Realtime (up to ~270s worst case: 2x waitForGameStarted at 90s +
   // 2x assertConnected at 45s, see lobby.ts), then N scripted steps each
-  // polling (up to CONVERGENCE_TIMEOUT_MS, 60s, see harness.ts) for both
-  // pages to converge. base-game.spec.ts alone has 12 steps: 270s +
-  // 12 * 60s = 990s worst case. This must stay ABOVE that sum (CodeRabbit
-  // review, PR #71) — a smaller outer timeout than the documented inner
-  // budget can fire FIRST, replacing the per-step diagnostic error
-  // (harness.ts's own "did not converge" / "was rejected" messages, with
-  // a full state diff) with a generic, useless "Test timeout exceeded."
-  // This is a generous ceiling, not the primary diagnostic signal — the
-  // per-operation timeouts inside lobby.ts/harness.ts are what should
-  // actually fire first and say which step failed; this exists so a
-  // genuine hang still ends the test eventually instead of running forever.
-  timeout: 1_050_000,
+  // polling (up to CONVERGENCE_TIMEOUT_MS, 60s locally/120s under CI, see
+  // harness.ts) for both pages to converge. base-game.spec.ts alone has
+  // 12 steps: worst case 270s + 12 * 120s = 1710s under CI. This must
+  // stay ABOVE that sum (CodeRabbit review, PR #71) — a smaller outer
+  // timeout than the documented inner budget can fire FIRST, replacing
+  // the per-step diagnostic error (harness.ts's own "did not converge" /
+  // "was rejected" messages, with a full state diff) with a generic,
+  // useless "Test timeout exceeded." This is a generous ceiling, not the
+  // primary diagnostic signal — the per-operation timeouts inside
+  // lobby.ts/harness.ts are what should actually fire first and say which
+  // step failed; this exists so a genuine hang still ends the test
+  // eventually instead of running forever. Set unconditionally above the
+  // CI worst case rather than made CI-conditional itself — a bigger
+  // ceiling costs nothing locally, it's only ever a cap.
+  timeout: 2_100_000,
   fullyParallel: false,
   // Standard GitHub-hosted runners are 2 vCPU/7GB. Each scenario opens TWO
   // full browser contexts (host + joiner); with Playwright's default

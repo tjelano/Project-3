@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: catan-3d
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b --force
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npm run test
+
+  # Depends on the three fast/free jobs above so a broken typecheck/lint/
+  # unit-test fails CI in seconds instead of after this job's own multi-
+  # minute, real-network run against the dedicated test Supabase project
+  # (see catan-3d/.env.test.local.example) also starts.
+  multiplayer:
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, unit-test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Writes the exact file a local dev would create by hand from
+      # .env.test.local.example — matches the real, already-proven code
+      # path instead of relying on Vite forwarding VITE_-prefixed
+      # process.env vars identically to a real .env file.
+      - name: Write test Supabase credentials
+        run: |
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL_TEST }}" >> .env.test.local
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_TEST }}" >> .env.test.local
+      - run: npm run test:multiplayer

@@ -3925,6 +3925,31 @@ function App() {
     if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
   }
 
+  // Test-only: resolves the viewer's own pending discard, if any, without
+  // going through discardSelection (the 3D hand-picker's own state — a
+  // scenario has no hand to click). autoDiscardCounts is the same
+  // resources-then-commodities greedy fallback already used for a player
+  // who never confirmed one in time (App.tsx's other reducePlayers call
+  // sites) — reused rather than reimplemented, so this stays correct on a
+  // Cities & Knights board (commodities on) the same way those call sites
+  // already are: applyDiscard dequeues this player unconditionally,
+  // regardless of whether counts actually sums to `required` (unlike
+  // confirmDiscard's real UI path, which validates that first), so an
+  // under-discard here wouldn't surface as a rejection or a stuck phase,
+  // just a player silently left holding more cards than they should
+  // (CodeRabbit finding on PR #72 against an earlier, resources-only,
+  // hand-rolled version of this function).
+  const discardForTest = () => {
+    if (activeDiscarderId == null) return
+    const player = playerById.get(activeDiscarderId)
+    if (!player) return
+    const handSize = discardHandSize(player.resources, player.commodities, gameRules.citiesAndKnightsCommodities)
+    const required = Math.floor(handSize / 2)
+    const counts = autoDiscardCounts(player.resources, player.commodities, required)
+    applyDiscard(activeDiscarderId, counts)
+    if (onlineInfo) broadcastDiscardConfirmed({ playerId: activeDiscarderId, counts })
+  }
+
   // Cities & Knights progress-card hand limit (4 cards, VP cards excluded —
   // see progressCardHandExcess). Deliberately the front of the queue only —
   // unlike activeDiscarderId above (which branches on onlineInfo for
@@ -7032,11 +7057,30 @@ function App() {
   // Declared here (not right beside isEffectiveHost, which it'd otherwise
   // sit next to) because it calls restoreFromSnapshot, declared just above.
   const prevConnectionStatusRef = useRef(connectionStatus)
+  // Whether this client has EVER reached 'connected' before the current
+  // effect firing — distinct from prevStatus, which only remembers the
+  // IMMEDIATELY PRIOR status. Without this, the very first connect (which
+  // routinely lands in the same render as gameStarted flipping true — the
+  // channel finishes subscribing right as Start Game's broadcast arrives)
+  // looks IDENTICAL to a genuine dropped-then-restored reconnect from this
+  // effect's point of view: prevStatus is whatever pre-connected value the
+  // status started at (e.g. 'connecting'), which is just as much "not
+  // connected" as a real drop would leave it. That falsely triggered a full
+  // restoreFromSnapshot() on every ordinary game start — rebuilding tiles,
+  // resetting onlineInfo (tearing down and recreating the Realtime channel
+  // via useRoomChannel's [roomCode] effect), and overwriting whatever the
+  // player had already done locally with a stale (or, for most players,
+  // nonexistent) snapshot — a real, reproducible source of first-broadcast
+  // loss right at the start of every match, not a test-only artifact.
+  const hasEverConnectedRef = useRef(false)
   useEffect(() => {
     const prevStatus = prevConnectionStatusRef.current
     prevConnectionStatusRef.current = connectionStatus
+    const wasEverConnectedBeforeThisTransition = hasEverConnectedRef.current
+    if (connectionStatus === 'connected') hasEverConnectedRef.current = true
     if (!onlineInfo || !gameStarted) return
     if (connectionStatus !== 'connected' || prevStatus === 'connected') return
+    if (!wasEverConnectedBeforeThisTransition) return
     void loadMatchSnapshot(onlineInfo.roomCode).then((snapshot) => {
       if (snapshot) restoreFromSnapshot(snapshot, onlineInfo)
     })
@@ -7223,6 +7267,9 @@ function App() {
         buildRoad: wrap(buildRoadRaw),
         buildShip: wrap(buildShipRaw),
         rollDice: wrap(rollDice),
+        discard: wrap(discardForTest),
+        chooseRobber: wrap(chooseRobber),
+        moveRobber: wrap(moveRobber),
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
         // handleEndTurn, not the raw endTurn — endTurn has no guards of its
@@ -7232,13 +7279,15 @@ function App() {
         endTurn: wrap(handleEndTurn),
       },
       getState: () => gameState,
-      // graph.vertexEdgeIds is a native Map — converted to a plain object
-      // here since Map doesn't survive Playwright's page.evaluate()
-      // serialization (silently becomes {}).
+      // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to
+      // plain objects here since Map doesn't survive Playwright's
+      // page.evaluate() serialization (silently becomes {}).
       getGraph: () => ({
         vertices: graph.vertices,
         edges: graph.edges,
         vertexEdgeIds: Object.fromEntries(graph.vertexEdgeIds),
+        vertexTileIds: Object.fromEntries(graph.vertexTileIds),
+        tiles: tiles.map((t) => ({ id: t.id, biome: t.biome, number: t.number })),
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
       getLastWarning: () => lastWarningRef.current,

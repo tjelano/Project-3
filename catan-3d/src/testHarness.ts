@@ -1,5 +1,6 @@
 import type { GameState } from './game/gameState'
 import type { DevCardType } from './game/types'
+import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
 // (data/boardGraph.ts) carries several fields as native Map objects,
@@ -9,6 +10,17 @@ export interface TestHarnessGraph {
   vertices: { id: string; x: number; z: number }[]
   edges: { id: string; a: string; b: string }[]
   vertexEdgeIds: Record<string, string[]>
+  // vertex id -> the ids of the (1-3) tiles that touch it. Combined with
+  // `tiles` below, lets a scenario pick a vertex adjacent to specific
+  // biomes — e.g. the dev-card purchase scenario picks each setup
+  // settlement to touch mountains/fields/pasture (ore+grain+wool), getting
+  // as close as the board's random biome layout allows to buyDevCard's
+  // cost — not always achievable in one placement, so that scenario also
+  // needs `number` below to break ties toward tiles that actually produce
+  // often, and falls back to a bounded number of real dice rolls for
+  // whatever a placement alone couldn't cover.
+  vertexTileIds: Record<string, string[]>
+  tiles: { id: string; biome: Biome; number: number | null }[]
 }
 
 export interface CatanTestHarness {
@@ -17,6 +29,9 @@ export interface CatanTestHarness {
     buildRoad: (edgeId: string) => void
     buildShip: (edgeId: string) => void
     rollDice: () => void
+    discard: () => void
+    chooseRobber: () => void
+    moveRobber: (tileId: string) => void
     buyDevCard: () => void
     playDevCard: (card: DevCardType) => void
     // Wired to App.tsx's handleEndTurn (the guarded handler, same one the

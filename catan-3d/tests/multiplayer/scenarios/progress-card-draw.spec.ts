@@ -97,13 +97,23 @@ async function advanceToProgressCardDraw(
       if (canAffordCity(player.resources)) {
         await runScenario(pageA, pageB, [{ actor, action: 'buildSettlement', args: [ownVertexId] }])
       }
-    } else if (TRACKS_PRODUCED.every((track) => player.cityImprovements[track] < 1)) {
-      const affordableTrack = TRACKS_PRODUCED.find((track) => player.commodities[COMMODITY_FOR_TRACK[track]] >= 1)
+    } else if (TRACKS_PRODUCED.some((track) => player.cityImprovements[track] < 1)) {
+      // TRACKS_PRODUCED.every(...) < 1 would go false — and this whole
+      // branch would stop running — the instant EITHER track reached
+      // level 1, permanently skipping the SECOND track's improvement even
+      // when affordable. That silently cut this scenario down to whatever
+      // one track happened to level up first, undermining the actual
+      // point of targeting two tracks (roughly doubling the per-roll draw
+      // odds once a player has both) — CodeRabbit finding on PR #73,
+      // verified against the actual loop behavior before fixing.
+      const affordableTrack = TRACKS_PRODUCED.find(
+        (track) => player.cityImprovements[track] < 1 && player.commodities[COMMODITY_FOR_TRACK[track]] >= 1,
+      )
       if (affordableTrack) {
         await runScenario(pageA, pageB, [{ actor, action: 'buyCityImprovement', args: [affordableTrack] }])
       }
     }
-    // Else: city built, already at level >= 1 on a track — nothing to buy,
+    // Else: city built, already at level >= 1 on BOTH tracks — nothing to buy,
     // just keep rolling and hope for the event-die + red-die combo.
 
     await runScenario(pageA, pageB, [{ actor, action: 'endTurn' }])

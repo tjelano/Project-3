@@ -7286,7 +7286,7 @@ function App() {
         // commodities+progressCards on without ALSO getting knights+
         // barbarians, whose attacks/pillages are an unrelated mechanic
         // with their own future dedicated scenario.
-        setGameRules: wrap((overrides: Partial<GameRules>) => setGameRules({ ...gameRules, ...overrides })),
+        setGameRules: wrap((overrides: Partial<GameRules>) => setGameRules((prev) => ({ ...prev, ...overrides }))),
         // handleEndTurn, not the raw endTurn — endTurn has no guards of its
         // own (it assumes only handleEndTurn's click ever reaches it); wiring
         // the raw version here meant a wrongly-timed scenario step could

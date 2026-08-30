@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,6 +31,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -42,6 +46,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -57,6 +63,13 @@ jobs:
   multiplayer:
     runs-on: ubuntu-latest
     needs: [typecheck, lint, unit-test]
+    # Fork PRs never receive repo secrets (GitHub withholds them from
+    # pull_request-triggered workflows whenever the PR's head repo isn't
+    # this one) — without this gate, a fork PR's multiplayer job would
+    # always fail on a Supabase connection error rather than skip
+    # cleanly, since VITE_SUPABASE_URL_TEST/VITE_SUPABASE_PUBLISHABLE_KEY_TEST
+    # would both come through empty.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     # A GitHub-hosted job with no explicit cap defaults to 360 minutes —
     # the first real run silently hung for hours with no per-job bound to
     # catch it (Playwright's own 1_050_000ms/17.5min test-level timeout,
@@ -69,6 +82,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22

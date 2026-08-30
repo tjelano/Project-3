@@ -18,9 +18,17 @@ import { expect } from '@playwright/test'
 // JoinRoomModal's exact "Your name" aria-label was never verified this
 // session (only the joiner's was) — not worth guessing at, since nothing
 // here actually needs a custom host name.
-export async function hostRoom(page: Page): Promise<string> {
+export async function hostRoom(page: Page, options: { citiesAndKnights?: boolean } = {}): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'Host Online' }).click()
+  // Expansions is GameSetupMenu.tsx's default tab (ExpansionSelector.tsx) —
+  // must run before the House Rules tab click below switches away from it.
+  // One checkbox flips all 4 citiesAndKnightsX GameRules flags at once
+  // (GameSetupMenu.tsx's toggleCitiesAndKnights) — same sr-only/force
+  // pattern as the House Rules checkbox below.
+  if (options.citiesAndKnights) {
+    await page.getByLabel('Cities & Knights').check({ force: true })
+  }
   // Without this, base-game.spec.ts's rollDice steps are ~1-in-6 flaky: a
   // 7 rolled with nobody over the card limit sends gamePhase to
   // 'chooseRobberOrPirate' (App.tsx), which the scenario's fixed step list

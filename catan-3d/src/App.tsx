@@ -7272,6 +7272,21 @@ function App() {
         moveRobber: wrap(moveRobber),
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
+        buyCityImprovement: wrap(buyCityImprovement),
+        // Local-only, deliberately not broadcast: a scenario calls this on
+        // BOTH pages with the identical override, right after game start
+        // and before either page rolls — both start from the same
+        // already-synced gameRules (the game-started broadcast payload),
+        // so applying the same delta to each independently keeps them
+        // consistent without needing a new wire message. Exists because
+        // the real lobby UI only exposes ONE combined Cities & Knights
+        // toggle (GameSetupMenu.tsx's toggleCitiesAndKnights) that turns
+        // all 4 citiesAndKnightsX flags on together — a scenario testing
+        // just the progress-card-draw path has no real-UI way to get
+        // commodities+progressCards on without ALSO getting knights+
+        // barbarians, whose attacks/pillages are an unrelated mechanic
+        // with their own future dedicated scenario.
+        setGameRules: wrap((overrides: Partial<GameRules>) => setGameRules({ ...gameRules, ...overrides })),
         // handleEndTurn, not the raw endTurn — endTurn has no guards of its
         // own (it assumes only handleEndTurn's click ever reaches it); wiring
         // the raw version here meant a wrongly-timed scenario step could

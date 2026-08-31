@@ -72,6 +72,14 @@ export interface CatanTestHarness {
     // click ever reaches it. A wrongly-timed scenario step gets a real
     // getLastWarning() rejection here, same as every other action.
     endTurn: () => void
+    // Cities & Knights Invention — real player-facing actions (see App.tsx's
+    // installTestHarness wiring for why these need no MODE gating, unlike
+    // grantResources/grantProgressCard above). playInvention spends the
+    // card and arms the 2-tile picker; selectInventionTile mirrors
+    // TileSwapLayer's onSelectTile — call it twice with two distinct,
+    // swappable (non-null, non-2/6/8/12) tile ids from getGraph().tiles.
+    playInvention: () => void
+    selectInventionTile: (tileId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

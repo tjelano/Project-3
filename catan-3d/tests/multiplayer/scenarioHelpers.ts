@@ -328,6 +328,12 @@ export function findShipCapeWithChain(
 // via the already-exposed moveRobber(tileId), which converges normally
 // (applyTaxationResolved resets gamePhase back to 'playing' on BOTH
 // clients once the steal actually broadcasts).
+// armKnightRecruit joins this set too, and more simply than the others
+// above: it touches NO synced state at all (not even a divergent one) —
+// it only sets pendingKnightRecruit, plain local React state, with zero
+// dispatch and zero broadcast (App.tsx's own comment on armKnightRecruit:
+// "nothing is spent here until handleKnightVertexSelect... actually
+// places the knight"). The real converging step is selectKnightVertex.
 type BypassAction =
   | 'discard'
   | 'chooseRobber'
@@ -337,6 +343,7 @@ type BypassAction =
   | 'playTradeMonopoly'
   | 'activateDiplomacy'
   | 'armTaxation'
+  | 'armKnightRecruit'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

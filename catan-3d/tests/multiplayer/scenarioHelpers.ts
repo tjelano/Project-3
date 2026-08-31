@@ -302,7 +302,33 @@ export function findShipCapeWithChain(
 // there, then throw "produced no observable state change" — a false failure,
 // not a real one. See invention-play.spec.ts for how convergence gets
 // verified instead (a manual getGraph().tiles poll on both pages).
-type BypassAction = 'discard' | 'chooseRobber' | 'moveRobber' | 'selectInventionTile'
+// playResourceMonopoly/playTradeMonopoly join this set for a related but
+// distinct reason from selectInventionTile above: they DO mutate real
+// GameState (spend the card, arm the picker) but deliberately don't
+// broadcast anything at that point — only the later resolveDevCardPicker/
+// resolveDevCardCommodityPicker call broadcasts the combined spend+effect
+// in one message (confirmed by reading onResourceMonopolyPlayed/
+// onTradeMonopolyPlayed: both dispatch PROGRESS_CARD_SPENT themselves,
+// receiver-side, when that single broadcast lands). Treating the play*
+// call as its own runScenario step made a real (temporary, expected)
+// cross-client gap look like a convergence failure — verified live before
+// concluding this wasn't an actual bug.
+// activateDiplomacy joins this set for the same reason selectInventionTile
+// does: it only sets pendingDiplomacyRemoval, plain local React state
+// outside GameState (same category as pendingEspionage/pendingGuildDues/
+// pendingMetropolisClaim) — nothing for runScenario's getState()-only
+// convergence check to ever observe. The real, broadcast action is the
+// buildRoad(edgeId) call that resolves it (buildRoadRaw checks
+// pendingDiplomacyRemoval before its normal logic), which goes through
+// runScenario normally.
+type BypassAction =
+  | 'discard'
+  | 'chooseRobber'
+  | 'moveRobber'
+  | 'selectInventionTile'
+  | 'playResourceMonopoly'
+  | 'playTradeMonopoly'
+  | 'activateDiplomacy'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

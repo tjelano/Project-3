@@ -7386,6 +7386,22 @@ function App() {
         // onConfirm exactly, same shape as selectInventionTile above.
         playEspionage: wrap(playEspionage),
         confirmEspionage: wrap(confirmEspionage),
+        // Cities & Knights Resource Monopoly/Trade Monopoly — real
+        // player-facing actions, no MODE gating needed, same reasoning as
+        // playInvention above. resolveDevCardPicker/resolveDevCardCommodityPicker
+        // are the shared resolvers (also drive base-game Monopoly/Year of
+        // Plenty, previously unreachable by any scenario).
+        playResourceMonopoly: wrap(playResourceMonopoly),
+        playTradeMonopoly: wrap(playTradeMonopoly),
+        resolveDevCardPicker: wrap(resolveDevCardPicker),
+        resolveDevCardCommodityPicker: wrap(resolveDevCardCommodityPicker),
+        // Cities & Knights Guild Dues.
+        playGuildDues: wrap(playGuildDues),
+        confirmGuildDues: wrap(confirmGuildDues),
+        // Cities & Knights Diplomacy — resolved via the already-exposed
+        // buildRoad above (see testHarness.ts's own comment), not a new
+        // action here.
+        activateDiplomacy: wrap(activateDiplomacy),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

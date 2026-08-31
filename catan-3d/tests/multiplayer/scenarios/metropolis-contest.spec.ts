@@ -136,7 +136,17 @@ test('a Metropolis claim can be contested and taken by a later, higher-level pur
     // existing holder's level doesn't flip it). Verified before the 5th
     // purchase specifically so a false pass here can't hide behind the 5th
     // purchase's own claim overwriting it moments later.
+    //
+    // The level check itself matters, not just the non-transfer: without
+    // it, a reducer bug that spends the commodity but fails to increment
+    // cityImprovements[track] would leave `other` still at level < 4 and
+    // this assertion would trivially pass for the wrong reason (nobody
+    // ever actually contested anything) — runScenario's own no-op check
+    // wouldn't catch that either, since the commodity spend IS a real
+    // observable state change (CodeRabbit review, PR #87).
     const afterOtherLevel4 = await pageA.evaluate(() => window.__catanTestHarness!.getState())
+    const otherAfterLevel4 = afterOtherLevel4.players.find((p) => p.id === otherPlayerId)!
+    expect(otherAfterLevel4.cityImprovements[TRACK], 'other should have actually reached level 4').toBe(4)
     expect(afterOtherLevel4.trophies.metropolisHolders[TRACK], 'reaching level 4 while starter still holds it must not flip control').toBe(
       starterPlayerId,
     )

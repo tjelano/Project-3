@@ -40,6 +40,26 @@ export function firstEdgeAt(graph: TestHarnessGraph, vertexId: string): string {
   return edgeId
 }
 
+// Extracted from base-game.spec.ts once invention-play.spec.ts needed the
+// identical logic — same "second scenario needs it" rule this file's own
+// header comment documents. Picks `count` vertex ids spread evenly across
+// the board (sorted by diagonal position), for setup-phase settlement
+// placement where WHICH biomes get touched doesn't matter (no resource
+// target to fund). The distance rule only requires 2+ edges of separation
+// between settlements; spreading picks across the whole board's coordinate
+// range gives far more separation than that on a board this size, so this
+// doesn't need to reason about the graph's actual edge distances.
+export function pickSpreadVertices(graph: TestHarnessGraph, count: number): string[] {
+  if (count < 2) throw new Error(`pickSpreadVertices: count must be >= 2 (got ${count}) — division by (count - 1) below`)
+  const sorted = [...graph.vertices].sort((a, b) => a.x + a.z - (b.x + b.z))
+  const picks: string[] = []
+  for (let i = 0; i < count; i++) {
+    const index = Math.floor((i * (sorted.length - 1)) / (count - 1))
+    picks.push(sorted[index].id)
+  }
+  return picks
+}
+
 // The vertices directly connected (one edge) to `vertexId` — Catan's actual
 // distance rule is just "not adjacent to another settlement," not a wider
 // N-hop minimum, so checking immediate neighbors is sufficient and matches
@@ -275,7 +295,14 @@ export function findShipCapeWithChain(
   throw new Error(`findShipCapeWithChain: no coastal vertex on this board reaches a ${length}-edge open-ocean chain`)
 }
 
-type BypassAction = 'discard' | 'chooseRobber' | 'moveRobber'
+// selectInventionTile joins this set for the same reason: the actual tile
+// swap it resolves lives in a local React array (App.tsx's `tiles`) entirely
+// outside GameState, so runScenario's getState()-only convergence check would
+// wait the full CONVERGENCE_TIMEOUT_MS for a change that can never appear
+// there, then throw "produced no observable state change" — a false failure,
+// not a real one. See invention-play.spec.ts for how convergence gets
+// verified instead (a manual getGraph().tiles poll on both pages).
+type BypassAction = 'discard' | 'chooseRobber' | 'moveRobber' | 'selectInventionTile'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

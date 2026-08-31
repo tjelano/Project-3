@@ -7351,6 +7351,20 @@ function App() {
         // the raw version here meant a wrongly-timed scenario step could
         // silently advance the turn instead of setting getLastWarning().
         endTurn: wrap(handleEndTurn),
+        // Cities & Knights Invention — real player-facing actions (no MODE
+        // gating needed, unlike grantResources/grantProgressCard above:
+        // these are the actual guarded gameplay functions, already safe in
+        // production). Excluded from progressCardPlayHandlers (see that
+        // object's own comment) because real play needs its own small
+        // picker UI next to Roll Dice rather than ProgressCardsPanel's
+        // generic click-to-play — that's a real-UI-only concern, not a
+        // reason to keep it out of the harness too. playInvention spends
+        // the card and arms the 2-tile picker; selectInventionTile mirrors
+        // TileSwapLayer's onSelectTile (handleInventionTileSelect) — call
+        // it twice with two distinct, swappable (non-null, non-2/6/8/12)
+        // tile ids from getGraph().tiles.
+        playInvention: wrap(playInvention),
+        selectInventionTile: wrap(handleInventionTileSelect),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

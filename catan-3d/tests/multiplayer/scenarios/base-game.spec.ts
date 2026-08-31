@@ -2,24 +2,8 @@
 import { test } from '@playwright/test'
 import { hostRoom, joinRoom, startWhenFull, waitForGameStarted, assertConnected } from '../lobby'
 import { runScenario, type Actor, type ScenarioStep } from '../harness'
+import { pickSpreadVertices } from '../scenarioHelpers'
 import type { TestHarnessGraph } from '../../../src/testHarness'
-
-// Picks `count` vertex ids spread evenly across the board (sorted by
-// diagonal position), for setup-phase settlement placement. The
-// distance rule only requires 2+ edges of separation between
-// settlements; spreading picks across the whole board's coordinate
-// range gives far more separation than that on a board this size, so
-// this doesn't need to reason about the graph's actual edge distances.
-function pickSpreadVertices(graph: TestHarnessGraph, count: number): string[] {
-  if (count < 2) throw new Error(`pickSpreadVertices: count must be >= 2 (got ${count}) — division by (count - 1) below`)
-  const sorted = [...graph.vertices].sort((a, b) => a.x + a.z - (b.x + b.z))
-  const picks: string[] = []
-  for (let i = 0; i < count; i++) {
-    const index = Math.floor((i * (sorted.length - 1)) / (count - 1))
-    picks.push(sorted[index].id)
-  }
-  return picks
-}
 
 function firstEdgeAt(graph: TestHarnessGraph, vertexId: string): string {
   const edgeId = graph.vertexEdgeIds[vertexId]?.[0]

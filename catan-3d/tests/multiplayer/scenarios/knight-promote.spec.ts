@@ -74,6 +74,13 @@ test('a knight can be promoted from basic to strong, staying converged', async (
     const knightId = starterAfterRecruit.knightPieces[0].id
     const strongSupplyBefore = starterAfterRecruit.knightSupply.strong
     const basicSupplyBefore = starterAfterRecruit.knightSupply.basic
+    // Captured BEFORE the grant, not after — the grant adds exactly
+    // KNIGHT_PROMOTE_COST (wool:1, ore:1) and the promote spends exactly
+    // that, so wool/ore should net back to their pre-grant values, not
+    // drop to some hardcoded 0 (CodeRabbit review: the original version of
+    // this test never asserted the resource deduction at all).
+    const woolBeforeGrant = starterAfterRecruit.resources.wool
+    const oreBeforeGrant = starterAfterRecruit.resources.ore
 
     await runScenario(pageA, pageB, [
       { actor: starter, action: 'grantResources', args: [KNIGHT_PROMOTE_COST] },
@@ -87,6 +94,8 @@ test('a knight can be promoted from basic to strong, staying converged', async (
     expect(finalKnight.strength, 'the knight should now be strong').toBe('strong')
     expect(finalStarter.knightSupply.basic, 'promoting should return the basic supply slot').toBe(basicSupplyBefore + 1)
     expect(finalStarter.knightSupply.strong, 'promoting should consume a strong supply slot').toBe(strongSupplyBefore - 1)
+    expect(finalStarter.resources.wool, 'promoting should spend exactly the wool that was granted').toBe(woolBeforeGrant)
+    expect(finalStarter.resources.ore, 'promoting should spend exactly the ore that was granted').toBe(oreBeforeGrant)
     expect(finalStateB.players, 'both pages must agree on the final player state').toEqual(finalStateA.players)
   } finally {
     await contextA.close()

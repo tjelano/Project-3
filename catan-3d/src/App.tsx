@@ -1518,6 +1518,11 @@ function App() {
     // PILLAGE_CITY case, so the guard protects both reducer passes equally.
     if (resolvedPillageVertexIdsRef.current.has(vertexId)) return false
     resolvedPillageVertexIdsRef.current.add(vertexId)
+    // TEMPORARY DEBUG — tracing a CI-only "did not converge" flake in
+    // barbarian-attack.spec.ts. isDeciding distinguishes a local resolve
+    // (own effect or this client's host-fallback timer) from applying a
+    // received broadcast. REMOVE once the flake's cause is confirmed.
+    debugLog('applyPillage resolving', { vertexId, playerId, isDeciding, onlineLocalPlayerId: onlineInfo?.localPlayerId })
     dispatchGameAction({ type: 'PILLAGE_CITY', vertexId, playerId }, isDeciding)
     // The inform() banner now fires via dispatchGameAction -> describeBoardAction
     // (Task 6) — do NOT call inform() here too, or the message doubles.
@@ -1769,6 +1774,13 @@ function App() {
       dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: payload.position })
     },
     onBarbarianAttackResolved: (payload) => {
+      // TEMPORARY DEBUG — same CI flake trace as applyPillage's own comment.
+      // REMOVE once confirmed.
+      debugLog('onBarbarianAttackResolved received', {
+        defendersWin: payload.result.defendersWin,
+        pillageTargetPlayerIds: payload.result.pillageTargets.map((t) => t.playerId),
+        onlineLocalPlayerId: onlineInfo?.localPlayerId,
+      })
       dispatch({ type: 'BARBARIAN_TRACK_POSITION_SET', position: 0 })
       if (payload.robberActivated) {
         dispatch({ type: 'ROBBER_ACTIVATED' })
@@ -1800,6 +1812,9 @@ function App() {
         console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
         return
       }
+      // TEMPORARY DEBUG — same CI flake trace as applyPillage's own comment.
+      // REMOVE once confirmed.
+      debugLog('onPillageResolved applying', { vertexId: payload.vertexId, playerId: payload.playerId, onlineLocalPlayerId: onlineInfo?.localPlayerId })
       applyPillage(payload.vertexId, payload.playerId, false)
     },
     // Cities & Knights barbarian winner draw (Task 7) — trusted-apply from
@@ -2562,6 +2577,13 @@ function App() {
   // actually filtered), so this dependency array won't re-fire spuriously.
   useEffect(() => {
     if (activePillageTarget && activePillageTarget.eligibleCityVertexIds.length === 1) {
+      // TEMPORARY DEBUG — same CI flake trace as applyPillage's own comment.
+      // REMOVE once the flake's cause is confirmed.
+      debugLog('pillage auto-resolve effect firing', {
+        playerId: activePillageTarget.playerId,
+        vertexId: activePillageTarget.eligibleCityVertexIds[0],
+        onlineLocalPlayerId: onlineInfo?.localPlayerId,
+      })
       // Cascades into applyPillage's dispatch(PILLAGE_CITY)/dispatch(PILLAGE_QUEUE_ENTRY_REMOVED)
       // calls, same deliberate "self-heal" shape as the discard-queue effect
       // above (dispatch(GAME_PHASE_SET, 'moveRobber')) — there's no user gesture to hang
@@ -4106,7 +4128,21 @@ function App() {
   useEffect(() => {
     if (pillageQueue.length === 0) return
     if (onlineInfo && !isEffectiveHost) return
+    // TEMPORARY DEBUG — tracing a CI-only "did not converge" flake in
+    // barbarian-attack.spec.ts: hypothesis is this host-authoritative
+    // fallback racing the per-player auto-resolve effect above for an
+    // entry that isn't even this client's own. REMOVE once confirmed.
+    debugLog('pillage host-fallback timer ARMED', {
+      queueLength: pillageQueue.length,
+      queuePlayerIds: pillageQueue.map((t) => t.playerId),
+      onlineLocalPlayerId: onlineInfo?.localPlayerId,
+    })
     const timer = setTimeout(() => {
+      debugLog('pillage host-fallback timer FIRED', {
+        queueLength: pillageQueue.length,
+        queuePlayerIds: pillageQueue.map((t) => t.playerId),
+        onlineLocalPlayerId: onlineInfo?.localPlayerId,
+      })
       for (const target of pillageQueue) {
         const vertexId = target.eligibleCityVertexIds[0]
         const playerName = playerById.get(target.playerId)?.name ?? 'A player'

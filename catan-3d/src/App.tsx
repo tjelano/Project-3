@@ -7374,6 +7374,18 @@ function App() {
         // tile ids from getGraph().tiles.
         playInvention: wrap(playInvention),
         selectInventionTile: wrap(handleInventionTileSelect),
+        // Cities & Knights Sabotage/Wedding — same "already-guarded
+        // production action, no MODE gating needed" reasoning as
+        // playInvention above. Both are plain click-to-play, unlike
+        // Invention, so no companion picker action is needed here.
+        playSabotage: wrap(playSabotage),
+        playWedding: wrap(playWedding),
+        // Cities & Knights Espionage — playEspionage spends the card and
+        // arms pendingEspionage (defaulted to the only other player in a
+        // 2-player game); confirmEspionage mirrors OpponentHandPicker's
+        // onConfirm exactly, same shape as selectInventionTile above.
+        playEspionage: wrap(playEspionage),
+        confirmEspionage: wrap(confirmEspionage),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

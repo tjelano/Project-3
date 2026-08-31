@@ -1,5 +1,5 @@
 import type { GameState } from './game/gameState'
-import type { Commodities, DevCardType, GameRules, ImprovementTrack, Resources, ResourceType } from './game/types'
+import type { Commodities, DevCardType, GameRules, ImprovementTrack, ProgressCardType, Resources, ResourceType } from './game/types'
 import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
@@ -57,6 +57,11 @@ export interface CatanTestHarness {
     // attack pillage risk allows within a bounded round count). Purely
     // additive; broadcasts to the other page like bankTrade does.
     grantResources: (resources?: Partial<Resources>, commodities?: Partial<Commodities>) => void
+    // Test-only backdoor: adds a NAMED progress card directly to THIS page's
+    // own player's hand, bypassing the random draw — for scenarios that need
+    // to reliably play a specific card's effect instead of grinding rolls
+    // hoping it comes up. Broadcasts to the other page like grantResources.
+    grantProgressCard: (card: ProgressCardType) => void
     // Local-only (not broadcast) — see its App.tsx wiring comment for why
     // that's safe: called identically on every page before any game
     // action, from gameRules already synced by the game-started broadcast.

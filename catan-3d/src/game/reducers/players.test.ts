@@ -191,6 +191,29 @@ describe('reducePlayers — GRANT_TEST_RESOURCES', () => {
   })
 })
 
+describe('reducePlayers — GRANT_TEST_PROGRESS_CARD', () => {
+  it('appends the named card to the given player only', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'GRANT_TEST_PROGRESS_CARD', playerId: players[0].id, card: 'invention' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['invention'])
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('appends to any existing hand rather than replacing it', () => {
+    const players = createInitialPlayers(2).map((p, i) => (i === 0 ? { ...p, progressCards: ['sabotage' as const] } : p))
+    const result = reducePlayers(
+      players,
+      { type: 'GRANT_TEST_PROGRESS_CARD', playerId: players[0].id, card: 'espionage' },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.progressCards).toEqual(['sabotage', 'espionage'])
+  })
+})
+
 describe('reducePlayers — ROBBER_MOVED', () => {
   it('moves a resource from victim to thief', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))

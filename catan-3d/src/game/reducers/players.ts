@@ -20,6 +20,12 @@ export type PlayersAction =
   // broadcast (App.tsx's applyGrantTestResources), since the caller is one
   // page's scenario code, not something every client can derive locally.
   | { type: 'GRANT_TEST_RESOURCES'; playerId: number; resources?: Partial<Resources>; commodities?: Partial<Commodities> }
+  // Test-only trusted grant (installTestHarness's grantProgressCard action,
+  // App.tsx — MODE==='test' only, dead-code-eliminated from production).
+  // Own action per GRANT_TEST_RESOURCES's own "one action per distinct
+  // effect shape" reasoning above — this appends to progressCards, a
+  // genuinely different mutation shape than a resource/commodity delta.
+  | { type: 'GRANT_TEST_PROGRESS_CARD'; playerId: number; card: ProgressCardType }
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerCard: ResourceType | CommodityType; wantCard: ResourceType | CommodityType }
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
@@ -177,6 +183,8 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
         }
         return { ...p, resources, commodities }
       })
+    case 'GRANT_TEST_PROGRESS_CARD':
+      return players.map((p) => (p.id === action.playerId ? { ...p, progressCards: [...p.progressCards, action.card] } : p))
     case 'ROBBER_MOVED':
       return applyStealTransfer(players, action.thiefId, action.victimId, action.stolenItem)
     case 'PIRATE_MOVED':

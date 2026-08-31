@@ -353,6 +353,11 @@ export interface GrantTestResourcesPayload {
   commodities?: Partial<Commodities>
 }
 
+export interface GrantTestProgressCardPayload {
+  playerId: number
+  card: ProgressCardType
+}
+
 // Cities & Knights Trade level 3 — 2:1 commodity trading. Unlike
 // BankTradePayload, the rate is never sent: it's always fixed at 2:1 by
 // this ability (no port/rate lookup, see TradeModal's own 'commodity' mode),
@@ -828,6 +833,9 @@ export interface RoomChannelHandlers {
   // Test-only — see GrantTestResourcesPayload's own comment near its
   // definition above; only ever fires from MODE==='test' harness code.
   onGrantTestResources?: (payload: GrantTestResourcesPayload) => void
+  // Test-only — see GrantTestProgressCardPayload's own comment near its
+  // definition above; only ever fires from MODE==='test' harness code.
+  onGrantTestProgressCard?: (payload: GrantTestProgressCardPayload) => void
   onCommodityTraded?: (payload: CommodityTradedPayload) => void
   // Cities & Knights Guild Dues/Espionage (Task 11) — fire once the acting
   // client has confirmed their own picks in OpponentHandPicker; the card
@@ -1094,6 +1102,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<InventionSwappedPayload>('broadcast', { event: 'INVENTION_SWAPPED' }, forwardTo('onInventionSwapped'))
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, forwardTo('onBankTrade'))
     channel.on<GrantTestResourcesPayload>('broadcast', { event: 'GRANT_TEST_RESOURCES' }, forwardTo('onGrantTestResources'))
+    channel.on<GrantTestProgressCardPayload>('broadcast', { event: 'GRANT_TEST_PROGRESS_CARD' }, forwardTo('onGrantTestProgressCard'))
     channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, forwardTo('onCommodityTraded'))
     channel.on<GuildDuesTakenPayload>('broadcast', { event: 'GUILD_DUES_TAKEN' }, forwardTo('onGuildDuesTaken'))
     channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, forwardTo('onEspionageTaken'))
@@ -1299,6 +1308,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastInventionSwapped = (payload: InventionSwappedPayload) => send('INVENTION_SWAPPED', payload)
   const broadcastBankTrade = (payload: BankTradePayload) => send('BANK_TRADE', payload)
   const broadcastGrantTestResources = (payload: GrantTestResourcesPayload) => send('GRANT_TEST_RESOURCES', payload)
+  const broadcastGrantTestProgressCard = (payload: GrantTestProgressCardPayload) => send('GRANT_TEST_PROGRESS_CARD', payload)
   const broadcastCommodityTraded = (payload: CommodityTradedPayload) => send('COMMODITY_TRADED', payload)
   const broadcastGuildDuesTaken = (payload: GuildDuesTakenPayload) => send('GUILD_DUES_TAKEN', payload)
   const broadcastEspionageTaken = (payload: EspionageTakenPayload) => send('ESPIONAGE_TAKEN', payload)
@@ -1367,6 +1377,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastInventionSwapped,
     broadcastBankTrade,
     broadcastGrantTestResources,
+    broadcastGrantTestProgressCard,
     broadcastCommodityTraded,
     broadcastGuildDuesTaken,
     broadcastEspionageTaken,

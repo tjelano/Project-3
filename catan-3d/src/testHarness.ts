@@ -80,6 +80,30 @@ export interface CatanTestHarness {
     // swappable (non-null, non-2/6/8/12) tile ids from getGraph().tiles.
     playInvention: () => void
     selectInventionTile: (tileId: string) => void
+    // Cities & Knights Sabotage/Wedding — same "real, already-guarded
+    // production action" reasoning as playInvention above: both are
+    // plain click-to-play (no argument-picker), fully resolved by one
+    // call. Sabotage forces every player with >= the announcer's VP to
+    // discard half their hand (floor); Wedding takes up to 2 cards from
+    // every player with STRICTLY MORE VP than the announcer. Both derive
+    // their affected-player set and auto-discard selection independently
+    // per client from already-synced public state — same risk shape as
+    // the two real desync bugs this harness already caught.
+    playSabotage: () => void
+    playWedding: () => void
+    // Cities & Knights Espionage — look at another player's progress-card
+    // hand, optionally take exactly one BY INDEX. In a 2-player game the
+    // target is always the only other player (no selectEspionageTarget
+    // exposed — nothing to choose between). playEspionage spends the card
+    // and arms the pending pick; confirmEspionage([cardIndex]) resolves it
+    // (empty array = looked, took nothing, matching the card's "you may
+    // take 1" wording). The real risk this exercises: ESPIONAGE_TAKEN
+    // resolves `cardIndex` against EACH client's own local copy of the
+    // target's progressCards array (players.ts's ESPIONAGE_TAKEN case) —
+    // if the two clients' arrays ever drifted in order, they'd resolve
+    // DIFFERENT actual cards from the same index.
+    playEspionage: () => void
+    confirmEspionage: (indices: number[]) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

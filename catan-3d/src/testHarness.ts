@@ -45,7 +45,10 @@ export interface CatanTestHarness {
     // Bank trade, App.tsx's own bankTrade — rate is computed server-side
     // (game/App.tsx's getPortRate, port-aware) from `give`, not passed in;
     // a caller only needs to know it'll never be worse than 4:1, so a
-    // surplus of >=4 in `give` always succeeds regardless of ports.
+    // surplus of >=4 in `give` always succeeds regardless of ports. Same
+    // guards as the real UI action: silently no-ops (getLastWarning()
+    // explains why) unless gamePhase is 'playing', the caller has already
+    // rolled this turn, it's actually their turn, and give !== receive.
     bankTrade: (give: ResourceType, receive: ResourceType) => void
     // Test-only backdoor: adds resources/commodities directly to THIS page's
     // own player, bypassing dice/bank-rate/turn/phase — for scenario setups

@@ -2119,11 +2119,17 @@ function App() {
       }
       applyBankTrade(payload.playerId, payload.give, payload.receive, payload.rate, false)
     },
-    // No shape validation, unlike every sibling onX handler above — this event
-    // only ever fires from MODE==='test' harness code (App.tsx's grantResources
-    // wiring below), which is fully absent from production builds, so there's
-    // no untrusted-network payload to defend against here.
+    // No shape validation, unlike every sibling onX handler above — but DOES
+    // still need its own MODE gate (same as onDiceRolled's test-mode branch
+    // elsewhere in this file): the SENDING side is gated (grantResources is
+    // only ever exposed via installTestHarness, itself MODE==='test'-gated),
+    // but this receive handler runs on every client subscribed to the room
+    // channel regardless of build mode — without this check, any client
+    // (not just this app's own UI) could broadcast a raw GRANT_TEST_RESOURCES
+    // event into a real room and every production client would silently
+    // apply it.
     onGrantTestResources: (payload) => {
+      if (import.meta.env.MODE !== 'test') return
       applyGrantTestResources(payload.playerId, payload.resources, payload.commodities, false)
     },
     // Broadcast-sourced — same validation shape as onBankTrade just above,

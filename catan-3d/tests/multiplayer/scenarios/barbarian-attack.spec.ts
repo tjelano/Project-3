@@ -3,56 +3,35 @@ import type { Page } from '@playwright/test'
 import { test, expect } from '@playwright/test'
 import { hostRoom, joinRoom, startWhenFull, waitForGameStarted, assertConnected } from '../lobby'
 import { runScenario, type Actor } from '../harness'
-import { firstEdgeAt, occupy, findBestBiomeVertex, pageForActor, resolvePostRollObligations } from '../scenarioHelpers'
+import { firstEdgeAt, occupy, findBestBiomeVertex, resolvePostRollObligations } from '../scenarioHelpers'
 import type { TestHarnessGraph } from '../../../src/testHarness'
 import type { Biome } from '../../../src/data/hexBoard'
-import type { Resources } from '../../../src/game/types'
-
-// CITY_COST, game/types.ts:379 — { ore: 3, grain: 2 }.
-function hasCityCost(resources: Resources): boolean {
-  return resources.ore >= 3 && resources.grain >= 2
-}
-
-async function getCurrentPlayerResources(page: Page): Promise<Resources> {
-  const state = await page.evaluate(() => window.__catanTestHarness!.getState())
-  return state.players[state.turn.currentPlayerIndex].resources
-}
+import { CITY_COST } from '../../../src/game/types'
 
 async function settlementType(page: Page, vertexId: string): Promise<string | undefined> {
   const state = await page.evaluate(() => window.__catanTestHarness!.getState())
   return state.board.settlements[vertexId]?.type
 }
 
-// Bounded catch-up: rolls for `actor`, upgrades cityVertexId (buildSettlement
-// on an already-owned settlement vertex IS the upgrade-to-city action — no
-// separate test-hook surface exists or is needed) the instant it's
-// affordable, then ends their turn. Barbarians are OFF for this whole phase
-// (see the scenario's own comment on why) so resolvePostRollObligations'
-// barbarian-related wait is a same-tick no-op throughout — this loop behaves
-// identically to dev-card-purchase.spec.ts's own catch-up shape.
-async function buildCityWithCatchup(
-  pageA: Page,
-  pageB: Page,
-  actor: Actor,
-  other: Actor,
-  graph: TestHarnessGraph,
-  cityVertexId: string,
-  maxRounds: number,
-): Promise<void> {
-  for (let round = 0; round < maxRounds; round++) {
-    await runScenario(pageA, pageB, [{ actor, action: 'rollDice' }])
-    await resolvePostRollObligations(pageA, pageB, actor, graph)
-    const resources = await getCurrentPlayerResources(pageForActor(pageA, pageB, actor))
-    if (hasCityCost(resources)) {
-      await runScenario(pageA, pageB, [{ actor, action: 'buildSettlement', args: [cityVertexId] }])
-      return
-    }
-    await runScenario(pageA, pageB, [{ actor, action: 'endTurn' }])
-    await runScenario(pageA, pageB, [{ actor: other, action: 'rollDice' }])
-    await resolvePostRollObligations(pageA, pageB, other, graph)
-    await runScenario(pageA, pageB, [{ actor: other, action: 'endTurn' }])
-  }
-  throw new Error(`${actor} could not afford a city (ore+grain) within ${maxRounds} of their own turns`)
+// One real roll (satisfies buildSettlementRaw's "must roll before building
+// outside setup" guard, App.tsx:2928 — buildSettlement on an already-owned
+// settlement vertex IS the upgrade-to-city action, no separate test-hook
+// surface needed), then grants CITY_COST directly instead of grinding dice
+// for it. This phase isn't testing the economy — it's just getting a city
+// built fast and reliably before the actual point of this scenario (the
+// barbarian attack) begins. Previously a bounded 60-round dice-catchup loop
+// (same shape as dev-card-purchase.spec.ts's own), which could and did hit
+// its own round cap on an unlucky board (CI, 2026-08-31: "B could not
+// afford a city within 60 of their own turns") — grantResources (merged
+// separately) eliminates that flake category entirely for a setup step
+// that was never meant to be testing realistic play in the first place.
+async function buildCity(pageA: Page, pageB: Page, actor: Actor, graph: TestHarnessGraph, cityVertexId: string): Promise<void> {
+  await runScenario(pageA, pageB, [{ actor, action: 'rollDice' }])
+  await resolvePostRollObligations(pageA, pageB, actor, graph)
+  await runScenario(pageA, pageB, [
+    { actor, action: 'grantResources', args: [CITY_COST] },
+    { actor, action: 'buildSettlement', args: [cityVertexId] },
+  ])
 }
 
 // Bounded catch-up: keeps rolling (barbarians now ON) until cityVertexId
@@ -186,20 +165,11 @@ test('a barbarian attack pillages the sole city and stays converged', async ({ b
       { actor: starter, action: 'buildRoad', args: [cityEdge] },
     ])
 
-    // 60 real turns, same bound and reasoning as dev-card-purchase.spec.ts's
-    // MAX_CATCHUP_ROUNDS — CITY_COST (ore+grain) is a bigger ask than that
-    // scenario's ore+grain+wool kickstart-assisted target, but barbarians
-    // being off here (unlike progress-card-draw.spec.ts's own city-building
-    // phase) removes the one interaction that scenario found genuinely
-    // disruptive to its own economy.
-    const MAX_CITY_ROUNDS = 60
-    await buildCityWithCatchup(pageA, pageB, starter, other, graph, cityVertexId, MAX_CITY_ROUNDS)
+    await buildCity(pageA, pageB, starter, graph, cityVertexId)
     expect(await settlementType(pageA, cityVertexId)).toBe('city')
-    // buildCityWithCatchup returns the instant the city is bought, same as
-    // dev-card-purchase.spec.ts's own buyDevCardWithCatchup — starter's
-    // turn is still open (they've rolled, just spent it on the upgrade
-    // instead of ending). The caller owns ending it, same as that
-    // scenario's own outer test does right after its catch-up call.
+    // buildCity returns with starter's turn still open (they've rolled,
+    // just spent it on the upgrade instead of ending) — the caller owns
+    // ending it, same contract the old catch-up loop had.
     await runScenario(pageA, pageB, [{ actor: starter, action: 'endTurn' }])
 
     // Barbarians back on — the city exists now, so the next attack this

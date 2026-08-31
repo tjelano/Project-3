@@ -44,6 +44,19 @@ describe('reduceGame', () => {
     expect(result.players.find((p) => p.id === initialGameState.players[0].id)!.resources.grain).toBe(1)
   })
 
+  it('routes a players-only action (GRANT_TEST_RESOURCES) without touching board', () => {
+    const result = reduceGame(initialGameState, {
+      type: 'GRANT_TEST_RESOURCES',
+      playerId: initialGameState.players[0].id,
+      resources: { grain: 1 },
+      commodities: { paper: 1 },
+    })
+    expect(result.board).toBe(initialGameState.board)
+    const player = result.players.find((p) => p.id === initialGameState.players[0].id)!
+    expect(player.resources.grain).toBe(1)
+    expect(player.commodities.paper).toBe(1)
+  })
+
   it('routes a turn action through reduceTurn', () => {
     const result = reduceGame(initialGameState, { type: 'GAME_PHASE_SET', phase: 'playing' })
     expect(result.turn.gamePhase).toBe('playing')

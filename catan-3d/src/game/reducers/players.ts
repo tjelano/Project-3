@@ -1,4 +1,4 @@
-import type { Player, Resources, ResourceType, StolenItem, CommodityType, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack, PlayerColorToken } from '../types'
+import type { Player, Resources, ResourceType, StolenItem, CommodityType, Commodities, KnightPiece, KnightStrength, ProgressCardType, DevCardType, ImprovementTrack, PlayerColorToken } from '../types'
 import { deductCost, SETTLEMENT_COST, CITY_COST, ROAD_COST, SHIP_COST, CITY_WALL_COST, DEV_CARD_COST, COMMODITY_ORDER, RESOURCE_ORDER, removeOne, KNIGHT_RECRUIT_COST, KNIGHT_ACTIVATE_COST, KNIGHT_PROMOTE_COST, PROGRESS_CARD_VP_TYPES, COMMODITY_FOR_TRACK, emptyResources, createInitialPlayers, isCommodityType } from '../types'
 import type { GameAction, GameState } from '../gameState'
 import { applyDiscardCounts, autoDiscardCounts, discardHandSize } from '../discard'
@@ -14,6 +14,12 @@ export type PlayersAction =
   // separate players-state change (only fires conditionally), not a variant
   // of placing the settlement itself.
   | { type: 'GRANT_SETUP_RESOURCES'; playerId: number; resources: Partial<Resources> }
+  // Test-only trusted grant (installTestHarness's grantResources action,
+  // App.tsx — MODE==='test' only, dead-code-eliminated from production).
+  // Purely additive, no validation: unlike GRANT_SETUP_RESOURCES this DOES
+  // broadcast (App.tsx's applyGrantTestResources), since the caller is one
+  // page's scenario code, not something every client can derive locally.
+  | { type: 'GRANT_TEST_RESOURCES'; playerId: number; resources?: Partial<Resources>; commodities?: Partial<Commodities> }
   | { type: 'ROBBER_MOVED'; tileId: string; thiefId: number; victimId: number | null; stolenItem: StolenItem | null }
   | { type: 'TRADE_RESOLVED'; fromPlayerId: number; toPlayerId: number; offerCard: ResourceType | CommodityType; wantCard: ResourceType | CommodityType }
   | { type: 'DISCARD_CONFIRMED'; playerId: number; counts: Partial<Record<ResourceType | CommodityType, number>> }
@@ -157,6 +163,19 @@ export function reducePlayers(players: Player[], action: GameAction, fullState: 
           resources[resource] += amount
         }
         return { ...p, resources }
+      })
+    case 'GRANT_TEST_RESOURCES':
+      return players.map((p) => {
+        if (p.id !== action.playerId) return p
+        const resources = { ...p.resources }
+        for (const [resource, amount] of Object.entries(action.resources ?? {}) as [ResourceType, number][]) {
+          resources[resource] += amount
+        }
+        const commodities = { ...p.commodities }
+        for (const [commodity, amount] of Object.entries(action.commodities ?? {}) as [CommodityType, number][]) {
+          commodities[commodity] += amount
+        }
+        return { ...p, resources, commodities }
       })
     case 'ROBBER_MOVED':
       return applyStealTransfer(players, action.thiefId, action.victimId, action.stolenItem)

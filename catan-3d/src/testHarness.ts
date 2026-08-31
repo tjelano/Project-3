@@ -1,5 +1,5 @@
 import type { GameState } from './game/gameState'
-import type { DevCardType, GameRules, ImprovementTrack, ResourceType } from './game/types'
+import type { Commodities, DevCardType, GameRules, ImprovementTrack, Resources, ResourceType } from './game/types'
 import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
@@ -47,6 +47,13 @@ export interface CatanTestHarness {
     // a caller only needs to know it'll never be worse than 4:1, so a
     // surplus of >=4 in `give` always succeeds regardless of ports.
     bankTrade: (give: ResourceType, receive: ResourceType) => void
+    // Test-only backdoor: adds resources/commodities directly to THIS page's
+    // own player, bypassing dice/bank-rate/turn/phase — for scenario setups
+    // that would be impractical or impossible via realistic dice+trade alone
+    // (e.g. leveling a Cities & Knights improvement track past what barbarian-
+    // attack pillage risk allows within a bounded round count). Purely
+    // additive; broadcasts to the other page like bankTrade does.
+    grantResources: (resources?: Partial<Resources>, commodities?: Partial<Commodities>) => void
     // Local-only (not broadcast) — see its App.tsx wiring comment for why
     // that's safe: called identically on every page before any game
     // action, from gameRules already synced by the game-started broadcast.

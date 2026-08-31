@@ -4,6 +4,7 @@ import { getSupabaseClient } from '../lib/supabaseClient'
 import { debugLog } from '../utils/debugLog'
 import type {
   CommodityType,
+  Commodities,
   DevCardType,
   GameRules,
   ImprovementTrack,
@@ -344,6 +345,12 @@ export interface BankTradePayload {
   // rather than re-derived from the receiver's own copy of the trader's
   // port access (same reasoning as RoadBuiltPayload.isFreeRoad below).
   rate: number
+}
+
+export interface GrantTestResourcesPayload {
+  playerId: number
+  resources?: Partial<Resources>
+  commodities?: Partial<Commodities>
 }
 
 // Cities & Knights Trade level 3 — 2:1 commodity trading. Unlike
@@ -818,6 +825,9 @@ export interface RoomChannelHandlers {
   // exact same applyInventionSwap function.
   onInventionSwapped?: (payload: InventionSwappedPayload) => void
   onBankTrade?: (payload: BankTradePayload) => void
+  // Test-only — see GrantTestResourcesPayload's own comment near its
+  // definition above; only ever fires from MODE==='test' harness code.
+  onGrantTestResources?: (payload: GrantTestResourcesPayload) => void
   onCommodityTraded?: (payload: CommodityTradedPayload) => void
   // Cities & Knights Guild Dues/Espionage (Task 11) — fire once the acting
   // client has confirmed their own picks in OpponentHandPicker; the card
@@ -1083,6 +1093,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     channel.on<MetropolisClaimedPayload>('broadcast', { event: 'METROPOLIS_CLAIMED' }, forwardTo('onMetropolisClaimed'))
     channel.on<InventionSwappedPayload>('broadcast', { event: 'INVENTION_SWAPPED' }, forwardTo('onInventionSwapped'))
     channel.on<BankTradePayload>('broadcast', { event: 'BANK_TRADE' }, forwardTo('onBankTrade'))
+    channel.on<GrantTestResourcesPayload>('broadcast', { event: 'GRANT_TEST_RESOURCES' }, forwardTo('onGrantTestResources'))
     channel.on<CommodityTradedPayload>('broadcast', { event: 'COMMODITY_TRADED' }, forwardTo('onCommodityTraded'))
     channel.on<GuildDuesTakenPayload>('broadcast', { event: 'GUILD_DUES_TAKEN' }, forwardTo('onGuildDuesTaken'))
     channel.on<EspionageTakenPayload>('broadcast', { event: 'ESPIONAGE_TAKEN' }, forwardTo('onEspionageTaken'))
@@ -1287,6 +1298,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
   const broadcastMetropolisClaimed = (payload: MetropolisClaimedPayload) => send('METROPOLIS_CLAIMED', payload)
   const broadcastInventionSwapped = (payload: InventionSwappedPayload) => send('INVENTION_SWAPPED', payload)
   const broadcastBankTrade = (payload: BankTradePayload) => send('BANK_TRADE', payload)
+  const broadcastGrantTestResources = (payload: GrantTestResourcesPayload) => send('GRANT_TEST_RESOURCES', payload)
   const broadcastCommodityTraded = (payload: CommodityTradedPayload) => send('COMMODITY_TRADED', payload)
   const broadcastGuildDuesTaken = (payload: GuildDuesTakenPayload) => send('GUILD_DUES_TAKEN', payload)
   const broadcastEspionageTaken = (payload: EspionageTakenPayload) => send('ESPIONAGE_TAKEN', payload)
@@ -1354,6 +1366,7 @@ export function useRoomChannel(roomCode: string | null, self: RoomPlayer | null,
     broadcastMetropolisClaimed,
     broadcastInventionSwapped,
     broadcastBankTrade,
+    broadcastGrantTestResources,
     broadcastCommodityTraded,
     broadcastGuildDuesTaken,
     broadcastEspionageTaken,

@@ -163,6 +163,34 @@ describe('reducePlayers — GRANT_SETUP_RESOURCES', () => {
   })
 })
 
+describe('reducePlayers — GRANT_TEST_RESOURCES', () => {
+  it('adds the given resource and commodity deltas to the named player only', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'GRANT_TEST_RESOURCES', playerId: players[0].id, resources: { grain: 2, ore: 1 }, commodities: { paper: 3 } },
+      initialGameState,
+    )
+    const player = result.find((p) => p.id === players[0].id)!
+    expect(player.resources.grain).toBe(2)
+    expect(player.resources.ore).toBe(1)
+    expect(player.resources.lumber).toBe(0)
+    expect(player.commodities.paper).toBe(3)
+    expect(player.commodities.cloth).toBe(0)
+    expect(result.find((p) => p.id === players[1].id)!).toEqual(players[1])
+  })
+
+  it('tolerates an omitted resources or commodities field', () => {
+    const players = createInitialPlayers(2)
+    const result = reducePlayers(
+      players,
+      { type: 'GRANT_TEST_RESOURCES', playerId: players[0].id, commodities: { cloth: 1 } },
+      initialGameState,
+    )
+    expect(result.find((p) => p.id === players[0].id)!.commodities.cloth).toBe(1)
+  })
+})
+
 describe('reducePlayers — ROBBER_MOVED', () => {
   it('moves a resource from victim to thief', () => {
     const players = createInitialPlayers(2).map((p) => ({ ...p, resources: { lumber: 3, brick: 0, wool: 0, grain: 0, ore: 0 } }))

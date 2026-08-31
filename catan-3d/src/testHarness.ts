@@ -161,6 +161,14 @@ export interface CatanTestHarness {
     armKnightRecruit: () => void
     selectKnightVertex: (vertexId: string) => void
     activateKnight: (knightId: string) => void
+    // Cities & Knights knight move — armKnightMove arms the SAME picker
+    // selectKnightVertex above resolves (handleKnightVertexSelect branches
+    // on armedKnightAction.mode === 'move' vs pendingKnightRecruit), so no
+    // new resolve action is needed for this, only the arm step. Same
+    // "touches no synced state at all" category as armKnightRecruit — just
+    // sets armedKnightAction, plain local React state, zero dispatch, zero
+    // broadcast.
+    armKnightMove: (knightId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

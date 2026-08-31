@@ -9,12 +9,15 @@ import {
   findBestBiomeVertex,
   pageForActor,
   resolvePostRollObligations,
+  topUpMissingResources,
 } from '../scenarioHelpers'
 import type { TestHarnessGraph } from '../../../src/testHarness'
 import type { Biome } from '../../../src/data/hexBoard'
 import type { Resources } from '../../../src/game/types'
 
-// DEV_CARD_COST, game/types.ts:380 — { ore: 1, grain: 1, wool: 1 }.
+// game/types.ts:380.
+const DEV_CARD_COST: Partial<Resources> = { ore: 1, grain: 1, wool: 1 }
+
 function hasDevCardCost(resources: Resources): boolean {
   return resources.ore >= 1 && resources.grain >= 1 && resources.wool >= 1
 }
@@ -24,13 +27,17 @@ async function getCurrentPlayerResources(page: Page): Promise<Resources> {
   return state.players[state.turn.currentPlayerIndex].resources
 }
 
-// Bounded catch-up: rolls for `actor`, buys the instant the roll leaves them
-// able to afford it (usually round 0, thanks to findBestBiomeVertex above),
-// then ends their turn. Capped at MAX_ROUNDS real turns of production so a
-// board that left this player with none of a needed resource type still
-// fails fast with a clear message instead of hanging — this is the
-// documented fallback for the ~1-in-10 board that lacks even a partial
-// biome match, not the common path.
+// Bounded catch-up: rolls for `actor`, tops up any still-missing resource
+// via a real bank trade (topUpMissingResources — models a real player
+// closing a gap instead of just hoping dice eventually produce it; also
+// covers the case findBestBiomeVertex's best-effort placement left this
+// player with literally NO tile producing one of the 3 needed resources,
+// which no number of rounds could ever fix on its own), buys the instant
+// the roll leaves them able to afford it (usually round 0, thanks to
+// findBestBiomeVertex above), then ends their turn. Capped at MAX_ROUNDS
+// real turns of production so a genuinely starved board (e.g. every
+// resource type maxed out at exactly what's needed, nothing left to trade
+// away) still fails fast with a clear message instead of hanging.
 async function buyDevCardWithCatchup(
   pageA: Page,
   pageB: Page,
@@ -42,6 +49,7 @@ async function buyDevCardWithCatchup(
   for (let round = 0; round < maxRounds; round++) {
     await runScenario(pageA, pageB, [{ actor, action: 'rollDice' }])
     await resolvePostRollObligations(pageA, pageB, actor, graph)
+    await topUpMissingResources(pageA, pageB, actor, DEV_CARD_COST)
     const resources = await getCurrentPlayerResources(pageForActor(pageA, pageB, actor))
     if (hasDevCardCost(resources)) {
       await runScenario(pageA, pageB, [{ actor, action: 'buyDevCard' }])

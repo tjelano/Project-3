@@ -4,9 +4,10 @@
 // identical vertex-selection and post-roll-obligation logic, rather than
 // duplicating it and risking the two copies drifting apart.
 import type { Page } from '@playwright/test'
-import type { Actor } from './harness'
+import { runScenario, type Actor } from './harness'
 import type { TestHarnessGraph, CatanTestHarness } from '../../src/testHarness'
 import type { Biome } from '../../src/data/hexBoard'
+import { RESOURCE_ORDER, type Resources, type ResourceType } from '../../src/game/types'
 
 // Seafarers: an edge is open ocean when EVERY flanking tile is sea (as
 // opposed to "coastal," where at least one flanking tile is land) — the
@@ -119,6 +120,69 @@ export function findBestBiomeVertex(
 
 export function pageForActor(pageA: Page, pageB: Page, actor: Actor): Page {
   return actor === 'A' ? pageA : pageB
+}
+
+// A bank trade's real rate depends on ports (2:1/3:1/4:1, App.tsx's
+// getPortRate) — computed server-side, never exposed via getGraph(). 4 is
+// the worst case; a surplus of that much in any resource always trades
+// successfully regardless of what port (if any) the player actually has,
+// and the game's own logic charges whatever the real, possibly-cheaper
+// rate turns out to be — this helper never needs to know it in advance.
+const MIN_TRADEABLE_SURPLUS = 4
+
+// CITY_COST (game/types.ts:379, ore:3 grain:2) is the largest target any
+// current scenario passes here — 5 individual trades in the worst case,
+// since bankTrade only ever converts one resource per call. Generous
+// margin above that so a bigger future target doesn't silently under-run.
+const MAX_TRADES_PER_CALL = 12
+
+async function getActorResources(page: Page): Promise<Resources> {
+  const state = await page.evaluate(() => window.__catanTestHarness!.getState())
+  return state.players[state.turn.currentPlayerIndex].resources
+}
+
+// Models how a real player actually closes a resource gap instead of just
+// hoping dice eventually produce it: trades away genuine SURPLUS (current
+// count minus whatever `needed` still requires of that same type — never
+// dips into the portion this call itself is trying to reach) for whichever
+// needed resource is still short. Catches a real class of scenario flake
+// this session found: findBestBiomeVertex's setup placement is best-effort,
+// not guaranteed — a player can end up with ZERO tiles producing one
+// needed resource, in which case no number of dice rolls could ever
+// satisfy `needed` on their own. Trading (using whatever the player DOES
+// produce in surplus) is the only thing that can actually close that gap,
+// exactly like a real player would.
+//
+// Call after each roll in a catch-up loop, before checking whether
+// `needed` is now affordable. Every attempted trade goes through the real
+// runScenario convergence check (not a bypass, unlike discard/chooseRobber/
+// moveRobber above) — a bank trade changes both players' shared GameState
+// the same way any build action does, so it gets the same sync coverage.
+export async function topUpMissingResources(
+  pageA: Page,
+  pageB: Page,
+  actor: Actor,
+  needed: Partial<Resources>,
+): Promise<void> {
+  for (let i = 0; i < MAX_TRADES_PER_CALL; i++) {
+    const resources = await getActorResources(pageForActor(pageA, pageB, actor))
+    const shortType = RESOURCE_ORDER.find((type) => resources[type] < (needed[type] ?? 0))
+    if (!shortType) return // nothing missing
+
+    let giveType: ResourceType | null = null
+    let giveSurplus = MIN_TRADEABLE_SURPLUS - 1
+    for (const type of RESOURCE_ORDER) {
+      if (type === shortType) continue
+      const surplus = resources[type] - (needed[type] ?? 0)
+      if (surplus > giveSurplus) {
+        giveSurplus = surplus
+        giveType = type
+      }
+    }
+    if (!giveType) return // nothing has enough real surplus yet — try again after the next roll
+
+    await runScenario(pageA, pageB, [{ actor, action: 'bankTrade', args: [giveType, shortType] }])
+  }
 }
 
 // A "cape": a legal settlement spot (touches at least one land tile) that

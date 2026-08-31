@@ -88,6 +88,7 @@ import {
   getPublicScore,
   victoryPointScale,
   type CommodityType,
+  type Commodities,
   type DevCardType,
   type GameRules,
   type ImprovementTrack,
@@ -1682,6 +1683,7 @@ function App() {
     broadcastNewGame,
     broadcastDevCardBought,
     broadcastBankTrade,
+    broadcastGrantTestResources,
     broadcastHoverChanged,
     broadcastChatMessage,
     broadcastCityImprovementPurchased,
@@ -2116,6 +2118,19 @@ function App() {
         return
       }
       applyBankTrade(payload.playerId, payload.give, payload.receive, payload.rate, false)
+    },
+    // No shape validation, unlike every sibling onX handler above — but DOES
+    // still need its own MODE gate (same as onDiceRolled's test-mode branch
+    // elsewhere in this file): the SENDING side is gated (grantResources is
+    // only ever exposed via installTestHarness, itself MODE==='test'-gated),
+    // but this receive handler runs on every client subscribed to the room
+    // channel regardless of build mode — without this check, any client
+    // (not just this app's own UI) could broadcast a raw GRANT_TEST_RESOURCES
+    // event into a real room and every production client would silently
+    // apply it.
+    onGrantTestResources: (payload) => {
+      if (import.meta.env.MODE !== 'test') return
+      applyGrantTestResources(payload.playerId, payload.resources, payload.commodities, false)
     },
     // Broadcast-sourced — same validation shape as onBankTrade just above,
     // since this payload also indexes straight into commodities[]/resources[]
@@ -4482,6 +4497,21 @@ function App() {
     const player = playerById.get(playerId)
     if (player) inform(`${player.name} traded ${rate} ${RESOURCE_LABELS[give]} for 1 ${RESOURCE_LABELS[receive]}.`)
     if (isDeciding && onlineInfo) broadcastBankTrade({ playerId, give, receive, rate })
+  }
+
+  // Trusted state mutation for the test harness's grantResources action — see
+  // its own installTestHarness wiring below. Purely additive, no
+  // validation/clamping (only test code ever calls this); same trusted-apply
+  // split as applyBankTrade just above, minus a banner (nothing for a real
+  // player to read here).
+  const applyGrantTestResources = (
+    playerId: number,
+    resources: Partial<Resources> | undefined,
+    commodities: Partial<Commodities> | undefined,
+    isDeciding: boolean,
+  ) => {
+    dispatch({ type: 'GRANT_TEST_RESOURCES', playerId, resources, commodities })
+    if (isDeciding && onlineInfo) broadcastGrantTestResources({ playerId, resources, commodities })
   }
 
   const bankTrade = (give: ResourceType, receive: ResourceType) => {
@@ -7271,6 +7301,14 @@ function App() {
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
         buyCityImprovement: wrap(buyCityImprovement),
+        bankTrade: wrap(bankTrade),
+        // Test-only resource/commodity injection — bypasses dice/bank-rate/turn/
+        // phase entirely, always targets THIS page's own seat (localPlayer),
+        // never an explicit playerId — a scenario wanting to grant to the other
+        // player calls this on that player's own Page instead.
+        grantResources: wrap((resources?: Partial<Resources>, commodities?: Partial<Commodities>) =>
+          applyGrantTestResources(localPlayer.id, resources, commodities, true),
+        ),
         // Local-only, deliberately not broadcast: a scenario calls this on
         // BOTH pages with the identical override, right after game start
         // and before either page rolls — both start from the same

@@ -7271,6 +7271,7 @@ function App() {
         buyDevCard: wrap(buyDevCard),
         playDevCard: wrap(playDevCard),
         buyCityImprovement: wrap(buyCityImprovement),
+        bankTrade: wrap(bankTrade),
         // Local-only, deliberately not broadcast: a scenario calls this on
         // BOTH pages with the identical override, right after game start
         // and before either page rolls — both start from the same

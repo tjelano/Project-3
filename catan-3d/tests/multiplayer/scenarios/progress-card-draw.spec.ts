@@ -9,10 +9,11 @@ import {
   findBestBiomeVertex,
   pageForActor,
   resolvePostRollObligations,
+  topUpMissingResources,
 } from '../scenarioHelpers'
 import type { TestHarnessGraph } from '../../../src/testHarness'
 import type { Biome } from '../../../src/data/hexBoard'
-import { COMMODITY_FOR_TRACK, type ImprovementTrack } from '../../../src/game/types'
+import { CITY_COST, COMMODITY_FOR_TRACK, type ImprovementTrack } from '../../../src/game/types'
 
 // Same target as dev-card-purchase.spec.ts, reused for a different reason:
 // a vertex touching mountains+fields+pasture funds a city's CITY_COST
@@ -94,7 +95,16 @@ async function advanceToProgressCardDraw(
 
     const building = state.board.settlements[ownVertexId]
     if (!building || building.type !== 'city') {
-      if (canAffordCity(player.resources)) {
+      // Only while the city doesn't exist yet — CITY_COST_BIOME_WEIGHTS'
+      // own placement bias is best-effort, not guaranteed (same gap
+      // dev-card-purchase.spec.ts hit: a player can end up with a vertex
+      // pair that jointly touch zero ore or zero grain tiles, in which
+      // case no number of rounds could ever satisfy CITY_COST on their
+      // own). Real ore/grain surplus only, via a real bank trade — models
+      // how a real player closes this gap instead of just hoping.
+      await topUpMissingResources(pageA, pageB, actor, CITY_COST)
+      const topped = (await getState(actorPage)).players[state.turn.currentPlayerIndex]
+      if (canAffordCity(topped.resources)) {
         await runScenario(pageA, pageB, [{ actor, action: 'buildSettlement', args: [ownVertexId] }])
       }
     } else if (TRACKS_PRODUCED.some((track) => player.cityImprovements[track] < 1)) {

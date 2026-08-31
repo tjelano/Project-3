@@ -1,5 +1,5 @@
 import type { GameState } from './game/gameState'
-import type { DevCardType, GameRules, ImprovementTrack } from './game/types'
+import type { DevCardType, GameRules, ImprovementTrack, ResourceType } from './game/types'
 import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
@@ -42,6 +42,11 @@ export interface CatanTestHarness {
     buyDevCard: () => void
     playDevCard: (card: DevCardType) => void
     buyCityImprovement: (track: ImprovementTrack) => void
+    // Bank trade, App.tsx's own bankTrade — rate is computed server-side
+    // (game/App.tsx's getPortRate, port-aware) from `give`, not passed in;
+    // a caller only needs to know it'll never be worse than 4:1, so a
+    // surplus of >=4 in `give` always succeeds regardless of ports.
+    bankTrade: (give: ResourceType, receive: ResourceType) => void
     // Local-only (not broadcast) — see its App.tsx wiring comment for why
     // that's safe: called identically on every page before any game
     // action, from gameRules already synced by the game-started broadcast.

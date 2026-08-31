@@ -7420,6 +7420,7 @@ function App() {
         // above (handleKnightVertexSelect's armedKnightAction.mode ===
         // 'move' branch), no new resolve action needed.
         armKnightMove: wrap(armKnightMove),
+        promoteKnight: wrap(promoteKnight),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

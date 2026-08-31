@@ -25,7 +25,18 @@ export interface ScenarioStep {
 // consistent with real Supabase Realtime latency rather than a logic bug.
 // 60s gives real headroom without masking an actual regression, which
 // would still show up as a real diff, just discovered later.
-const CONVERGENCE_TIMEOUT_MS = 60_000
+//
+// Doubled under CI: GitHub Actions CI (.github/workflows/ci.yml) hit two
+// genuine 60s convergence timeouts in its first clean (non-cancelled) run
+// — one page fully caught up on a barbarian-attack pillage resolution,
+// the other showing zero trace of it after the full window. Same
+// "changed, not corrupt" shape as the real-hardware case above, just
+// under real Azure-datacenter-to-Supabase network latency plus whatever
+// throttling a headless CI browser context applies that a real foreground
+// browser window doesn't — untested which, but doubling the budget is
+// cheap and directly falsifiable: if a page still never catches up with
+// 120s, that's real signal the cause is a stall, not just slowness.
+const CONVERGENCE_TIMEOUT_MS = process.env.CI ? 120_000 : 60_000
 const POLL_INTERVAL_MS = 200
 
 async function runAction(page: Page, action: ScenarioStep['action'], args: unknown[] = []): Promise<void> {

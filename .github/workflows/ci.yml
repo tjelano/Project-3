@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: catan-3d
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b --force
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+
+  unit-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      - run: npm run test
+
+  # Depends on the three fast/free jobs above so a broken typecheck/lint/
+  # unit-test fails CI in seconds instead of after this job's own multi-
+  # minute, real-network run against the dedicated test Supabase project
+  # (see catan-3d/.env.test.local.example) also starts.
+  multiplayer:
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, unit-test]
+    # Fork PRs never receive repo secrets (GitHub withholds them from
+    # pull_request-triggered workflows whenever the PR's head repo isn't
+    # this one) — without this gate, a fork PR's multiplayer job would
+    # always fail on a Supabase connection error rather than skip
+    # cleanly, since VITE_SUPABASE_URL_TEST/VITE_SUPABASE_PUBLISHABLE_KEY_TEST
+    # would both come through empty.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # A GitHub-hosted job with no explicit cap defaults to 360 minutes —
+    # the first real run silently hung for hours with no per-job bound to
+    # catch it (Playwright's own 1_050_000ms/17.5min test-level timeout,
+    # playwright.config.ts, only covers the test run itself; the actual
+    # hang was earlier, in `playwright install --with-deps`, before
+    # Playwright's own timeout was ever in play — see the env var below).
+    # 25 covers realistic worst case (install + a genuinely slow live-
+    # network suite) with real headroom, while still failing fast instead
+    # of silently blocking for hours on a repeat of the same class of hang.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: catan-3d/package-lock.json
+      - run: npm ci
+      # NEEDRESTART_MODE=a (automatic, no prompt) — --with-deps runs
+      # apt-get install, which on a fresh Ubuntu runner can trigger
+      # needrestart's "which services should be restarted?" interactive
+      # prompt. There's no TTY to answer it in CI, so without this the
+      # step (and everything after it) hangs indefinitely instead of
+      # failing — exactly what happened on this workflow's first real
+      # run: stuck in_progress for hours with no error, no timeout,
+      # nothing in the job logs (GitHub only persists logs for a
+      # completed job, so a step hung this early never produced any).
+      - run: npx playwright install --with-deps chromium
+        env:
+          NEEDRESTART_MODE: a
+      # Writes the exact file a local dev would create by hand from
+      # .env.test.local.example — matches the real, already-proven code
+      # path instead of relying on Vite forwarding VITE_-prefixed
+      # process.env vars identically to a real .env file.
+      - name: Write test Supabase credentials
+        run: |
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL_TEST }}" >> .env.test.local
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_TEST }}" >> .env.test.local
+      - run: npm run test:multiplayer

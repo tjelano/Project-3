@@ -7405,6 +7405,17 @@ function App() {
         // Cities & Knights Taxation — resolved via the already-exposed
         // moveRobber above, same reasoning.
         armTaxation: wrap(armTaxation),
+        // Cities & Knights knight recruit/activate. selectKnightVertex
+        // wraps handleKnightVertexSelect directly — unlike Diplomacy/
+        // Taxation, KnightLayer's onSelectVertex is a wholly separate
+        // handler from buildRoadRaw/buildSettlementRaw's own click
+        // pipelines (KnightLayer is its own 3D-canvas layer, never mounted
+        // in test mode, but the plain handler function underneath it is
+        // still directly callable), so no existing harness action already
+        // routes an armed click here — this genuinely needs its own entry.
+        armKnightRecruit: wrap(armKnightRecruit),
+        selectKnightVertex: wrap(handleKnightVertexSelect),
+        activateKnight: wrap(activateKnight),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

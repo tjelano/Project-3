@@ -148,6 +148,19 @@ export interface CatanTestHarness {
     // onProgressCardPlayed's taxation branch), so it needs the same
     // BypassAction treatment activateDiplomacy does.
     armTaxation: () => void
+    // Cities & Knights knight recruit/activate — the minimum needed for
+    // defenderStrength > 0 (a real defended barbarian attack; today's
+    // harness can only ever exercise the defenders-lose path). armKnightRecruit
+    // only sets pendingKnightRecruit, plain local React state — no
+    // GameState touched, no broadcast at all, the same-or-simpler category
+    // as activateDiplomacy. selectKnightVertex mirrors KnightLayer's
+    // onSelectVertex (handleKnightVertexSelect) — call it once with an
+    // unoccupied, road-connected, knight-free vertex id after arming
+    // recruit. activateKnight resolves immediately (single real converging
+    // step, no arm/resolve split — same shape as buyDevCard).
+    armKnightRecruit: () => void
+    selectKnightVertex: (vertexId: string) => void
+    activateKnight: (knightId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

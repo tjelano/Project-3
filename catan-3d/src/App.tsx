@@ -7402,6 +7402,9 @@ function App() {
         // buildRoad above (see testHarness.ts's own comment), not a new
         // action here.
         activateDiplomacy: wrap(activateDiplomacy),
+        // Cities & Knights Taxation — resolved via the already-exposed
+        // moveRobber above, same reasoning.
+        armTaxation: wrap(armTaxation),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

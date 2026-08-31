@@ -1783,20 +1783,29 @@ function App() {
     // re-run (it isn't the acting player), so it applies the payload
     // directly through the SAME applyPillage helper the local actor uses —
     // safe because applyPillage filters pillageQueue by playerId rather
-    // than assuming queue order. Still shape-checked against THIS client's
-    // own state first, same as onBarbarianWinnerDrawResolved below: the
-    // vertex must actually hold a city owned by payload.playerId, and that
-    // player must still owe a pillage in this client's own pillageQueue —
-    // otherwise a malformed or duplicated message would plant a settlement
-    // at an arbitrary vertex or silently reassign its ownership.
+    // than assuming queue order. Shape-checked against THIS client's own
+    // board state first, same as onBarbarianWinnerDrawResolved below: the
+    // vertex must actually hold a city owned by payload.playerId, otherwise
+    // a malformed message would plant a settlement at an arbitrary vertex
+    // or silently reassign its ownership. Deliberately does NOT also check
+    // pillageQueue.some(...) the way this used to — pillageQueue is set by
+    // this same handlers object's onBarbarianAttackResolved, via a
+    // dispatch() that only takes effect next render; handlersRef.current
+    // (useRoomChannel.ts) only updates in a plain useEffect, which runs
+    // AFTER that render commits. When the resolving player is also the
+    // roller, both broadcasts go out back-to-back with no network gap,
+    // easily landing inside that window — PILLAGE_RESOLVED then hits the
+    // stale pre-dispatch pillageQueue and gets wrongly rejected here,
+    // stranding the entry until the 90s host-fallback timer cleans it up.
+    // Confirmed via live diagnostic logging (see applyPillage's own
+    // comment) — this dropped check was the ONLY condition vulnerable to
+    // that staleness; building.type/ownerId read gameState.board.settlements,
+    // untouched by anything in this race, so real malformed/duplicate
+    // payloads are still fully rejected below and by applyPillage's own
+    // dedupe ref.
     onPillageResolved: (payload) => {
       const building = gameState.board.settlements[payload.vertexId]
-      if (
-        !building ||
-        building.type !== 'city' ||
-        building.ownerId !== payload.playerId ||
-        !pillageQueue.some((t) => t.playerId === payload.playerId)
-      ) {
+      if (!building || building.type !== 'city' || building.ownerId !== payload.playerId) {
         console.error('[Catan] Ignoring malformed pillage-resolved payload:', payload)
         return
       }

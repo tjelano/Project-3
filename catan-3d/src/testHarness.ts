@@ -169,6 +169,13 @@ export interface CatanTestHarness {
     // sets armedKnightAction, plain local React state, zero dispatch, zero
     // broadcast.
     armKnightMove: (knightId: string) => void
+    // Cities & Knights knight promote — same immediate-resolve shape as
+    // activateKnight, real converging step (dispatches KNIGHT_PROMOTED +
+    // KNIGHTS_PROMOTED_THIS_TURN_ADDED, broadcasts once — receiver replays
+    // both, no BypassAction treatment needed). basic -> strong needs no
+    // city-improvement level (only mighty does), so this is reachable with
+    // nothing more than KNIGHT_PROMOTE_COST.
+    promoteKnight: (knightId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

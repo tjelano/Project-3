@@ -1,5 +1,5 @@
 import type { GameState } from './game/gameState'
-import type { Commodities, DevCardType, GameRules, ImprovementTrack, ProgressCardType, Resources, ResourceType } from './game/types'
+import type { Commodities, CommodityType, DevCardType, GameRules, ImprovementTrack, ProgressCardType, Resources, ResourceType } from './game/types'
 import type { Biome } from './data/hexBoard'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
@@ -104,6 +104,39 @@ export interface CatanTestHarness {
     // DIFFERENT actual cards from the same index.
     playEspionage: () => void
     confirmEspionage: (indices: number[]) => void
+    // Cities & Knights Resource Monopoly / Trade Monopoly — both spend the
+    // card and open a picker (playResourceMonopoly/playTradeMonopoly),
+    // resolved by a SEPARATE call (resolveDevCardPicker/
+    // resolveDevCardCommodityPicker) once a resource/commodity is chosen —
+    // same 2-step shape base-game Monopoly/Year of Plenty already use.
+    // resolveDevCardPicker is generic (handles both those AND Resource
+    // Monopoly), so exposing it here also makes base-game Monopoly/Year of
+    // Plenty reachable, previously untested by any scenario. The real risk:
+    // both cards' effects independently recompute which opponents to take
+    // from, and how much, from each client's own already-synced resource/
+    // commodity counts (players.ts's RESOURCE_MONOPOLY_PLAYED/
+    // TRADE_MONOPOLY_PLAYED cases) — same shape as Sabotage/Wedding.
+    playResourceMonopoly: () => void
+    playTradeMonopoly: () => void
+    resolveDevCardPicker: (picks: ResourceType[]) => void
+    resolveDevCardCommodityPicker: (pick: CommodityType) => void
+    // Cities & Knights Guild Dues — look at a player with MORE VP than you,
+    // take any 2 cards of your choice. playGuildDues spends the card and
+    // arms the pending pick (defaulted to the only eligible target in a
+    // 2-player game — no selectGuildDuesTarget exposed, nothing to choose
+    // between); confirmGuildDues resolves it, same shape as Espionage's
+    // playEspionage/confirmEspionage above.
+    playGuildDues: () => void
+    confirmGuildDues: (picks: (ResourceType | CommodityType)[]) => void
+    // Cities & Knights Diplomacy — remove any "open" road (neither endpoint
+    // touches a building) and immediately rebuild it free if it was your
+    // own, otherwise it returns to whoever owned it. activateDiplomacy
+    // spends nothing and arms the picker; resolving it needs no new
+    // action — buildRoadRaw checks pendingDiplomacyRemoval BEFORE its
+    // normal build logic and routes an armed click straight to
+    // playDiplomacy internally, so the already-exposed buildRoad(edgeId)
+    // resolves this too, same click target a real player uses.
+    activateDiplomacy: () => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

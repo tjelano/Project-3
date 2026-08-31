@@ -40,6 +40,19 @@ export function firstEdgeAt(graph: TestHarnessGraph, vertexId: string): string {
   return edgeId
 }
 
+// The first ROAD-buildable edge touching `vertexId` OTHER than
+// `excludeEdgeId` — same open-ocean skip as firstEdgeAt above. Extracted
+// from monopoly-guild-dues-diplomacy.spec.ts (PR #88) once
+// knight-move.spec.ts needed the identical "extend a road network by one
+// more hop" logic, same "second scenario needs it" rule this file's own
+// header comment documents.
+export function secondEdgeAt(graph: TestHarnessGraph, vertexId: string, excludeEdgeId: string): string {
+  const tileById = new Map(graph.tiles.map((t) => [t.id, t]))
+  const edgeId = (graph.vertexEdgeIds[vertexId] ?? []).find((id) => id !== excludeEdgeId && !isOpenOceanEdge(graph, tileById, id))
+  if (!edgeId) throw new Error(`secondEdgeAt: no second road-buildable edge found touching vertex ${vertexId}`)
+  return edgeId
+}
+
 // Extracted from base-game.spec.ts once invention-play.spec.ts needed the
 // identical logic — same "second scenario needs it" rule this file's own
 // header comment documents. Picks `count` vertex ids spread evenly across
@@ -344,6 +357,7 @@ type BypassAction =
   | 'activateDiplomacy'
   | 'armTaxation'
   | 'armKnightRecruit'
+  | 'armKnightMove'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

@@ -7416,6 +7416,10 @@ function App() {
         armKnightRecruit: wrap(armKnightRecruit),
         selectKnightVertex: wrap(handleKnightVertexSelect),
         activateKnight: wrap(activateKnight),
+        // Cities & Knights knight move — resolved via selectKnightVertex
+        // above (handleKnightVertexSelect's armedKnightAction.mode ===
+        // 'move' branch), no new resolve action needed.
+        armKnightMove: wrap(armKnightMove),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

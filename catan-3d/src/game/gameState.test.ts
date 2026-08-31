@@ -57,6 +57,16 @@ describe('reduceGame', () => {
     expect(player.commodities.paper).toBe(1)
   })
 
+  it('routes a players-only action (GRANT_TEST_PROGRESS_CARD) without touching board', () => {
+    const result = reduceGame(initialGameState, {
+      type: 'GRANT_TEST_PROGRESS_CARD',
+      playerId: initialGameState.players[0].id,
+      card: 'invention',
+    })
+    expect(result.board).toBe(initialGameState.board)
+    expect(result.players.find((p) => p.id === initialGameState.players[0].id)!.progressCards).toEqual(['invention'])
+  })
+
   it('routes a turn action through reduceTurn', () => {
     const result = reduceGame(initialGameState, { type: 'GAME_PHASE_SET', phase: 'playing' })
     expect(result.turn.gamePhase).toBe('playing')

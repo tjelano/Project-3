@@ -1684,6 +1684,7 @@ function App() {
     broadcastDevCardBought,
     broadcastBankTrade,
     broadcastGrantTestResources,
+    broadcastGrantTestProgressCard,
     broadcastHoverChanged,
     broadcastChatMessage,
     broadcastCityImprovementPurchased,
@@ -2131,6 +2132,14 @@ function App() {
     onGrantTestResources: (payload) => {
       if (import.meta.env.MODE !== 'test') return
       applyGrantTestResources(payload.playerId, payload.resources, payload.commodities, false)
+    },
+    // Same MODE gate as onGrantTestResources just above, applied from the
+    // start this time — PR #79's CodeRabbit review found that gate missing
+    // on the first attempt (sending side was gated, receive side wasn't,
+    // so a hand-crafted broadcast could reach a production client).
+    onGrantTestProgressCard: (payload) => {
+      if (import.meta.env.MODE !== 'test') return
+      applyGrantTestProgressCard(payload.playerId, payload.card, false)
     },
     // Broadcast-sourced — same validation shape as onBankTrade just above,
     // since this payload also indexes straight into commodities[]/resources[]
@@ -4512,6 +4521,14 @@ function App() {
   ) => {
     dispatch({ type: 'GRANT_TEST_RESOURCES', playerId, resources, commodities })
     if (isDeciding && onlineInfo) broadcastGrantTestResources({ playerId, resources, commodities })
+  }
+
+  // Trusted state mutation for the test harness's grantProgressCard action —
+  // see its own installTestHarness wiring below. Same trusted-apply split as
+  // applyGrantTestResources just above.
+  const applyGrantTestProgressCard = (playerId: number, card: ProgressCardType, isDeciding: boolean) => {
+    dispatch({ type: 'GRANT_TEST_PROGRESS_CARD', playerId, card })
+    if (isDeciding && onlineInfo) broadcastGrantTestProgressCard({ playerId, card })
   }
 
   const bankTrade = (give: ResourceType, receive: ResourceType) => {
@@ -7309,6 +7326,12 @@ function App() {
         grantResources: wrap((resources?: Partial<Resources>, commodities?: Partial<Commodities>) =>
           applyGrantTestResources(localPlayer.id, resources, commodities, true),
         ),
+        // Test-only progress-card injection — same reasoning as grantResources
+        // just above (always THIS page's own seat, never an explicit
+        // playerId): adds a named card directly to the hand, bypassing the
+        // random draw, so a scenario can reliably play a SPECIFIC card
+        // instead of grinding rolls hoping it comes up.
+        grantProgressCard: wrap((card: ProgressCardType) => applyGrantTestProgressCard(localPlayer.id, card, true)),
         // Local-only, deliberately not broadcast: a scenario calls this on
         // BOTH pages with the identical override, right after game start
         // and before either page rolls — both start from the same

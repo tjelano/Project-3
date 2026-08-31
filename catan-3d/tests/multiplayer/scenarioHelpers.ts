@@ -358,6 +358,7 @@ type BypassAction =
   | 'armTaxation'
   | 'armKnightRecruit'
   | 'armKnightMove'
+  | 'armKnightDisplace'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

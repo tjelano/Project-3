@@ -7421,6 +7421,12 @@ function App() {
         // 'move' branch), no new resolve action needed.
         armKnightMove: wrap(armKnightMove),
         promoteKnight: wrap(promoteKnight),
+        // Cities & Knights knight displace — selectDisplaceTarget wraps
+        // handleKnightSelect directly, a genuinely separate resolve
+        // function from selectKnightVertex above (targets a knight, not a
+        // vertex).
+        armKnightDisplace: wrap(armKnightDisplace),
+        selectDisplaceTarget: wrap(handleKnightSelect),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

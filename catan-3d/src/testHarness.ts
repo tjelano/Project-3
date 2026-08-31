@@ -176,6 +176,17 @@ export interface CatanTestHarness {
     // city-improvement level (only mighty does), so this is reachable with
     // nothing more than KNIGHT_PROMOTE_COST.
     promoteKnight: (knightId: string) => void
+    // Cities & Knights knight displace — the last knight-lifecycle
+    // primitive. armKnightDisplace arms a DIFFERENT picker from recruit/
+    // move: the target is an OPPONENT'S KNIGHT (clicked via KnightLayer's
+    // onSelectKnight), not an empty vertex, so it resolves through
+    // handleKnightSelect, a genuinely separate function from
+    // handleKnightVertexSelect — no existing action already routes this.
+    // Same "touches no synced state" bypass category as armKnightMove for
+    // the arm step; selectDisplaceTarget is the real converging step
+    // (dispatches KNIGHT_DISPLACED, one broadcast).
+    armKnightDisplace: (knightId: string) => void
+    selectDisplaceTarget: (targetKnightId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

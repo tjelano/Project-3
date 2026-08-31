@@ -148,6 +148,7 @@ test('Taxation steals from a player on the chosen hex and stays converged', asyn
     const finalStateA = await pageA.evaluate(() => window.__catanTestHarness!.getState())
     const finalStateB = await pageB.evaluate(() => window.__catanTestHarness!.getState())
     expect(finalStateA.turn.gamePhase, "gamePhase should be back to 'playing' after the steal resolves").toBe('playing')
+    expect(finalStateB.turn.gamePhase, "the receiver's gamePhase should also be back to 'playing'").toBe('playing')
     expect(finalStateB.players, 'both pages must agree on the final player state').toEqual(finalStateA.players)
   } finally {
     await contextA.close()

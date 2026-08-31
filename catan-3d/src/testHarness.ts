@@ -137,6 +137,17 @@ export interface CatanTestHarness {
     // playDiplomacy internally, so the already-exposed buildRoad(edgeId)
     // resolves this too, same click target a real player uses.
     activateDiplomacy: () => void
+    // Cities & Knights Taxation — only playable once robberActive is true
+    // (the first barbarian attack to ever resolve, win or lose). Spends the
+    // card and arms the SAME tile-picker gamePhase='moveRobber' already
+    // uses for a natural 7/Chase Away the Robber — resolved via the
+    // already-exposed moveRobber(tileId) above, same "existing action
+    // already routes an armed click" pattern buildRoad/activateDiplomacy
+    // established. armTaxation also flips gamePhase to 'moveRobber' LOCALLY
+    // (never mirrored to the receiver — only PROGRESS_CARD_SPENT is, via
+    // onProgressCardPlayed's taxation branch), so it needs the same
+    // BypassAction treatment activateDiplomacy does.
+    armTaxation: () => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

@@ -321,6 +321,13 @@ export function findShipCapeWithChain(
 // buildRoad(edgeId) call that resolves it (buildRoadRaw checks
 // pendingDiplomacyRemoval before its normal logic), which goes through
 // runScenario normally.
+// armTaxation joins this set too — it flips gamePhase to 'moveRobber'
+// LOCALLY (only PROGRESS_CARD_SPENT is mirrored to the receiver via
+// onProgressCardPlayed's taxation branch, not GAME_PHASE_SET), same
+// divergence shape playResourceMonopoly/playTradeMonopoly have. Resolved
+// via the already-exposed moveRobber(tileId), which converges normally
+// (applyTaxationResolved resets gamePhase back to 'playing' on BOTH
+// clients once the steal actually broadcasts).
 type BypassAction =
   | 'discard'
   | 'chooseRobber'
@@ -329,6 +336,7 @@ type BypassAction =
   | 'playResourceMonopoly'
   | 'playTradeMonopoly'
   | 'activateDiplomacy'
+  | 'armTaxation'
 
 // Calls a test-hook action directly via page.evaluate() (not through
 // runScenario's cross-page convergence check — see resolvePostRollObligations

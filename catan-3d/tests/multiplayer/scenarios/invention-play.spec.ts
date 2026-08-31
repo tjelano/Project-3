@@ -84,10 +84,17 @@ test('host plays Invention and swaps two tile numbers', async ({ browser }) => {
     ])
 
     // Two distinct, swappable tiles — same constraint handleInventionTileSelect
-    // itself enforces (a number tile, not 2/6/8/12).
+    // itself enforces (a number tile, not 2/6/8/12). Standard Catan boards
+    // have DUPLICATE number tokens (two 5s, two 6s, etc.) — picking the
+    // first two swappable tiles in array order without checking their
+    // numbers actually differ could silently pick two same-numbered tiles,
+    // making the swap a no-op and this assertion pass even if the sync were
+    // completely broken (CodeRabbit review, PR #81).
     const swappable = graph.tiles.filter((t) => t.number != null && ![2, 6, 8, 12].includes(t.number))
     if (swappable.length < 2) throw new Error('Board has fewer than 2 swappable number tiles — cannot run this scenario')
-    const [tileA, tileB] = swappable
+    const tileA = swappable[0]
+    const tileB = swappable.find((t) => t.id !== tileA.id && t.number !== tileA.number)
+    if (!tileB) throw new Error('No second swappable tile with a different number than tileA — cannot verify a real swap')
 
     const starterPage = starter === 'A' ? pageA : pageB
     const otherPage = starter === 'A' ? pageB : pageA

@@ -187,6 +187,28 @@ export interface CatanTestHarness {
     // (dispatches KNIGHT_DISPLACED, one broadcast).
     armKnightDisplace: (knightId: string) => void
     selectDisplaceTarget: (targetKnightId: string) => void
+    // Cities & Knights Intrigue — no strength restriction, unlike Displace
+    // (CN3087 has none for Intrigue), and targets an opponent knight
+    // reachable from ANY of the acting player's own vertices/knights, not
+    // a single mover's own network. playIntrigue spends the card and arms
+    // the SAME pendingIntrigueDisplace picker the already-exposed
+    // selectDisplaceTarget resolves (handleKnightSelect branches on it
+    // before its ordinary Displace body) — call selectDisplaceTarget
+    // again to actually displace/remove the chosen knight, no separate
+    // resolve action for Intrigue.
+    playIntrigue: () => void
+    // Cities & Knights Treason — removes the target's own WEAKEST knight
+    // deterministically (App.tsx's playTreason picks it, not the caller)
+    // and, if the acting player has an eligible recruit vertex and supply
+    // at removed.strength or lower, arms a free replacement placement
+    // (any strength up to the removed one) resolved via the
+    // already-exposed selectKnightVertex (handleKnightVertexSelect's
+    // pendingTreasonPlacement branch, checked before its ordinary recruit
+    // body) — call selectKnightVertex with an eligible recruit vertex
+    // only if a replacement is actually available; getState() after
+    // playTreason shows whether the acting player's knightSupply has any
+    // usable tier.
+    playTreason: (targetPlayerId: number) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

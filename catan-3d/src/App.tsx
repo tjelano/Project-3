@@ -7468,6 +7468,8 @@ function App() {
         // Cities & Knights Trade level 3 — real, already-guarded 2:1 bank
         // commodity trade action.
         tradeCommodity: wrap(tradeCommodity),
+        // Cities & Knights city walls — real, already-guarded action.
+        buildCityWall: wrap(buildCityWall),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

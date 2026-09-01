@@ -11,7 +11,7 @@ import type { Page } from '@playwright/test'
 // as PR #97/#98/#101. City walls do NOT protect a city from barbarian
 // pillage in this codebase (confirmed by reading every `cityWalls` call
 // site directly — an earlier assumption in this project's own roadmap
-// notes that they might was wrong, corrected before building the wrong
+// notes that they might, was wrong, corrected before building the wrong
 // scenario). Their real, sole mechanical effect (CN3087 p.8): "Each city
 // wall adds 2 to the number you may hold before having to discard" —
 // discardThreshold(wallCount) = 7 + 2*wallCount (game/discard.ts).

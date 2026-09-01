@@ -76,10 +76,13 @@ jobs:
     # playwright.config.ts, only covers the test run itself; the actual
     # hang was earlier, in `playwright install --with-deps`, before
     # Playwright's own timeout was ever in play — see the env var below).
-    # 25 covers realistic worst case (install + a genuinely slow live-
-    # network suite) with real headroom, while still failing fast instead
-    # of silently blocking for hours on a repeat of the same class of hang.
-    timeout-minutes: 25
+    # Raised from 25 to 40 (2026-09-01) — the suite grew from 15 to 21
+    # scenarios in one session and a real run (PR #102) got killed by the
+    # 25min cap mid-test (~6min fixed setup overhead + ~19min of actual
+    # test time before the timeout hit, with tests still running). 40
+    # covers the current suite with real headroom for further growth,
+    # while still failing fast relative to the 360min unbounded default.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:

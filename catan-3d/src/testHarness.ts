@@ -252,6 +252,15 @@ export interface CatanTestHarness {
     // Merchant Fleet named this exact commodity this turn (deliberately
     // untested — its rate is local-only by design, see project memory).
     tradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
+    // Cities & Knights city walls — real, already-guarded action
+    // (canBuildCityWall checks ownership/no-existing-wall/board-wide cap
+    // of 3/affordability). No local-only picker state to arm — a single
+    // call resolves it, same immediate-resolve shape as activateKnight.
+    // The wall's own mechanical effect is NOT pillage protection (verified
+    // by reading every cityWalls call site — it has none in the pillage
+    // path) but discardThreshold(wallCount) = 7 + 2*wallCount
+    // (game/discard.ts), CN3087 p.8.
+    buildCityWall: (vertexId: string) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

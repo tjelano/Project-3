@@ -223,8 +223,23 @@ test('a walled city raises the discard threshold, exempting the owner from a 7 t
       throw new Error(`No 7 resolved within ${MAX_ROUNDS} rounds (1/6 odds per roll)`)
     }
 
-    const finalStateA = await pageA.evaluate(() => window.__catanTestHarness!.getState())
-    const finalStateB = await pageB.evaluate(() => window.__catanTestHarness!.getState())
+    // The loop above breaks the instant a 7 resolves, skipping the
+    // runScenario(endTurn) call that would normally follow — so nothing
+    // has waited for the discard broadcast resolveObligationsNoSteal
+    // triggered (bypass path; only waits on the ROLLER's own phase, see
+    // its header comment) to actually land on the OTHER page yet. Poll
+    // for that convergence directly instead of reading both pages cold,
+    // same bounded-wait shape as waitForPillageToClear (scenarioHelpers.ts).
+    const deadline = Date.now() + 15_000
+    let finalStateA = await pageA.evaluate(() => window.__catanTestHarness!.getState())
+    let finalStateB = await pageB.evaluate(() => window.__catanTestHarness!.getState())
+    while (JSON.stringify(finalStateA.players) !== JSON.stringify(finalStateB.players) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      ;[finalStateA, finalStateB] = await Promise.all([
+        pageA.evaluate(() => window.__catanTestHarness!.getState()),
+        pageB.evaluate(() => window.__catanTestHarness!.getState()),
+      ])
+    }
     expect(finalStateB.players, 'both pages must agree on the final player state').toEqual(finalStateA.players)
   } finally {
     await contextA.close()

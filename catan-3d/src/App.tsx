@@ -7427,6 +7427,21 @@ function App() {
         // vertex).
         armKnightDisplace: wrap(armKnightDisplace),
         selectDisplaceTarget: wrap(handleKnightSelect),
+        // Cities & Knights Intrigue — playIntrigue spends the card and arms
+        // pendingIntrigueDisplace (plain local React state, not part of
+        // GameState, so its own convergence isn't a runScenario concern);
+        // resolved via the already-exposed selectDisplaceTarget above
+        // (handleKnightSelect's pendingIntrigueDisplace branch, checked
+        // BEFORE its ordinary Displace body), no new resolve action needed.
+        playIntrigue: wrap(playIntrigue),
+        // Cities & Knights Treason — playTreason removes the target's
+        // weakest knight immediately (deterministic, no player choice to
+        // expose) and, if the acting player can afford a replacement, arms
+        // pendingTreasonPlacement; resolved via the already-exposed
+        // selectKnightVertex above (handleKnightVertexSelect's
+        // pendingTreasonPlacement branch, checked FIRST), no new resolve
+        // action needed.
+        playTreason: wrap(playTreason),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

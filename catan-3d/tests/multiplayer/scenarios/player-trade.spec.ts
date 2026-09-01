@@ -123,6 +123,10 @@ test('a player trade resolves correctly on both clients, including a resolve-tim
     const otherBeforeTrade2 = await playerState(otherId)
     await runScenario(pageA, pageB, [{ actor: other, action: 'proposeTrade', args: [starterId, 'brick', 'lumber'] }])
 
+    // GRANT_TEST_RESOURCES applies each value with += and never clamps or
+    // rejects negatives (players.ts) — a negative delta here subtracts
+    // cleanly, draining starter's lumber to exactly 0 regardless of
+    // whatever setup/production already gave them.
     const starterLumberNow = (await playerState(starterId)).resources.lumber
     if (starterLumberNow > 0) {
       await runScenario(pageA, pageB, [{ actor: starter, action: 'grantResources', args: [{ lumber: -starterLumberNow }] }])

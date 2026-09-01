@@ -59,6 +59,7 @@ import {
   COMMODITY_ORDER,
   DEFAULT_GAME_RULES,
   DEV_CARD_COST,
+  DEV_CARD_ORDER,
   DEV_CARD_SINGULAR,
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
@@ -1949,6 +1950,15 @@ function App() {
     // silently drifts, permanently, until it happens to cross the 7-card
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
+      // Broadcast-sourced — same validation shape as onCityImprovementPurchased/
+      // onResourceMonopolyPlayed below: an unrecognized card would still get
+      // appended to devCards/devCardsBoughtThisTurn, later reaching
+      // DEV_CARD_ART/DEV_CARD_LABELS lookups (broken image, undefined label)
+      // and playDevCard's own effect dispatch.
+      if (!DEV_CARD_ORDER.includes(payload.card)) {
+        console.error('[Catan] Ignoring malformed dev-card-bought payload:', payload)
+        return
+      }
       applyDevCardBought(payload.playerId, payload.card)
       dispatch({ type: 'DEV_CARD_DRAWN' })
     },

@@ -90,6 +90,16 @@ Sub-plans 2-6 are independently orderable relative to each other (no cross-depen
 
 Unchanged from the parent spec: `describeAction`-style pure functions colocated with each sub-reducer, called by the shared `dispatchGameAction`; every migrated case gets a direct Vitest unit test on the pure reducer, no React rendering needed — matching the board slice's own testing approach.
 
+**Superseded (see the Amendment below)**: the `describeAction`/`dispatchGameAction` half of this paragraph was never implemented across the 6 sub-plans and is now formally dropped, not a pending gap — do not treat it as a live requirement. The Vitest-unit-test-per-reducer-case half stands unchanged and was fully delivered.
+
 ## Out of Scope
 
 Same exclusions as the parent spec (network-protocol unification, `GameHud.tsx` prop-drilling, persistence restructuring, bundle splitting, the far-future full UI rebuild), plus: every other domain's own non-player state (`knightSupply`, `progressCardDecks`, `barbarianTrackPosition`, etc.) — those stay `useState` until that domain's own future slice project, unaffected by this one migrating just the `players`-side half of the functions that touch them.
+
+## Amendment (2026-09-01): the `describeAction`/`dispatchGameAction` spine is dropped, not built
+
+§Side Effects & Testing above committed every migrated `players` case to a `describeAction`-style pure function, colocated with the sub-reducer, called through the shared `dispatchGameAction` so banners/sfx would flow through one place. None of the six sub-plans built it — not a scope violation by any individual sub-plan, but a real gap between this design and what they collectively shipped. Flagged prominently at sub-plan 6's finish and left open as a decision for later.
+
+That decision is now made: **don't build it.** As of 2026-09-01, `App.tsx` has 231 `dispatch({...})` call sites and only 8 route through `dispatchGameAction` — the other 223 each hand-write their own `inform()`/`playSfx()` at the call site, exactly the pattern this spine was meant to replace. The file has grown past 8,000 lines since this spec was written (a full Cities & Knights progress-card/knight-lifecycle/trade build-out landed in the interim), so retrofitting the spine now would mean touching all 223 sites — a refactor larger in scope than the original six-sub-plan migration this spec itself covers, for a DX/consistency nicety rather than a functional gap. The per-call-site `inform()`/`playSfx()` pattern works correctly today and has for the whole life of this project; there is no live bug this spine would fix.
+
+**Decision, not a placeholder**: this is the formal record the parent spec's own design asked for. No future sub-plan should reopen this without a new, separately-scoped design — if a real pain point (not just architectural tidiness) surfaces later, treat it as a fresh proposal against the codebase as it exists then, not a resumption of this one.

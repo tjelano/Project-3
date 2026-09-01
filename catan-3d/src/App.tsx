@@ -7465,6 +7465,9 @@ function App() {
         // (activeScienceFreeResourcePlayerId), same "call on the eligible
         // player's own page" shape confirmEspionage/confirmGuildDues use.
         resolveScienceFreeResource: wrap(resolveScienceFreeResource),
+        // Cities & Knights Trade level 3 — real, already-guarded 2:1 bank
+        // commodity trade action.
+        tradeCommodity: wrap(tradeCommodity),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

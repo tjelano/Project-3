@@ -242,6 +242,16 @@ export interface CatanTestHarness {
     // player's own page — call it there, not on whichever page happens to
     // be the current roller.
     resolveScienceFreeResource: (resource: ResourceType) => void
+    // Cities & Knights Trade level 3 — a real, already-guarded 2:1 bank
+    // commodity trade. Fully trusted-apply on the receiving end
+    // (onCommodityTraded validates give/receive membership then just
+    // dispatches — no independent per-client recomputation, same low-risk
+    // shape as bankTrade), so the real value here is exercising the Trade
+    // level 3 gate itself (never reached by any scenario before this) over
+    // a real broadcast. Requires cityImprovements.trade >= 3 UNLESS
+    // Merchant Fleet named this exact commodity this turn (deliberately
+    // untested — its rate is local-only by design, see project memory).
+    tradeCommodity: (give: CommodityType, receive: ResourceType | CommodityType) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

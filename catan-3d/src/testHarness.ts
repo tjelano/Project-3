@@ -230,6 +230,18 @@ export interface CatanTestHarness {
     // only proposeTrade has that — so this can be called at any point
     // while a trade is pending, not just on the accepter's own turn.
     resolveTrade: (accept: boolean) => void
+    // Cities & Knights Science level 3 — a player at science level 3+ who
+    // produces NOTHING on a non-7 roll (anyone's roll, not just their own
+    // turn) gets to pick 1 free resource. Queue-based
+    // (scienceFreeResourcePlayerIds, pendingQueues) and computed
+    // independently by each client from its own already-synced
+    // cityImprovements/production data every roll — the same
+    // independently-recomputed-per-client shape as the two real desync
+    // bugs this harness has already caught, never exercised by any
+    // multiplayer scenario before now. Only resolves on the ELIGIBLE
+    // player's own page — call it there, not on whichever page happens to
+    // be the current roller.
+    resolveScienceFreeResource: (resource: ResourceType) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

@@ -7449,6 +7449,12 @@ function App() {
         // the real outcome from resolveTradeAsHost/onTradeAcceptRequest.
         proposeTrade: wrap(proposePlayerTrade),
         resolveTrade: wrap(resolvePlayerTrade),
+        // Cities & Knights Science level 3 — the free-resource-on-a-miss
+        // bonus. Real, already-guarded action; only resolves for whichever
+        // page's own localPlayerId is currently queued
+        // (activeScienceFreeResourcePlayerId), same "call on the eligible
+        // player's own page" shape confirmEspionage/confirmGuildDues use.
+        resolveScienceFreeResource: wrap(resolveScienceFreeResource),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

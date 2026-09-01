@@ -151,8 +151,24 @@ jobs:
             echo "Scope: full suite (shared code touched, or nothing scenario-shaped changed)"
           else
             echo "run_full=false" >> "$GITHUB_OUTPUT"
-            printf -v joined '%s ' "${files[@]}"
-            echo "files=$joined" >> "$GITHUB_OUTPUT"
+            # Newline-delimited multiline output (not a single space-joined
+            # line) so the consuming step can read it into a bash array with
+            # mapfile rather than relying on word-splitting a flat string.
+            # Randomized delimiter, not a fixed string: GITHUB_OUTPUT's
+            # heredoc-style multiline syntax closes on any line that matches
+            # the delimiter EXACTLY, so a fixed delimiter could in principle
+            # be closed early by a future scenario file whose path happens
+            # to equal it verbatim — not reachable today given the fixed
+            # tests/multiplayer/scenarios/ prefix, but this is the same
+            # value-controls-script-structure risk CodeRabbit's review just
+            # caught elsewhere in this file, so closing it here too costs
+            # one line.
+            delim="SCOPE_FILES_EOF_${GITHUB_RUN_ID}_${RANDOM}"
+            {
+              echo "files<<$delim"
+              printf '%s\n' "${files[@]}"
+              echo "$delim"
+            } >> "$GITHUB_OUTPUT"
             echo "Scope: scoped run — ${files[*]}"
           fi
       - name: Run full multiplayer suite
@@ -160,4 +176,17 @@ jobs:
         run: npm run test:multiplayer
       - name: Run scoped multiplayer scenario(s)
         if: github.event_name == 'pull_request' && steps.scope.outputs.run_full == 'false'
-        run: npx playwright test ${{ steps.scope.outputs.files }}
+        # SCOPE_FILES is diff output — PR-controlled, so it MUST NOT be
+        # spliced directly into this step's `run:` source via ${{ }} (that
+        # substitution happens before bash ever parses the script, so a
+        # crafted "filename" containing shell metacharacters would execute
+        # as real commands on a runner that already has live Supabase test
+        # credentials on disk from the step above). Routing it through env:
+        # instead means bash receives it as a plain variable VALUE, never
+        # re-parsed as script source — the documented GitHub Actions
+        # mitigation for this exact class of script-injection risk.
+        env:
+          SCOPE_FILES: ${{ steps.scope.outputs.files }}
+        run: |
+          mapfile -t files <<< "$SCOPE_FILES"
+          npx playwright test "${files[@]}"

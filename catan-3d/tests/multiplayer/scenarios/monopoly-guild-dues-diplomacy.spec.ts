@@ -2,10 +2,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hostRoom, joinRoom, startWhenFull, waitForGameStarted, assertConnected } from '../lobby'
 import { runScenario, type Actor, type ScenarioStep } from '../harness'
-import { firstEdgeAt, pickSpreadVertices, resolvePostRollObligations, callHarnessAction } from '../scenarioHelpers'
+import { firstEdgeAt, secondEdgeAt, pickSpreadVertices, resolvePostRollObligations, callHarnessAction } from '../scenarioHelpers'
 import { ROAD_COST } from '../../../src/game/types'
-import type { TestHarnessGraph } from '../../../src/testHarness'
-import type { Biome } from '../../../src/data/hexBoard'
 
 // Four more Cities & Knights progress cards, one game — continuing the
 // "bundle several Tier 1/2 cards" pattern sabotage-wedding-espionage.spec.ts
@@ -218,19 +216,4 @@ test('Resource Monopoly, Trade Monopoly, Guild Dues, and Diplomacy all resolve i
 async function roadOwner(page: Page, edgeId: string): Promise<number | undefined> {
   const state = await page.evaluate(() => window.__catanTestHarness!.getState())
   return state.board.roads[edgeId]
-}
-
-// The first ROAD-buildable edge touching `vertexId` OTHER than
-// `excludeEdgeId` — same open-ocean skip as scenarioHelpers.ts's own
-// firstEdgeAt (not reused directly: that helper has no exclusion
-// parameter, and this is the only caller so far that needs one).
-function secondEdgeAt(graph: TestHarnessGraph, vertexId: string, excludeEdgeId: string): string {
-  const tileById = new Map(graph.tiles.map((t) => [t.id, t]))
-  const isOpenOcean = (edgeId: string): boolean => {
-    const tileIds = graph.edgeTileIds[edgeId] ?? []
-    return tileIds.length > 0 && tileIds.every((id) => tileById.get(id)?.biome === ('sea' as Biome))
-  }
-  const edgeId = (graph.vertexEdgeIds[vertexId] ?? []).find((id) => id !== excludeEdgeId && !isOpenOcean(id))
-  if (!edgeId) throw new Error(`secondEdgeAt: no second road-buildable edge found touching vertex ${vertexId}`)
-  return edgeId
 }

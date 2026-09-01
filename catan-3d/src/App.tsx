@@ -59,6 +59,7 @@ import {
   COMMODITY_ORDER,
   DEFAULT_GAME_RULES,
   DEV_CARD_COST,
+  DEV_CARD_ORDER,
   DEV_CARD_SINGULAR,
   IMPROVEMENT_TRACK_LABELS,
   IMPROVEMENT_TRACK_NAMES,
@@ -1949,6 +1950,15 @@ function App() {
     // silently drifts, permanently, until it happens to cross the 7-card
     // discard threshold on some screens and not others.
     onDevCardBought: (payload) => {
+      // Broadcast-sourced — same validation shape as onCityImprovementPurchased/
+      // onResourceMonopolyPlayed below: an unrecognized card would still get
+      // appended to devCards/devCardsBoughtThisTurn, later reaching
+      // DEV_CARD_ART/DEV_CARD_LABELS lookups (broken image, undefined label)
+      // and playDevCard's own effect dispatch.
+      if (!DEV_CARD_ORDER.includes(payload.card)) {
+        console.error('[Catan] Ignoring malformed dev-card-bought payload:', payload)
+        return
+      }
       applyDevCardBought(payload.playerId, payload.card)
       dispatch({ type: 'DEV_CARD_DRAWN' })
     },
@@ -7416,6 +7426,45 @@ function App() {
         armKnightRecruit: wrap(armKnightRecruit),
         selectKnightVertex: wrap(handleKnightVertexSelect),
         activateKnight: wrap(activateKnight),
+        // Cities & Knights knight move — resolved via selectKnightVertex
+        // above (handleKnightVertexSelect's armedKnightAction.mode ===
+        // 'move' branch), no new resolve action needed.
+        armKnightMove: wrap(armKnightMove),
+        promoteKnight: wrap(promoteKnight),
+        // Cities & Knights knight displace — selectDisplaceTarget wraps
+        // handleKnightSelect directly, a genuinely separate resolve
+        // function from selectKnightVertex above (targets a knight, not a
+        // vertex).
+        armKnightDisplace: wrap(armKnightDisplace),
+        selectDisplaceTarget: wrap(handleKnightSelect),
+        // Cities & Knights Intrigue — playIntrigue spends the card and arms
+        // pendingIntrigueDisplace (plain local React state, not part of
+        // GameState, so its own convergence isn't a runScenario concern);
+        // resolved via the already-exposed selectDisplaceTarget above
+        // (handleKnightSelect's pendingIntrigueDisplace branch, checked
+        // BEFORE its ordinary Displace body), no new resolve action needed.
+        playIntrigue: wrap(playIntrigue),
+        // Cities & Knights Treason — playTreason removes the target's
+        // weakest knight immediately (deterministic, no player choice to
+        // expose) and, if the acting player can afford a replacement, arms
+        // pendingTreasonPlacement; resolved via the already-exposed
+        // selectKnightVertex above (handleKnightVertexSelect's
+        // pendingTreasonPlacement branch, checked FIRST), no new resolve
+        // action needed.
+        playTreason: wrap(playTreason),
+        // Player-to-player trade — real, already-guarded player-facing
+        // actions, no MODE gating needed. resolveTrade wraps
+        // resolvePlayerTrade directly: on a non-host accepter this only
+        // broadcasts an accept request, the host resolves and broadcasts
+        // the real outcome from resolveTradeAsHost/onTradeAcceptRequest.
+        proposeTrade: wrap(proposePlayerTrade),
+        resolveTrade: wrap(resolvePlayerTrade),
+        // Cities & Knights Science level 3 — the free-resource-on-a-miss
+        // bonus. Real, already-guarded action; only resolves for whichever
+        // page's own localPlayerId is currently queued
+        // (activeScienceFreeResourcePlayerId), same "call on the eligible
+        // player's own page" shape confirmEspionage/confirmGuildDues use.
+        resolveScienceFreeResource: wrap(resolveScienceFreeResource),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

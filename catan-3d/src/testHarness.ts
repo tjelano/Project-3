@@ -161,6 +161,87 @@ export interface CatanTestHarness {
     armKnightRecruit: () => void
     selectKnightVertex: (vertexId: string) => void
     activateKnight: (knightId: string) => void
+    // Cities & Knights knight move — armKnightMove arms the SAME picker
+    // selectKnightVertex above resolves (handleKnightVertexSelect branches
+    // on armedKnightAction.mode === 'move' vs pendingKnightRecruit), so no
+    // new resolve action is needed for this, only the arm step. Same
+    // "touches no synced state at all" category as armKnightRecruit — just
+    // sets armedKnightAction, plain local React state, zero dispatch, zero
+    // broadcast.
+    armKnightMove: (knightId: string) => void
+    // Cities & Knights knight promote — same immediate-resolve shape as
+    // activateKnight, real converging step (dispatches KNIGHT_PROMOTED +
+    // KNIGHTS_PROMOTED_THIS_TURN_ADDED, broadcasts once — receiver replays
+    // both, no BypassAction treatment needed). basic -> strong needs no
+    // city-improvement level (only mighty does), so this is reachable with
+    // nothing more than KNIGHT_PROMOTE_COST.
+    promoteKnight: (knightId: string) => void
+    // Cities & Knights knight displace — the last knight-lifecycle
+    // primitive. armKnightDisplace arms a DIFFERENT picker from recruit/
+    // move: the target is an OPPONENT'S KNIGHT (clicked via KnightLayer's
+    // onSelectKnight), not an empty vertex, so it resolves through
+    // handleKnightSelect, a genuinely separate function from
+    // handleKnightVertexSelect — no existing action already routes this.
+    // Same "touches no synced state" bypass category as armKnightMove for
+    // the arm step; selectDisplaceTarget is the real converging step
+    // (dispatches KNIGHT_DISPLACED, one broadcast).
+    armKnightDisplace: (knightId: string) => void
+    selectDisplaceTarget: (targetKnightId: string) => void
+    // Cities & Knights Intrigue — no strength restriction, unlike Displace
+    // (CN3087 has none for Intrigue), and targets an opponent knight
+    // reachable from ANY of the acting player's own vertices/knights, not
+    // a single mover's own network. playIntrigue spends the card and arms
+    // the SAME pendingIntrigueDisplace picker the already-exposed
+    // selectDisplaceTarget resolves (handleKnightSelect branches on it
+    // before its ordinary Displace body) — call selectDisplaceTarget
+    // again to actually displace/remove the chosen knight, no separate
+    // resolve action for Intrigue.
+    playIntrigue: () => void
+    // Cities & Knights Treason — removes the target's own WEAKEST knight
+    // deterministically (App.tsx's playTreason picks it, not the caller)
+    // and, if the acting player has an eligible recruit vertex and supply
+    // at removed.strength or lower, arms a free replacement placement
+    // (any strength up to the removed one) resolved via the
+    // already-exposed selectKnightVertex (handleKnightVertexSelect's
+    // pendingTreasonPlacement branch, checked before its ordinary recruit
+    // body) — call selectKnightVertex with an eligible recruit vertex
+    // only if a replacement is actually available; getState() after
+    // playTreason shows whether the acting player's knightSupply has any
+    // usable tier.
+    playTreason: (targetPlayerId: number) => void
+    // Player-to-player trade — a genuinely different shape from every
+    // other action above: a HOST-ARBITER action. proposeTrade is a real,
+    // already-guarded player-facing action, no MODE gating needed. The
+    // accepting client (resolveTrade) does NOT apply the trade locally
+    // unless it's the (effective) host — a non-host accepter only ever
+    // broadcasts an accept REQUEST; the host re-validates both sides'
+    // CURRENT resource counts (never trusting either client's own copy)
+    // and is the only one who ever dispatches the resolved trade,
+    // broadcasting the outcome back out. Neither action needs its own
+    // BypassAction entry: every path (direct host-resolve, or the
+    // accepter -> host -> both-clients relay, including the "fell
+    // through, resources changed" rejection) ends in a real broadcast
+    // that fully converges — just a two-hop one when the accepter isn't
+    // the host, so it can take a poll or two longer than a direct
+    // action's own broadcast.
+    proposeTrade: (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => void
+    // accept: true to accept (subject to the host's re-validation above),
+    // false to decline. No isMyTurn/hasRolledThisTurn guard of its own —
+    // only proposeTrade has that — so this can be called at any point
+    // while a trade is pending, not just on the accepter's own turn.
+    resolveTrade: (accept: boolean) => void
+    // Cities & Knights Science level 3 — a player at science level 3+ who
+    // produces NOTHING on a non-7 roll (anyone's roll, not just their own
+    // turn) gets to pick 1 free resource. Queue-based
+    // (scienceFreeResourcePlayerIds, pendingQueues) and computed
+    // independently by each client from its own already-synced
+    // cityImprovements/production data every roll — the same
+    // independently-recomputed-per-client shape as the two real desync
+    // bugs this harness has already caught, never exercised by any
+    // multiplayer scenario before now. Only resolves on the ELIGIBLE
+    // player's own page — call it there, not on whichever page happens to
+    // be the current roller.
+    resolveScienceFreeResource: (resource: ResourceType) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

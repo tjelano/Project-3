@@ -7442,6 +7442,13 @@ function App() {
         // pendingTreasonPlacement branch, checked FIRST), no new resolve
         // action needed.
         playTreason: wrap(playTreason),
+        // Player-to-player trade — real, already-guarded player-facing
+        // actions, no MODE gating needed. resolveTrade wraps
+        // resolvePlayerTrade directly: on a non-host accepter this only
+        // broadcasts an accept request, the host resolves and broadcasts
+        // the real outcome from resolveTradeAsHost/onTradeAcceptRequest.
+        proposeTrade: wrap(proposePlayerTrade),
+        resolveTrade: wrap(resolvePlayerTrade),
       },
       getState: () => gameState,
       // graph.vertexEdgeIds/vertexTileIds are native Maps — converted to

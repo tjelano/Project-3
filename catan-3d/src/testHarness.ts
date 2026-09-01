@@ -209,6 +209,27 @@ export interface CatanTestHarness {
     // playTreason shows whether the acting player's knightSupply has any
     // usable tier.
     playTreason: (targetPlayerId: number) => void
+    // Player-to-player trade — a genuinely different shape from every
+    // other action above: a HOST-ARBITER action. proposeTrade is a real,
+    // already-guarded player-facing action, no MODE gating needed. The
+    // accepting client (resolveTrade) does NOT apply the trade locally
+    // unless it's the (effective) host — a non-host accepter only ever
+    // broadcasts an accept REQUEST; the host re-validates both sides'
+    // CURRENT resource counts (never trusting either client's own copy)
+    // and is the only one who ever dispatches the resolved trade,
+    // broadcasting the outcome back out. Neither action needs its own
+    // BypassAction entry: every path (direct host-resolve, or the
+    // accepter -> host -> both-clients relay, including the "fell
+    // through, resources changed" rejection) ends in a real broadcast
+    // that fully converges — just a two-hop one when the accepter isn't
+    // the host, so it can take a poll or two longer than a direct
+    // action's own broadcast.
+    proposeTrade: (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => void
+    // accept: true to accept (subject to the host's re-validation above),
+    // false to decline. No isMyTurn/hasRolledThisTurn guard of its own —
+    // only proposeTrade has that — so this can be called at any point
+    // while a trade is pending, not just on the accepter's own turn.
+    resolveTrade: (accept: boolean) => void
   }
   getState: () => GameState
   // Reflects whatever board resetGame() last built. Called before the

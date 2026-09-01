@@ -90,6 +90,8 @@ Sub-plans 2-6 are independently orderable relative to each other (no cross-depen
 
 Unchanged from the parent spec: `describeAction`-style pure functions colocated with each sub-reducer, called by the shared `dispatchGameAction`; every migrated case gets a direct Vitest unit test on the pure reducer, no React rendering needed — matching the board slice's own testing approach.
 
+**Superseded (see the Amendment below)**: the `describeAction`/`dispatchGameAction` half of this paragraph was never implemented across the 6 sub-plans and is now formally dropped, not a pending gap — do not treat it as a live requirement. The Vitest-unit-test-per-reducer-case half stands unchanged and was fully delivered.
+
 ## Out of Scope
 
 Same exclusions as the parent spec (network-protocol unification, `GameHud.tsx` prop-drilling, persistence restructuring, bundle splitting, the far-future full UI rebuild), plus: every other domain's own non-player state (`knightSupply`, `progressCardDecks`, `barbarianTrackPosition`, etc.) — those stay `useState` until that domain's own future slice project, unaffected by this one migrating just the `players`-side half of the functions that touch them.

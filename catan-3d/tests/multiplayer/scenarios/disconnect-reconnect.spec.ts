@@ -28,6 +28,7 @@ import { runAction } from '../harness'
 // this same route handler again for the fresh connection).
 const DISCONNECT_TIMEOUT_MS = 20_000
 const SAVE_TIMEOUT_MS = 20_000
+const SAVE_POLL_ATTEMPT_TIMEOUT_MS = 5_000
 const RECONNECT_TIMEOUT_MS = 30_000
 const RESYNC_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 500
@@ -71,12 +72,25 @@ async function getPlayers(page: Parameters<typeof waitForGameStarted>[0]) {
 // at length in harness.ts/scenarioHelpers.ts) -- a single immediate read
 // right after runAction caught this exact race live: players came back
 // identical to playersBefore, as if the grant never happened.
-async function waitForPlayersChange(page: Parameters<typeof waitForGameStarted>[0], awayFrom: unknown, timeoutMs = 8_000) {
+//
+// Throws on timeout (CodeRabbit review, PR #111) rather than silently
+// returning the unchanged value -- matches every sibling wait helper in
+// this file, and means a real regression here fails with a specific,
+// actionable message instead of relying on a separate assertion at the
+// call site to catch it secondhand.
+async function waitForPlayersChange(
+  page: Parameters<typeof waitForGameStarted>[0],
+  awayFrom: unknown,
+  timeoutMs = 8_000,
+) {
   const deadline = Date.now() + timeoutMs
   let players = await getPlayers(page)
   while (isDeepEqual(players, awayFrom) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 150))
     players = await getPlayers(page)
+  }
+  if (isDeepEqual(players, awayFrom)) {
+    throw new Error(`players never changed within ${timeoutMs}ms`)
   }
   return players
 }
@@ -90,6 +104,13 @@ async function waitForPlayersChange(page: Parameters<typeof waitForGameStarted>[
 // timeout history) -- worse here, since too-short a guess wouldn't just be
 // slow, it'd let B reconnect and resync from a STALE snapshot, silently
 // proving nothing.
+//
+// Each poll attempt races against its own short timeout (CodeRabbit review)
+// -- getSavedSnapshot triggers a real Supabase network request, unlike
+// every other page.evaluate() in this file (plain synchronous property
+// reads, which can't hang). Without this, one stalled request would block
+// inside a single await past the outer deadline entirely, since the while
+// loop only re-checks the deadline BETWEEN iterations.
 async function waitForSavedSnapshot(
   page: Parameters<typeof waitForGameStarted>[0],
   roomCode: string,
@@ -98,7 +119,10 @@ async function waitForSavedSnapshot(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const snapshot = await page.evaluate((code) => window.__catanTestHarness!.getSavedSnapshot(code), roomCode)
+    const snapshot = await Promise.race([
+      page.evaluate((code) => window.__catanTestHarness!.getSavedSnapshot(code), roomCode),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), SAVE_POLL_ATTEMPT_TIMEOUT_MS)),
+    ])
     if (snapshot && isDeepEqual(snapshot.players, expectedPlayers)) return
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
@@ -116,8 +140,21 @@ test('a dropped-then-restored connection resyncs from the last saved snapshot', 
   // not a bare `let` -- TS's control-flow narrowing gets confused by a `let`
   // reassigned only inside a closure (mis-narrows a later `currentRoute?.close()`
   // to `never`); a property read isn't subject to the same analysis.
+  //
+  // reconnectGate (CodeRabbit review, PR #111): Supabase's client retries
+  // its OWN reconnect on a backoff schedule as soon as the socket closes,
+  // independent of and concurrent with this test's own save-confirmation
+  // poll below -- nothing previously stopped B from reconnecting (and its
+  // hasEverConnectedRef resync effect firing) before A's snapshot save had
+  // actually landed, which would make the test pass without having proven
+  // anything. Blocking new connections here until the test explicitly
+  // flips the gate makes that ordering structural instead of coincidental.
   const routeRef: { current: WebSocketRoute | null } = { current: null }
-  await pageB.routeWebSocket('**/realtime/v1/websocket**', (ws) => {
+  const reconnectGate = { allowed: true }
+  await pageB.routeWebSocket('**/realtime/v1/websocket**', async (ws) => {
+    while (!reconnectGate.allowed) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
     routeRef.current = ws
     ws.connectToServer()
   })
@@ -136,6 +173,7 @@ test('a dropped-then-restored connection resyncs from the last saved snapshot', 
     // for a snapshot to actually get persisted for B to resync from.
     const playersBefore = await getPlayers(pageA)
 
+    reconnectGate.allowed = false
     routeRef.current?.close()
     await waitForConnectionStatus(pageB, 'error', DISCONNECT_TIMEOUT_MS)
 
@@ -146,14 +184,13 @@ test('a dropped-then-restored connection resyncs from the last saved snapshot', 
     // for it would just time out.
     await runAction(pageA, 'grantResources', [{ lumber: 3 }])
     const playersAfterGrant = await waitForPlayersChange(pageA, playersBefore)
-    expect(playersAfterGrant, 'the grant should have actually changed something on A').not.toEqual(playersBefore)
 
     // Confirm the save has ACTUALLY landed before letting B reconnect --
     // not a guessed wait (see waitForSavedSnapshot's own comment for why).
     await waitForSavedSnapshot(pageA, roomCode, playersAfterGrant, SAVE_TIMEOUT_MS)
 
-    // B's own client retries on CHANNEL_ERROR on its own -- nothing to
-    // trigger manually here, just wait for it to land.
+    // Only NOW let B's client reconnect -- see reconnectGate's own comment.
+    reconnectGate.allowed = true
     await waitForConnectionStatus(pageB, 'connected', RECONNECT_TIMEOUT_MS)
 
     // hasEverConnectedRef's resync effect (App.tsx) should now fire: B

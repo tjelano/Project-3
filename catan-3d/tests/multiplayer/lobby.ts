@@ -91,13 +91,19 @@ export async function waitForGameStarted(page: Page): Promise<void> {
   // takes no parameters) and options stays undefined, so the intended
   // timeout was NEVER applied — Playwright fell back to its own default,
   // masking this as unpredictable slowness with no timeout error to show
-  // for it. 90s (not the originally-guessed 20s): with the fix actually
-  // applying, a live run measured this genuinely taking up to ~50s — every
+  // for it. Originally 90s (a live run had measured up to ~50s) -- every
   // browser context here is a fresh, uncached profile (Playwright starts
   // one per run) hitting a cold dev server for the first time, unlike a
-  // real player's warm, cached browser.
+  // real player's warm, cached browser. Bumped to 120s (2026-09-02) after
+  // science-free-resource.spec.ts timed out at exactly 90s once under real
+  // CI load -- no eligibility/state-computation bug in this path the way
+  // the two real desync bugs this harness caught had one (nothing here is
+  // independently recomputed per client), so treating this as needing more
+  // headroom for cold-start + real-network variance, not a logic fix. Seen
+  // once; if it recurs even with the wider margin, that's the point to
+  // treat it as a real regression rather than environmental noise.
   await page.waitForFunction(() => window.__catanTestHarness?.getStatus().gameStarted === true, undefined, {
-    timeout: 90_000,
+    timeout: 120_000,
   })
 }
 

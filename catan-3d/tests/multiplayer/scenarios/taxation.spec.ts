@@ -125,7 +125,7 @@ test('Taxation steals from a player on the chosen hex and stays converged', asyn
     const robberTileId = (await pageA.evaluate(() => window.__catanTestHarness!.getState())).board.robberTileId
     const targetTileId = victimVertices
       .map((v) => (graph.vertexTileIds[v] ?? []).find((id) => id !== robberTileId))
-      .find((id): id is number => id !== undefined)
+      .find((id): id is string => id !== undefined)
     if (targetTileId === undefined) {
       throw new Error("No taxable hex touching either of victim's settlements other than the current robber tile")
     }

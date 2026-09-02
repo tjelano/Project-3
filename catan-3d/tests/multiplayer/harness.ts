@@ -39,7 +39,11 @@ export interface ScenarioStep {
 const CONVERGENCE_TIMEOUT_MS = process.env.CI ? 120_000 : 60_000
 const POLL_INTERVAL_MS = 200
 
-async function runAction(page: Page, action: ScenarioStep['action'], args: unknown[] = []): Promise<void> {
+// Exported (2026-09-02) for disconnect-reconnect.spec.ts, which needs to
+// fire an action on ONE page and deliberately NOT wait for the other to
+// converge (the other page is offline by design in that scenario) --
+// runScenario's own convergence poll would just time out and fail.
+export async function runAction(page: Page, action: ScenarioStep['action'], args: unknown[] = []): Promise<void> {
   await page.evaluate(
     ({ action, args }) => {
       const fn = window.__catanTestHarness!.actions[action] as (...a: unknown[]) => void

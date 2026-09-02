@@ -1,6 +1,7 @@
 import type { GameState } from './game/gameState'
 import type { Commodities, CommodityType, DevCardType, GameRules, ImprovementTrack, ProgressCardType, Resources, ResourceType } from './game/types'
 import type { Biome } from './data/hexBoard'
+import type { MatchSnapshot } from './multiplayer/matchSnapshot'
 
 // Plain, JSON-safe shape for the board graph — BoardGraph itself
 // (data/boardGraph.ts) carries several fields as native Map objects,
@@ -270,6 +271,13 @@ export interface CatanTestHarness {
   getGraph: () => TestHarnessGraph
   getStatus: () => { gameStarted: boolean; isMyTurn: boolean; connectionStatus: string }
   getLastWarning: () => string | null
+  // Reads the LAST SAVED snapshot directly from Supabase -- lets a scenario
+  // poll for a specific autosave landing (e.g. disconnect-reconnect.spec.ts
+  // confirming a snapshot save actually completed) instead of guessing at a
+  // fixed wait, which is exactly the kind of fragile-under-real-network-load
+  // timing assumption this harness has been burned by before (see
+  // lobby.ts's waitForGameStarted timeout history).
+  getSavedSnapshot: (roomCode: string) => Promise<MatchSnapshot | null>
 }
 
 declare global {

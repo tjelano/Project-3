@@ -18,13 +18,21 @@ export function EventBanner({
   banner: BannerMessage | null
   belowBarbarianTrack: boolean
 }) {
-  if (!banner) return null
-
+  // The role="status"/aria-live region must stay mounted even with no
+  // active banner — screen readers only reliably announce a CONTENT change
+  // on a live region already in the accessibility tree, not a whole
+  // element (role + text together) freshly inserted in one paint. Returning
+  // null here when banner is empty (CodeRabbit review, PR #106) would have
+  // undermined the aria-live announcement it's paired with. Empty content +
+  // pointer-events-none makes an unstyled hidden div a no-op visually and
+  // for click-through while banner is null.
   return (
     <div
-      className={`pointer-events-none absolute ${belowBarbarianTrack ? 'top-[173px]' : 'top-20'} left-1/2 -translate-x-1/2 rounded-xl border px-4 py-2 text-center font-body text-xs shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl ${VARIANT_STYLES[banner.variant]}`}
+      role="status"
+      aria-live="polite"
+      className={`pointer-events-none absolute ${belowBarbarianTrack ? 'top-[173px]' : 'top-20'} left-1/2 -translate-x-1/2 ${banner ? `rounded-xl border px-4 py-2 shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl ${VARIANT_STYLES[banner.variant]}` : ''} text-center font-body text-xs`}
     >
-      {banner.text}
+      {banner?.text}
     </div>
   )
 }

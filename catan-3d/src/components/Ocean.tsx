@@ -139,6 +139,14 @@ export function Ocean({ innerSize = FRAME_INNER }: { innerSize?: number }) {
     return mat
   }, [shaderFailed])
 
+  // Same reasoning as the geometry cleanup above: `material` is rebuilt via
+  // `new` (inside createSeaMaterial) whenever shaderFailed flips, and stays
+  // attached to the still-mounted <mesh> rather than unmounting, so R3F's
+  // auto-dispose never frees the old GPU program.
+  useEffect(() => {
+    return () => material.dispose()
+  }, [material])
+
   useFrame(({ clock }) => {
     const shader = shaderRef.current
     if (shader) shader.uniforms.uTime.value = clock.elapsedTime

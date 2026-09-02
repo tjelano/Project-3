@@ -114,12 +114,21 @@ test('Taxation steals from a player on the chosen hex and stays converged', asyn
     // do (PR #88).
     await callHarnessAction(announcerPage, 'armTaxation')
 
-    // Any hex touching `victim`'s settlement, other than the CURRENT
-    // robber tile (resolveTaxation: "The Robber must move to a new hex!").
-    const victimVertex = victim === starter ? v1 : v2
+    // Any hex touching one of `victim`'s TWO settlements (setupSteps gives
+    // starter v1+v4, other v2+v3), other than the CURRENT robber tile
+    // (resolveTaxation: "The Robber must move to a new hex!"). Checking
+    // only the victim's FIRST settlement was a real flake: on some random
+    // board layouts that single vertex touches nothing but the current
+    // robber tile, even though the victim's OTHER settlement almost always
+    // has a usable neighbor — try both before giving up.
+    const victimVertices = victim === starter ? [v1, v4] : [v2, v3]
     const robberTileId = (await pageA.evaluate(() => window.__catanTestHarness!.getState())).board.robberTileId
-    const targetTileId = (graph.vertexTileIds[victimVertex] ?? []).find((id) => id !== robberTileId)
-    if (!targetTileId) throw new Error("No taxable hex touching victim's settlement other than the current robber tile")
+    const targetTileId = victimVertices
+      .map((v) => (graph.vertexTileIds[v] ?? []).find((id) => id !== robberTileId))
+      .find((id): id is number => id !== undefined)
+    if (targetTileId === undefined) {
+      throw new Error("No taxable hex touching either of victim's settlements other than the current robber tile")
+    }
 
     const victimBefore = await playerState(pageA, victimId)
     const announcerBefore = await playerState(pageA, announcerId)

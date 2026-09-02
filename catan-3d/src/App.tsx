@@ -1846,11 +1846,36 @@ function App() {
     // These two receivers spend the card themselves — unlike the acting
     // client, they never ran playYearOfPlenty/playMonopoly locally, so
     // nothing has deducted it from their copy of the hand yet.
+    //
+    // picks is validated here (DEV_CARD_PICKER_COPY.yearOfPlenty.pickCount,
+    // GameHud.tsx — exactly 2, drawn straight from the bank so there's no
+    // "target holds fewer" case the way GuildDues has): the reducer's own
+    // `for (const resource of action.picks) resources[resource] += 1` has
+    // no length cap or type check of its own (unlike GUILD_DUES_TAKEN,
+    // which IS bounded — see onGuildDuesTaken above), so an unvalidated
+    // payload here would let a peer broadcast a longer picks array and
+    // mint arbitrary resources for themselves — not a re-derivation gap,
+    // an actual missing bound.
     onPlentyPlayed: (payload) => {
+      const validPicks = payload.picks.length === 2 && payload.picks.every((pick) => RESOURCE_ORDER.includes(pick))
+      if (!validPicks) {
+        console.error('[Catan] Ignoring malformed year-of-plenty payload:', payload)
+        return
+      }
       spendDevCard(payload.playerId, 'yearOfPlenty')
       applyYearOfPlentyEffect(payload.playerId, payload.picks)
     },
+    // Validated against RESOURCE_ORDER membership before ever reaching
+    // applyMonopolyEffect, same malformed-enum guard shape as
+    // onResourceMonopolyPlayed/onCommercialHarborPlayed below — an invalid
+    // resource here doesn't mint anything (MONOPOLY_PLAYED's reducer case
+    // just pollutes a garbage key with NaN), but it's the same payload
+    // shape as its siblings and should be checked the same way.
     onMonopolyPlayed: (payload) => {
+      if (!RESOURCE_ORDER.includes(payload.resource)) {
+        console.error('[Catan] Ignoring malformed monopoly payload:', payload)
+        return
+      }
       spendDevCard(payload.playerId, 'monopoly')
       applyMonopolyEffect(payload.playerId, payload.resource)
     },

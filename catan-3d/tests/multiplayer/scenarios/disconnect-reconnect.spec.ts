@@ -1,5 +1,6 @@
 // catan-3d/tests/multiplayer/scenarios/disconnect-reconnect.spec.ts
 import { expect, test, type WebSocketRoute } from '@playwright/test'
+import { deepStrictEqual } from 'node:assert'
 import { hostRoom, joinRoom, startWhenFull, waitForGameStarted, assertConnected } from '../lobby'
 import { runAction } from '../harness'
 
@@ -26,9 +27,26 @@ import { runAction } from '../harness'
 // that Supabase's own client auto-reconnects a few seconds later (hitting
 // this same route handler again for the fresh connection).
 const DISCONNECT_TIMEOUT_MS = 20_000
+const SAVE_TIMEOUT_MS = 20_000
 const RECONNECT_TIMEOUT_MS = 30_000
 const RESYNC_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 500
+
+// Order-independent value equality -- state read via getState() and a
+// snapshot read via getSavedSnapshot() are built by two different code
+// paths (live reducer state vs. a persisted/restored copy) and can have
+// the SAME values in different key insertion order, which a naive
+// JSON.stringify() comparison treats as a mismatch. Caught live: a
+// snapshot poll kept "failing" against byte-identical data (confirmed by
+// logging both sides) purely because of this.
+function isDeepEqual(a: unknown, b: unknown): boolean {
+  try {
+    deepStrictEqual(a, b)
+    return true
+  } catch {
+    return false
+  }
+}
 
 async function waitForConnectionStatus(
   page: Parameters<typeof waitForGameStarted>[0],
@@ -52,15 +70,39 @@ async function getPlayers(page: Parameters<typeof waitForGameStarted>[0]) {
 // the instant that evaluate() call resolves (same batching lag documented
 // at length in harness.ts/scenarioHelpers.ts) -- a single immediate read
 // right after runAction caught this exact race live: players came back
-// byte-identical to playersBefore, as if the grant never happened.
+// identical to playersBefore, as if the grant never happened.
 async function waitForPlayersChange(page: Parameters<typeof waitForGameStarted>[0], awayFrom: unknown, timeoutMs = 8_000) {
   const deadline = Date.now() + timeoutMs
   let players = await getPlayers(page)
-  while (JSON.stringify(players) === JSON.stringify(awayFrom) && Date.now() < deadline) {
+  while (isDeepEqual(players, awayFrom) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 150))
     players = await getPlayers(page)
   }
   return players
+}
+
+// Deterministic replacement for a fixed wait (CodeRabbit review, PR #111):
+// polls the ACTUAL persisted snapshot (getSavedSnapshot reads straight from
+// Supabase, same path App.tsx's own resync effect uses) until it reflects
+// the grant, instead of guessing how long A's autosave + upsert take. A
+// fixed wait is exactly the class of assumption this suite has been burned
+// by before under real network variance (see lobby.ts's waitForGameStarted
+// timeout history) -- worse here, since too-short a guess wouldn't just be
+// slow, it'd let B reconnect and resync from a STALE snapshot, silently
+// proving nothing.
+async function waitForSavedSnapshot(
+  page: Parameters<typeof waitForGameStarted>[0],
+  roomCode: string,
+  expectedPlayers: unknown,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const snapshot = await page.evaluate((code) => window.__catanTestHarness!.getSavedSnapshot(code), roomCode)
+    if (snapshot && isDeepEqual(snapshot.players, expectedPlayers)) return
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+  }
+  throw new Error(`saved snapshot never reflected the grant within ${timeoutMs}ms`)
 }
 
 test('a dropped-then-restored connection resyncs from the last saved snapshot', async ({ browser }) => {
@@ -106,9 +148,9 @@ test('a dropped-then-restored connection resyncs from the last saved snapshot', 
     const playersAfterGrant = await waitForPlayersChange(pageA, playersBefore)
     expect(playersAfterGrant, 'the grant should have actually changed something on A').not.toEqual(playersBefore)
 
-    // Give A's autosave effect + its network upsert time to actually land
-    // before B reconnects and tries to pull it.
-    await pageA.waitForTimeout(3_000)
+    // Confirm the save has ACTUALLY landed before letting B reconnect --
+    // not a guessed wait (see waitForSavedSnapshot's own comment for why).
+    await waitForSavedSnapshot(pageA, roomCode, playersAfterGrant, SAVE_TIMEOUT_MS)
 
     // B's own client retries on CHANNEL_ERROR on its own -- nothing to
     // trigger manually here, just wait for it to land.
@@ -119,7 +161,7 @@ test('a dropped-then-restored connection resyncs from the last saved snapshot', 
     // healing the divergence created while it was offline.
     const deadline = Date.now() + RESYNC_TIMEOUT_MS
     let playersB = await getPlayers(pageB)
-    while (Date.now() < deadline && JSON.stringify(playersB) !== JSON.stringify(playersAfterGrant)) {
+    while (Date.now() < deadline && !isDeepEqual(playersB, playersAfterGrant)) {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
       playersB = await getPlayers(pageB)
     }

@@ -7517,6 +7517,7 @@ function App() {
       }),
       getStatus: () => ({ gameStarted, isMyTurn, connectionStatus }),
       getLastWarning: () => lastWarningRef.current,
+      getSavedSnapshot: (roomCode: string) => loadMatchSnapshot(roomCode),
     })
   })
 

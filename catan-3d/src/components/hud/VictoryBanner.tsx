@@ -71,7 +71,7 @@ export function VictoryBanner({
     <dialog
       ref={dialogRef}
       aria-labelledby="victory-banner-heading"
-      className="animate-victory-in m-auto w-full max-w-lg rounded-3xl border border-glass-border bg-glass px-8 py-10 text-center shadow-[0_30px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl backdrop:animate-veil-in backdrop:bg-board-navy/80 backdrop:backdrop-blur-md sm:px-10"
+      className="animate-victory-in pointer-events-auto m-auto w-full max-w-lg rounded-3xl border border-glass-border bg-glass px-8 py-10 text-center shadow-[0_30px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl backdrop:animate-veil-in backdrop:bg-board-navy/80 backdrop:backdrop-blur-md sm:px-10"
     >
       <p className="font-body text-xs tracking-[0.35em] text-gold/80 uppercase">Victory</p>
       <h1

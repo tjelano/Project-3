@@ -32,7 +32,7 @@ export function DevCardResourcePicker({ title, subtitle, pickCount, onComplete }
     <dialog
       ref={dialogRef}
       aria-labelledby="dev-card-picker-title"
-      className="m-auto w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+      className="pointer-events-auto m-auto w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
     >
       <p id="dev-card-picker-title" className="font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
         {title}

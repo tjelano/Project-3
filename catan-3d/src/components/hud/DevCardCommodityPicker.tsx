@@ -27,7 +27,7 @@ export function DevCardCommodityPicker({ title, subtitle, onComplete }: DevCardC
     <dialog
       ref={dialogRef}
       aria-labelledby="dev-card-commodity-picker-title"
-      className="m-auto w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+      className="pointer-events-auto m-auto w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
     >
       <p
         id="dev-card-commodity-picker-title"

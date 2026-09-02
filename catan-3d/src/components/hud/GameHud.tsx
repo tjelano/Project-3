@@ -1373,7 +1373,7 @@ export function GameHud({
         <dialog
           ref={guildDuesDialogRef}
           aria-labelledby="guild-dues-title"
-          className="m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+          className="pointer-events-auto m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
         >
           <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <p
@@ -1420,7 +1420,7 @@ export function GameHud({
         <dialog
           ref={espionageDialogRef}
           aria-labelledby="espionage-title"
-          className="m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+          className="pointer-events-auto m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
         >
           <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
             <p

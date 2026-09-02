@@ -92,7 +92,7 @@ export function JoinRoomModal({
       ref={dialogRef}
       aria-labelledby={reconnectPicker ? 'join-room-reconnect-heading' : undefined}
       aria-label={reconnectPicker ? undefined : 'Join room'}
-      className="animate-veil-in m-auto border-0 bg-transparent p-0 backdrop:bg-transparent"
+      className="animate-veil-in pointer-events-auto m-auto border-0 bg-transparent p-0 backdrop:bg-transparent"
     >
       {reconnectPicker ? (
         <div className="expansion-card animate-victory-in w-80 px-5 py-5 text-center">

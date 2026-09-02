@@ -97,7 +97,7 @@ export function BarbarianAttackModal({
     <dialog
       ref={dialogRef}
       aria-labelledby="barbarian-attack-heading"
-      className="m-auto w-full max-w-md rounded-2xl border border-glass-border bg-glass px-8 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-2xl backdrop:bg-board-navy/70 backdrop:backdrop-blur-md"
+      className="pointer-events-auto m-auto w-full max-w-md rounded-2xl border border-glass-border bg-glass px-8 py-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-2xl backdrop:bg-board-navy/70 backdrop:backdrop-blur-md"
     >
       <p className="font-body text-[10px] tracking-[0.25em] text-white/50 uppercase">Barbarian Attack</p>
       <h2 id="barbarian-attack-heading" className="mt-3 font-display text-lg text-white">

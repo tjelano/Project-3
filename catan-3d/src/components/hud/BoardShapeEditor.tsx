@@ -213,7 +213,7 @@ export function BoardShapeEditor({
     <dialog
       ref={dialogRef}
       aria-labelledby="board-shape-editor-heading"
-      className="m-auto flex max-h-[90vh] w-[960px] flex-col rounded-2xl border border-glass-border bg-glass p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/90 backdrop:backdrop-blur-md backdrop-blur-xl"
+      className="pointer-events-auto m-auto flex max-h-[90vh] w-[960px] flex-col rounded-2xl border border-glass-border bg-glass p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/90 backdrop:backdrop-blur-md backdrop-blur-xl"
     >
       <h2 id="board-shape-editor-heading" className="font-display text-xl text-white">
         {mode === 'preview' ? 'Preview Board Shape' : 'Draw a Board Shape'}

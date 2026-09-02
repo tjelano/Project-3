@@ -116,6 +116,8 @@ export function TradeModal({
   return (
     <div
       ref={panelRef}
+      role="dialog"
+      aria-label="Trade"
       // Starting spot is beside ResourcePanel (top-20 right-4 w-52), not
       // overlapping it or ChatBoxPanel's own right-4 column further down —
       // still fully draggable from here via the header below.

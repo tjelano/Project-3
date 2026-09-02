@@ -22,6 +22,8 @@ export function EventBanner({
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={`pointer-events-none absolute ${belowBarbarianTrack ? 'top-[173px]' : 'top-20'} left-1/2 -translate-x-1/2 rounded-xl border px-4 py-2 text-center font-body text-xs shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl ${VARIANT_STYLES[banner.variant]}`}
     >
       {banner.text}

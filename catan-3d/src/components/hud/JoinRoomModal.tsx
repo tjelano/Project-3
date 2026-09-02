@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
+import { useModalDialog } from '../../hooks/useModalDialog'
 import { loadMatchSnapshot, type MatchSnapshot } from '../../multiplayer/matchSnapshot'
 import { normalizePlayerName, normalizeRoomCode } from '../../multiplayer/roomCode'
 import { INK, INK_MUTED, PARCHMENT_INPUT, PARCHMENT_BUTTON } from './parchmentTheme'
@@ -36,10 +36,17 @@ export function JoinRoomModal({
   // in-progress match at that code — same reconnect ambiguity OnlineSetup's
   // own join flow handles, kept here as a small unstyled bridge rather than
   // a new mock nobody's asked for yet.
-  const [reconnectPicker, setReconnectPicker] = useState<{ roomCode: string; snapshot: MatchSnapshot } | null>(null)
+  const [reconnectPicker, setReconnectPicker] = useState<{ roomCode: string; snapshot: MatchSnapshot } | null>(
+    null,
+  )
   // Escape steps back one level in the reconnect picker (matching its own
   // "Back" button) before closing the whole modal, same as the main form.
-  const dialogRef = useModalFocusTrap<HTMLDivElement>(reconnectPicker ? () => setReconnectPicker(null) : onClose)
+  // A single dialog persists across the reconnectPicker toggle below — only
+  // its CONTENT swaps, not the element itself, so useModalDialog's
+  // showModal()-once-on-mount effect never needs to re-fire (the old
+  // per-hook doc comment about needing a callback ref for this exact swap
+  // no longer applies once the swap happens inside the dialog, not to it).
+  const dialogRef = useModalDialog<HTMLDialogElement>(reconnectPicker ? () => setReconnectPicker(null) : onClose)
 
   const canSubmit = name.trim().length > 0 && roomCodeInput.length === 4 && !checking
 
@@ -75,18 +82,20 @@ export function JoinRoomModal({
   }
 
   // No dim/blur overlay — GameSetupMenu underneath stays fully visible,
-  // just covered where this modal's own panel sits on top of it.
+  // just covered where this modal's own panel sits on top of it. Explicit
+  // backdrop:bg-transparent since a native <dialog>'s default UA backdrop
+  // isn't transparent (a faint dim in most browsers) — border-0/bg-
+  // transparent/p-0 strip the dialog element's own default chrome too,
+  // since all real styling comes from expansion-card on the content below.
   return (
-    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center animate-veil-in">
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={reconnectPicker ? 'join-room-reconnect-heading' : undefined}
+      aria-label={reconnectPicker ? undefined : 'Join room'}
+      className="animate-veil-in m-auto border-0 bg-transparent p-0 backdrop:bg-transparent"
+    >
       {reconnectPicker ? (
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="join-room-reconnect-heading"
-          tabIndex={-1}
-          className="expansion-card w-80 px-5 py-5 text-center animate-victory-in"
-        >
+        <div className="expansion-card animate-victory-in w-80 px-5 py-5 text-center">
           <p id="join-room-reconnect-heading" className={`font-body text-xs ${INK_MUTED}`}>
             No one named &ldquo;{name}&rdquo; is in this room. Which player are you?
           </p>
@@ -123,15 +132,10 @@ export function JoinRoomModal({
           </button>
         </div>
       ) : (
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Join room"
-          tabIndex={-1}
-          className="expansion-card w-full max-w-sm animate-victory-in px-6 py-6"
-        >
-          <h2 className={`text-center font-display text-base tracking-[0.2em] uppercase ${INK}`}>Join Existing Game</h2>
+        <div className="expansion-card animate-victory-in w-full max-w-sm px-6 py-6">
+          <h2 className={`text-center font-display text-base tracking-[0.2em] uppercase ${INK}`}>
+            Join Existing Game
+          </h2>
           <div className="mx-auto mt-3 h-px w-16 bg-[#8a6d47]/40" />
 
           <div className="mt-5 flex flex-col gap-3">
@@ -180,6 +184,6 @@ export function JoinRoomModal({
           </div>
         </div>
       )}
-    </div>
+    </dialog>
   )
 }

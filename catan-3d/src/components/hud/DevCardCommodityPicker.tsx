@@ -1,5 +1,5 @@
 import { COMMODITY_LABELS, COMMODITY_ORDER, type CommodityType } from '../../game/types'
-import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
+import { useModalDialog } from '../../hooks/useModalDialog'
 import { CommodityIcon } from './CommodityIcon'
 
 interface DevCardCommodityPickerProps {
@@ -19,39 +19,37 @@ interface DevCardCommodityPickerProps {
 // exposed as a prop — the single click both records the pick and resolves
 // the picker immediately, so there's no running picks array to track.
 export function DevCardCommodityPicker({ title, subtitle, onComplete }: DevCardCommodityPickerProps) {
-  // No onEscape: this is a forced pick (Trade Monopoly) with no cancel
+  // No onClose: this is a forced pick (Trade Monopoly) with no cancel
   // path, same as DevCardResourcePicker.
-  const dialogRef = useModalFocusTrap<HTMLDivElement>()
+  const dialogRef = useModalDialog<HTMLDialogElement>()
 
   return (
-    <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dev-card-commodity-picker-title"
-        tabIndex={-1}
-        className="w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="dev-card-commodity-picker-title"
+      className="m-auto w-80 rounded-2xl border border-glass-border bg-glass p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+    >
+      <p
+        id="dev-card-commodity-picker-title"
+        className="font-body text-xs tracking-[0.25em] text-gold/80 uppercase"
       >
-        <p id="dev-card-commodity-picker-title" className="font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
-          {title}
-        </p>
-        <p className="mt-2 font-body text-sm text-white/70">{subtitle}</p>
+        {title}
+      </p>
+      <p className="mt-2 font-body text-sm text-white/70">{subtitle}</p>
 
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          {COMMODITY_ORDER.map((commodity) => (
-            <button
-              key={commodity}
-              type="button"
-              onClick={() => onComplete(commodity)}
-              title={COMMODITY_LABELS[commodity]}
-              className="flex flex-col items-center gap-1 rounded-lg border border-glass-border bg-white/5 py-2.5 transition-colors hover:border-gold/50 hover:bg-white/10"
-            >
-              <CommodityIcon commodity={commodity} className="h-5 w-5 text-white/85" />
-            </button>
-          ))}
-        </div>
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        {COMMODITY_ORDER.map((commodity) => (
+          <button
+            key={commodity}
+            type="button"
+            onClick={() => onComplete(commodity)}
+            title={COMMODITY_LABELS[commodity]}
+            className="flex flex-col items-center gap-1 rounded-lg border border-glass-border bg-white/5 py-2.5 transition-colors hover:border-gold/50 hover:bg-white/10"
+          >
+            <CommodityIcon commodity={commodity} className="h-5 w-5 text-white/85" />
+          </button>
+        ))}
       </div>
-    </div>
+    </dialog>
   )
 }

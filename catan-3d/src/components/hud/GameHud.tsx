@@ -44,7 +44,7 @@ import { ProgressCardsPanel, type ProgressCardPlayHandlers } from './ProgressCar
 import { KnightsPanel } from './KnightsPanel'
 import { PlayerTargetPicker } from './PlayerTargetPicker'
 import { OpponentHandPicker } from './OpponentHandPicker'
-import { useModalFocusTrap } from '../../hooks/useModalFocusTrap'
+import { useModalDialog } from '../../hooks/useModalDialog'
 
 // 'scienceFreeResource' isn't a DevCardPickerMode (App.tsx keeps it as a
 // separate queue, not devCardPicker — see the design note on
@@ -131,7 +131,11 @@ interface TradeHudState {
   // everyone else (including the proposer) just sees their action buttons
   // locked until it resolves.
   localPlayerId: number | null
-  onProposeTrade: (toPlayerId: number, offerCard: ResourceType | CommodityType, wantCard: ResourceType | CommodityType) => void
+  onProposeTrade: (
+    toPlayerId: number,
+    offerCard: ResourceType | CommodityType,
+    wantCard: ResourceType | CommodityType,
+  ) => void
   onResolveTrade: (accept: boolean) => void
 }
 
@@ -556,7 +560,8 @@ export function GameHud({
   // provenance rather than noise.
   const { currentPlayerIndex, isMyTurn, hasRolledThisTurn, onEndTurn, gamePhase, setupStage } = turn
   const { lastRoll, lastEventDie, onRollDice, isRolling } = dice
-  const { portRates, onTrade, onTradeCommodity, pendingTrade, localPlayerId, onProposeTrade, onResolveTrade } = trade
+  const { portRates, onTrade, onTradeCommodity, pendingTrade, localPlayerId, onProposeTrade, onResolveTrade } =
+    trade
   const { devDeckCount, onBuyDevCard } = devCards
   const {
     devCardPicker,
@@ -567,8 +572,12 @@ export function GameHud({
     goldFieldResourceActive,
     onResolveGoldFieldResource,
   } = picker
-  const { citiesAndKnightsCommodities, citiesAndKnightsProgressCards, citiesAndKnightsBarbarians, citiesAndKnightsKnights } =
-    houseRules
+  const {
+    citiesAndKnightsCommodities,
+    citiesAndKnightsProgressCards,
+    citiesAndKnightsBarbarians,
+    citiesAndKnightsKnights,
+  } = houseRules
   // The one field pulled out of an otherwise dot-accessed group: merchantFleetRate
   // is null-narrowed across an && chain in two places below (TradeModal's
   // canTradeCommodities gate and the Merchant Fleet widget's "Active: 2:1" line),
@@ -613,7 +622,8 @@ export function GameHud({
   // ordering also doubles as the "guard against stacking" the two modals
   // that every other picker/modal in this file already applies.
   const activePickerMode: PickerMode | null =
-    devCardPicker ?? (scienceFreeResourceActive ? 'scienceFreeResource' : goldFieldResourceActive ? 'goldFieldResource' : null)
+    devCardPicker ??
+    (scienceFreeResourceActive ? 'scienceFreeResource' : goldFieldResourceActive ? 'goldFieldResource' : null)
   const currentPlayer = players[currentPlayerIndex]
   const viewer = players.find((p) => p.id === viewerPlayerId) ?? currentPlayer
   const otherPlayers = players.filter((p) => p.id !== viewer.id)
@@ -625,15 +635,16 @@ export function GameHud({
   // Resolved ONCE here — not re-derived separately at the picker's
   // selectedPlayerId and the Play button's argument — so the two can never
   // read two different fallbacks for an unset/stale treasonTargetId.
-  const resolvedTreasonTargetId = otherPlayers.find((p) => p.id === treasonTargetId)?.id ?? otherPlayers[0]?.id ?? null
+  const resolvedTreasonTargetId =
+    otherPlayers.find((p) => p.id === treasonTargetId)?.id ?? otherPlayers[0]?.id ?? null
   // Cities & Knights Guild Dues/Espionage — each dialog gets its own focus
   // trap (same DevCardResourcePicker-style forced-overlay treatment),
   // wired to that card's own Cancel action for Escape-to-dismiss. Called
   // unconditionally (hooks can't be conditional) — harmless when the
   // matching pending* state is null, since the ref callback just never
   // attaches to a mounted node.
-  const guildDuesDialogRef = useModalFocusTrap<HTMLDivElement>(guildDues.onCancelGuildDues)
-  const espionageDialogRef = useModalFocusTrap<HTMLDivElement>(espionage.onCancelEspionage)
+  const guildDuesDialogRef = useModalDialog<HTMLDialogElement>(guildDues.onCancelGuildDues)
+  const espionageDialogRef = useModalDialog<HTMLDialogElement>(espionage.onCancelEspionage)
   // Cities & Knights progress-card hand-limit discard — mirrors
   // isMyDiscardTurn's role, but computed HERE (not in App.tsx) since it
   // needs THIS screen's own viewer, which online is always this browser's
@@ -679,7 +690,8 @@ export function GameHud({
   // independently at handler time — this is the matching UI-level lock, not
   // the only one.
   const pickerBlocked = !!activePickerMode || !!guildDues.pendingGuildDues || !!espionage.pendingEspionage
-  const canTrade = gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
+  const canTrade =
+    gamePhase === 'playing' && !isRolling && gameActive && !tradeBlocked && !pickerBlocked && isMyTurn
   const canBuyDevCard =
     gamePhase === 'playing' &&
     !isRolling &&
@@ -799,18 +811,18 @@ export function GameHud({
       : isRolling
         ? 'Rolling…'
         : gamePhase === 'setup'
-        ? setupStage === 'settlement'
-          ? 'Place your settlement'
-          : 'Place your road'
-        : gamePhase === 'discard'
-          ? `${discard.discardingPlayerName} discarding…`
-          : gamePhase === 'moveRobber'
-            ? 'Move the Robber'
-            : gamePhase === 'chooseRobberOrPirate'
-              ? 'Choose Robber or Pirate'
-              : gamePhase === 'movePirate'
-                ? 'Move the Pirate'
-                : `${currentPlayer.name}’s turn`
+          ? setupStage === 'settlement'
+            ? 'Place your settlement'
+            : 'Place your road'
+          : gamePhase === 'discard'
+            ? `${discard.discardingPlayerName} discarding…`
+            : gamePhase === 'moveRobber'
+              ? 'Move the Robber'
+              : gamePhase === 'chooseRobberOrPirate'
+                ? 'Choose Robber or Pirate'
+                : gamePhase === 'movePirate'
+                  ? 'Move the Pirate'
+                  : `${currentPlayer.name}’s turn`
 
   return (
     <div className="pointer-events-none absolute inset-0 font-body text-white">
@@ -886,8 +898,10 @@ export function GameHud({
                   ...progressCards.progressCardPlayHandlers,
                   alchemy: () => setOpenProgressCardWidget((cur) => (cur === 'alchemy' ? null : 'alchemy')),
                   invention: () => setOpenProgressCardWidget((cur) => (cur === 'invention' ? null : 'invention')),
-                  merchantFleet: () => setOpenProgressCardWidget((cur) => (cur === 'merchantFleet' ? null : 'merchantFleet')),
-                  commercialHarbor: () => setOpenProgressCardWidget((cur) => (cur === 'commercialHarbor' ? null : 'commercialHarbor')),
+                  merchantFleet: () =>
+                    setOpenProgressCardWidget((cur) => (cur === 'merchantFleet' ? null : 'merchantFleet')),
+                  commercialHarbor: () =>
+                    setOpenProgressCardWidget((cur) => (cur === 'commercialHarbor' ? null : 'commercialHarbor')),
                   diplomacy: () => setOpenProgressCardWidget((cur) => (cur === 'diplomacy' ? null : 'diplomacy')),
                   treason: () => setOpenProgressCardWidget((cur) => (cur === 'treason' ? null : 'treason')),
                 }}
@@ -903,160 +917,189 @@ export function GameHud({
                   pixel offsets. */}
               {openProgressCardWidget && (
                 <div className="pointer-events-none absolute top-0 left-full ml-2 w-52">
-                  {canPlayProgressCards && !hasRolledThisTurn && viewer.progressCards.includes('alchemy') && openProgressCardWidget === 'alchemy' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Alchemy: Set Dice</span>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={alchemyD1}
-                          onChange={(e) => setAlchemyD1(Number(e.target.value))}
-                          className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
-                        >
-                          {[1, 2, 3, 4, 5, 6].map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={alchemyD2}
-                          onChange={(e) => setAlchemyD2(Number(e.target.value))}
-                          className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
-                        >
-                          {[1, 2, 3, 4, 5, 6].map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayAlchemy(alchemyD1, alchemyD2)
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                    </div>
-                  )}
-                  {canPlayProgressCards && !progressCards.inventionSwapActive && viewer.progressCards.includes('invention') && openProgressCardWidget === 'invention' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Invention</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayInvention()
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                    </div>
-                  )}
-                  {canPlayProgressCards && viewer.progressCards.includes('merchantFleet') && openProgressCardWidget === 'merchantFleet' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Merchant Fleet: Name a Type</span>
-                      <select
-                        value={merchantFleetType}
-                        onChange={(e) => setMerchantFleetType(e.target.value as ResourceType | CommodityType)}
-                        className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
-                      >
-                        {RESOURCE_ORDER.map((resource) => (
-                          <option key={resource} value={resource}>
-                            {RESOURCE_LABELS[resource]}
-                          </option>
-                        ))}
-                        {COMMODITY_ORDER.map((commodity) => (
-                          <option key={commodity} value={commodity}>
-                            {COMMODITY_LABELS[commodity]}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayMerchantFleet(merchantFleetType)
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                      {merchantFleetRate?.playerId === viewer.id && (
-                        <span className="font-body text-[9px] text-gold/80">
-                          Active: 2:1{' '}
-                          {(COMMODITY_ORDER as string[]).includes(merchantFleetRate.type)
-                            ? COMMODITY_LABELS[merchantFleetRate.type as CommodityType]
-                            : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
+                  {canPlayProgressCards &&
+                    !hasRolledThisTurn &&
+                    viewer.progressCards.includes('alchemy') &&
+                    openProgressCardWidget === 'alchemy' && (
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Alchemy: Set Dice
                         </span>
-                      )}
-                    </div>
-                  )}
-                  {canPlayProgressCards && viewer.progressCards.includes('commercialHarbor') && openProgressCardWidget === 'commercialHarbor' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Commercial Harbor: Offer a Resource</span>
-                      <select
-                        value={commercialHarborResource}
-                        onChange={(e) => setCommercialHarborResource(e.target.value as ResourceType)}
-                        className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
-                      >
-                        {RESOURCE_ORDER.map((resource) => (
-                          <option key={resource} value={resource}>
-                            {RESOURCE_LABELS[resource]}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayCommercialHarbor(commercialHarborResource)
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                    </div>
-                  )}
-                  {canPlayProgressCards && !progressCards.diplomacyPickerActive && viewer.progressCards.includes('diplomacy') && openProgressCardWidget === 'diplomacy' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Diplomacy</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayDiplomacy()
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                    </div>
-                  )}
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={alchemyD1}
+                            onChange={(e) => setAlchemyD1(Number(e.target.value))}
+                            className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+                          >
+                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={alchemyD2}
+                            onChange={(e) => setAlchemyD2(Number(e.target.value))}
+                            className="rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-sm text-white"
+                          >
+                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayAlchemy(alchemyD1, alchemyD2)
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    )}
+                  {canPlayProgressCards &&
+                    !progressCards.inventionSwapActive &&
+                    viewer.progressCards.includes('invention') &&
+                    openProgressCardWidget === 'invention' && (
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Invention
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayInvention()
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    )}
+                  {canPlayProgressCards &&
+                    viewer.progressCards.includes('merchantFleet') &&
+                    openProgressCardWidget === 'merchantFleet' && (
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Merchant Fleet: Name a Type
+                        </span>
+                        <select
+                          value={merchantFleetType}
+                          onChange={(e) => setMerchantFleetType(e.target.value as ResourceType | CommodityType)}
+                          className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+                        >
+                          {RESOURCE_ORDER.map((resource) => (
+                            <option key={resource} value={resource}>
+                              {RESOURCE_LABELS[resource]}
+                            </option>
+                          ))}
+                          {COMMODITY_ORDER.map((commodity) => (
+                            <option key={commodity} value={commodity}>
+                              {COMMODITY_LABELS[commodity]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayMerchantFleet(merchantFleetType)
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                        {merchantFleetRate?.playerId === viewer.id && (
+                          <span className="font-body text-[9px] text-gold/80">
+                            Active: 2:1{' '}
+                            {(COMMODITY_ORDER as string[]).includes(merchantFleetRate.type)
+                              ? COMMODITY_LABELS[merchantFleetRate.type as CommodityType]
+                              : RESOURCE_LABELS[merchantFleetRate.type as ResourceType]}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  {canPlayProgressCards &&
+                    viewer.progressCards.includes('commercialHarbor') &&
+                    openProgressCardWidget === 'commercialHarbor' && (
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Commercial Harbor: Offer a Resource
+                        </span>
+                        <select
+                          value={commercialHarborResource}
+                          onChange={(e) => setCommercialHarborResource(e.target.value as ResourceType)}
+                          className="w-full rounded border border-white/20 bg-board-navy/80 px-1.5 py-1 font-data text-xs text-white"
+                        >
+                          {RESOURCE_ORDER.map((resource) => (
+                            <option key={resource} value={resource}>
+                              {RESOURCE_LABELS[resource]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayCommercialHarbor(commercialHarborResource)
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    )}
+                  {canPlayProgressCards &&
+                    !progressCards.diplomacyPickerActive &&
+                    viewer.progressCards.includes('diplomacy') &&
+                    openProgressCardWidget === 'diplomacy' && (
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Diplomacy
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayDiplomacy()
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    )}
                   {canPlayProgressCards &&
                     !progressCards.treasonPlacementActive &&
                     resolvedTreasonTargetId != null &&
                     viewer.progressCards.includes('treason') &&
                     openProgressCardWidget === 'treason' && (
-                    <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                      <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">Treason: Choose a Target</span>
-                      <PlayerTargetPicker players={otherPlayers} selectedPlayerId={resolvedTreasonTargetId} onSelect={setTreasonTargetId} />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenProgressCardWidget(null)
-                          progressCards.onPlayTreason(resolvedTreasonTargetId)
-                        }}
-                        className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
-                      >
-                        Play
-                      </button>
-                    </div>
-                  )}
+                      <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-glass-border bg-glass p-2.5 text-center shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <span className="font-body text-[9px] tracking-[0.15em] text-white/60 uppercase">
+                          Treason: Choose a Target
+                        </span>
+                        <PlayerTargetPicker
+                          players={otherPlayers}
+                          selectedPlayerId={resolvedTreasonTargetId}
+                          onSelect={setTreasonTargetId}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenProgressCardWidget(null)
+                            progressCards.onPlayTreason(resolvedTreasonTargetId)
+                          }}
+                          className="w-full rounded-lg bg-gradient-to-b from-gold to-gold-deep px-3 py-1.5 font-display text-xs font-semibold text-board-navy transition-opacity hover:opacity-90"
+                        >
+                          Play
+                        </button>
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1094,7 +1137,9 @@ export function GameHud({
                     </button>
                   </>
                 ) : (
-                  <p className="font-body text-xs text-white/70">Waiting for {progressDiscardingPlayerName} to discard…</p>
+                  <p className="font-body text-xs text-white/70">
+                    Waiting for {progressDiscardingPlayerName} to discard…
+                  </p>
                 )}
               </div>
             )}
@@ -1173,7 +1218,9 @@ export function GameHud({
             onArmChaseRobber={knights.onArmChaseRobber}
             onArmChasePirate={knights.onArmChasePirate}
             canRecruit={knights.canRecruitKnight}
-            canPromote={(knight) => canPromoteKnight(viewer, knight) && !knights.knightsPromotedThisTurn.has(knight.id)}
+            canPromote={(knight) =>
+              canPromoteKnight(viewer, knight) && !knights.knightsPromotedThisTurn.has(knight.id)
+            }
             canChaseRobber={knights.canChaseRobber}
             canChasePirate={knights.canChasePirate}
             armedKnightId={knights.armedKnightId}
@@ -1219,7 +1266,8 @@ export function GameHud({
           // city-upgrade click already established.
           canTradeCommodities={
             viewer.cityImprovements.trade >= 3 ||
-            (merchantFleetRate?.playerId === viewer.id && (COMMODITY_ORDER as string[]).includes(merchantFleetRate.type))
+            (merchantFleetRate?.playerId === viewer.id &&
+              (COMMODITY_ORDER as string[]).includes(merchantFleetRate.type))
           }
           onTradeCommodity={onTradeCommodity}
         />
@@ -1229,7 +1277,9 @@ export function GameHud({
         onRoll={onRollDice}
         onEndTurn={onEndTurn}
         hasRolledThisTurn={hasRolledThisTurn}
-        disabled={gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn}
+        disabled={
+          gamePhase !== 'playing' || isRolling || !gameActive || tradeBlocked || pickerBlocked || !isMyTurn
+        }
         playerLabel={`${currentPlayer.name}:`}
       />
       {/* Only the "board interaction in progress" hints remain here, anchored
@@ -1254,7 +1304,9 @@ export function GameHud({
             the case where the board changes underneath an armed picker. */}
         {citiesAndKnightsProgressCards && isMyTurn && progressCards.diplomacyPickerActive && (
           <div className="pointer-events-auto flex flex-col items-center gap-1.5 rounded-xl border border-gold/60 bg-gold/10 p-2.5 text-center">
-            <span className="animate-gold-pulse font-body text-[10px] text-gold uppercase">Pick an open road on the board</span>
+            <span className="animate-gold-pulse font-body text-[10px] text-gold uppercase">
+              Pick an open road on the board
+            </span>
             <button
               type="button"
               onClick={progressCards.onCancelDiplomacy}
@@ -1318,19 +1370,21 @@ export function GameHud({
           client's own screen — pendingGuildDues is local-only state (see
           its own comment in App.tsx). */}
       {guildDues.pendingGuildDues && (
-        <div
+        <dialog
           ref={guildDuesDialogRef}
-          role="dialog"
-          aria-modal="true"
           aria-labelledby="guild-dues-title"
-          tabIndex={-1}
-          className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md"
+          className="m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
         >
           <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-            <p id="guild-dues-title" className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
+            <p
+              id="guild-dues-title"
+              className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase"
+            >
               Guild Dues
             </p>
-            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
+            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
+              Target
+            </span>
             <div className="mb-4">
               <PlayerTargetPicker
                 players={guildDues.guildDuesEligibleTargets}
@@ -1357,25 +1411,27 @@ export function GameHud({
               onCancel={guildDues.onCancelGuildDues}
             />
           </div>
-        </div>
+        </dialog>
       )}
       {/* Cities & Knights Espionage — same composition as Guild Dues above,
           but the target list is `otherPlayers` (unrestricted — "another
           player," no VP filter) rather than a VP-eligible subset. */}
       {espionage.pendingEspionage && (
-        <div
+        <dialog
           ref={espionageDialogRef}
-          role="dialog"
-          aria-modal="true"
           aria-labelledby="espionage-title"
-          tabIndex={-1}
-          className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-board-navy/80 backdrop-blur-md"
+          className="m-auto border-0 bg-transparent p-0 backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
         >
           <div className="w-80 rounded-2xl border border-glass-border bg-glass p-5 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-            <p id="espionage-title" className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase">
+            <p
+              id="espionage-title"
+              className="mb-3 text-center font-body text-xs tracking-[0.25em] text-gold/80 uppercase"
+            >
               Espionage
             </p>
-            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">Target</span>
+            <span className="mb-1 block font-body text-[10px] tracking-[0.2em] text-white/50 uppercase">
+              Target
+            </span>
             <div className="mb-4">
               <PlayerTargetPicker
                 players={otherPlayers}
@@ -1386,14 +1442,16 @@ export function GameHud({
             <OpponentHandPicker
               // Same reset-on-switch reasoning as Guild Dues' own key above.
               key={espionage.pendingEspionage.targetId}
-              target={players.find((p) => p.id === espionage.pendingEspionage!.targetId) ?? otherPlayers[0] ?? viewer}
+              target={
+                players.find((p) => p.id === espionage.pendingEspionage!.targetId) ?? otherPlayers[0] ?? viewer
+              }
               mode="progressCards"
               maxPicks={1}
               onConfirm={(picks) => espionage.onConfirmEspionage(picks as number[])}
               onCancel={espionage.onCancelEspionage}
             />
           </div>
-        </div>
+        </dialog>
       )}
       {pendingTrade && (localPlayerId == null || pendingTrade.toPlayerId === localPlayerId) && (
         <TradeOfferPrompt

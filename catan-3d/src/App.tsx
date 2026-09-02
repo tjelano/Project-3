@@ -1857,7 +1857,14 @@ function App() {
     // mint arbitrary resources for themselves — not a re-derivation gap,
     // an actual missing bound.
     onPlentyPlayed: (payload) => {
-      const validPicks = payload.picks.length === 2 && payload.picks.every((pick) => RESOURCE_ORDER.includes(pick))
+      // Array.isArray guard first, same shape as onProgressCardsDrawn above
+      // — payload is deserialized off the wire with no runtime shape
+      // guarantee, so a malformed/missing picks field would otherwise throw
+      // reading .length on a receiving client rather than being rejected
+      // cleanly like every other malformed-payload case here (CodeRabbit
+      // review, PR #105).
+      const validPicks =
+        Array.isArray(payload.picks) && payload.picks.length === 2 && payload.picks.every((pick) => RESOURCE_ORDER.includes(pick))
       if (!validPicks) {
         console.error('[Catan] Ignoring malformed year-of-plenty payload:', payload)
         return

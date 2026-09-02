@@ -214,7 +214,7 @@ export function BoardShapeEditor({
     <dialog
       ref={dialogRef}
       aria-labelledby="board-shape-editor-heading"
-      className="expansion-card pointer-events-auto m-auto flex max-h-[90vh] w-[960px] flex-col p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
+      className="expansion-card pointer-events-auto m-auto flex max-h-[90vh] w-[min(960px,95vw)] flex-col p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
     >
       <h2 id="board-shape-editor-heading" className={`font-display text-xl ${INK}`}>
         {mode === 'preview' ? 'Preview Board Shape' : 'Draw a Board Shape'}

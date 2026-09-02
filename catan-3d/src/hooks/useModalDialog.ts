@@ -80,6 +80,19 @@ export function useModalDialog<T extends HTMLDialogElement>(_onClose?: () => voi
     if (!node) return
 
     node.showModal()
+    // showModal()'s own auto-focus step (spec: focus the first focusable
+    // descendant, or the dialog itself) doesn't pass preventScroll, so the
+    // browser can try to scroll that target into view -- visible as a
+    // page-level scrollbar flashing for the length of the entrance
+    // animation, since the dialog is briefly offset by its own
+    // transform (e.g. animate-victory-in's translateY) before settling.
+    // Re-focusing whatever showModal() just focused, synchronously and
+    // with preventScroll set, overrides that scroll attempt without
+    // changing what ends up focused (unlike focusing `node` itself, which
+    // would steal focus away from the auto-focused field).
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.focus({ preventScroll: true })
+    }
 
     const handleCancel = (event: Event) => event.preventDefault()
     node.addEventListener('cancel', handleCancel)

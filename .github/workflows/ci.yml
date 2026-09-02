@@ -69,7 +69,19 @@ jobs:
     # always fail on a Supabase connection error rather than skip
     # cleanly, since VITE_SUPABASE_URL_TEST/VITE_SUPABASE_PUBLISHABLE_KEY_TEST
     # would both come through empty.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Manual opt-out (2026-09-02): a PR whose title contains "[skip multiplayer]"
+    # skips this whole job — for presentation-only changes (art assets, CSS,
+    # focus/animation tweaks) that can't affect GameState convergence, where
+    # even the scoped-run cost/latency below isn't worth paying. Deliberately
+    # manual, not an automatic file-pattern heuristic: a wrong automatic
+    # "this looks safe" guess could silently skip a run that should have
+    # caught a real regression, whereas a human adding this marker is
+    # asserting they've already made that judgment call. push to main is
+    # NEVER skippable this way (only pull_request is checked below) — that
+    # run is the actual regression gate, not a PR-time cost optimization.
+    if: |
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip multiplayer]'))
     # A GitHub-hosted job with no explicit cap defaults to 360 minutes —
     # the first real run silently hung for hours with no per-job bound to
     # catch it (Playwright's own 1_050_000ms/17.5min test-level timeout,

@@ -126,15 +126,17 @@
 }
 
 /* Player-count tiles — blank (no baked-in number; 1-6 render as real text
-   on top, one shared pair of images). is-selected's canvas (67x70) isn't
-   proportioned the same as the base tile's (64x60), so background-size:
-   contain — which fits each image's WHOLE canvas into the box — rendered
-   the selected tile's core shape visibly smaller than the base tile's
-   (same bug as the buttons, index.css .btn-local-play etc.). Fixed the
-   same way: 100% 100% (stretch) makes both states fill the identical box
-   regardless of their own canvas proportions. */
+   on top, one shared pair of images). Originally two independently
+   generated images (67x70 vs 64x60) that looked the same at a glance but
+   visibly mismatched on screen; background-size: 100% 100% (stretch, same
+   fix as .btn-local-play etc.) covers any future mismatch regardless of
+   source proportions, but as of 2026-09-02 both states are cut from the
+   same 64x64 source (one with a selection border added in the same margin
+   the other leaves empty), so they're pixel-aligned without it. aspect-
+   ratio matches that shared 64x64 canvas so the box itself doesn't add its
+   own stretch on top. */
 .player-tile {
-  aspect-ratio: 64 / 60;
+  aspect-ratio: 1 / 1;
   background-image: url('./assets/menu/player-tile.png');
   background-size: 100% 100%;
   background-position: center;
@@ -201,10 +203,7 @@
 }
 
 /* Hand-made expansion/house-rules card frame (user, Aseprite, 2026-08-28) —
-   wood border + gold corner medallions around aged parchment. 15px
-   transparent margin before the border starts, ~9px of actual wood border
-   after that (pixel-scanned) — slice:24 clears both, landing right at the
-   cream interior.
+   wood border + gold corner medallions around aged parchment.
    No `fill` on border-image-slice (2026-09-01) — the source art's interior
    is a baked, non-tileable aged-parchment texture with irregular stain
    blotches, not a seamless pattern. border-image-repeat: stretch was
@@ -215,15 +214,48 @@
    background-color below (the same #f1e0be page tone every parchment
    screen in this family already samples, see parchmentTheme.ts) fills it
    instead — same color, no stretch-prone texture to distort regardless of
-   box proportions. */
+   box proportions.
+   border-image-slice: 48, not 24 (2026-09-02, real fix for a "square image
+   pasted on the border" corner artifact — confirmed by cropping the raw
+   PNG at both slice depths, not by guessing). The gold corner medallion is
+   baked into the source at roughly 45-48px per side; the plain straight
+   edge (away from corners) is a much thinner ~9px wood line with a 15px
+   transparent margin above it. A single border-image-slice value carves
+   the SAME depth for both the corner square and the edge strip, so the
+   old value (24, sized for the thin edge) sliced straight through the
+   middle of the medallion — the corner box got half a medallion with a
+   jagged cut edge, and the other half spilled into the edge strip, where
+   border-image-repeat: stretch smeared it sideways along the border's
+   length. 48 is the smallest slice that clears the whole medallion in one
+   piece; the extra ~34px it now also carries on the plain edges is flat
+   parchment-interior color in the source art, indistinguishable from the
+   background-color fill already painted behind it.
+   border-image-width: 24px, not 16 — needs to be an exact integer divisor
+   of the 48px slice (48/24 = 2x) so image-rendering: pixelated downscales
+   the medallion cleanly; a non-integer ratio (48/16 = 3x would've been
+   fine too, but the OLD 24/16 = 1.5x was not) is what produced the uneven,
+   chunky resampling on top of the half-medallion cut. border-width matches
+   border-image-width so the rendered art and the box's own layout
+   thickness agree — mismatching them stretches or crops the image inside
+   its own border band. */
 .expansion-card {
   border-style: solid;
-  border-width: 16px;
+  border-width: 24px;
   border-image-source: url('./assets/menu/expansion-panel.png');
-  border-image-slice: 24;
-  border-image-width: 16px;
+  border-image-slice: 48;
+  border-image-width: 24px;
   border-image-repeat: stretch;
   background-color: #f1e0be;
+  /* background-clip defaults to border-box, which paints this flat fill
+     underneath the WHOLE border area — including the ~15px fully
+     transparent margin baked into expansion-panel.png outside the wood
+     line. That showed up as a solid rectangle sitting behind/around the
+     ornate border, mismatched against whatever mottled page art is
+     actually behind this card (confirmed by simulating both clip modes
+     against a non-flat backdrop before touching this). padding-box confines
+     the fill to inside the visible border, letting the real page show
+     through the art's own transparent margin instead. */
+  background-clip: padding-box;
   image-rendering: pixelated;
 }
 
@@ -293,14 +325,22 @@
   }
 }
 
+/* No translateY here (2026-09-02, was translateY(24px)) -- panels using
+   this (every .expansion-card) are already vertically centered via the
+   dialog's own margin:auto, so starting 24px BELOW that pushed the
+   panel's bottom edge past the viewport for the animation's duration on
+   any panel with little vertical slack to spare -- a page-level scrollbar
+   flashed for exactly as long as the animation ran, then vanished once it
+   reached translateY(0). scale-only keeps the same "grows into place"
+   feel without any directional displacement that could push it offscreen. */
 @keyframes victory-in {
   from {
     opacity: 0;
-    transform: translateY(24px) scale(0.94);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scale(1);
   }
 }
 
@@ -368,14 +408,17 @@
 
 :root {
   color-scheme: dark;
+  overflow: hidden;
 }
 
 #root {
   width: 100%;
   height: 100svh;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
   font-family: var(--font-body);
 }

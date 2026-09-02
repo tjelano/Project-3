@@ -7,6 +7,7 @@ import {
   type CustomBoardShape,
 } from '../../data/customBoardShapes'
 import { useModalDialog } from '../../hooks/useModalDialog'
+import { INK, INK_MUTED, PARCHMENT_BUTTON, PARCHMENT_INPUT } from './parchmentTheme'
 
 // Generous enough for anything from a tight single island to a sprawling
 // peanut/archipelago-style shape, without the grid itself becoming
@@ -213,43 +214,43 @@ export function BoardShapeEditor({
     <dialog
       ref={dialogRef}
       aria-labelledby="board-shape-editor-heading"
-      className="pointer-events-auto m-auto flex max-h-[90vh] w-[960px] flex-col rounded-2xl border border-glass-border bg-glass p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/90 backdrop:backdrop-blur-md backdrop-blur-xl"
+      className="expansion-card pointer-events-auto m-auto flex max-h-[90vh] w-[min(960px,95vw)] flex-col p-6 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop:bg-board-navy/80 backdrop:backdrop-blur-md"
     >
-      <h2 id="board-shape-editor-heading" className="font-display text-xl text-white">
+      <h2 id="board-shape-editor-heading" className={`font-display text-xl ${INK}`}>
         {mode === 'preview' ? 'Preview Board Shape' : 'Draw a Board Shape'}
       </h2>
-      <p className="mt-1 font-body text-xs text-white/60">
+      <p className={`mt-1 font-body text-xs ${INK_MUTED}`}>
         {mode === 'preview'
           ? 'This is a saved shape. Use it as-is, or Edit to change it.'
           : 'Click hexes to add them to the shape. Paint a biome onto a tile to fix it — leave tiles unpainted to draw randomly from the standard six. Sea and Gold Field never appear by chance; paint them deliberately. Numbers always shuffle fresh every game.'}
       </p>
 
       <div className="mt-4 flex min-h-0 flex-1 gap-4">
-        <div className="flex w-48 shrink-0 flex-col gap-2 overflow-y-auto rounded-xl border border-glass-border bg-board-navy/60 p-2">
+        <div className="flex w-48 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-[#8a6d47]/30 bg-[#f1e0be]/30 p-2">
           <button
             type="button"
             onClick={resetToBlank}
-            className="rounded-lg border border-glass-border bg-white/5 py-2 font-body text-[11px] tracking-[0.1em] text-gold uppercase transition-colors hover:border-gold/50"
+            className={`${PARCHMENT_BUTTON} py-2 font-body text-[11px] tracking-[0.1em] uppercase`}
           >
             + New Map
           </button>
           {savedShapes.length === 0 && (
-            <p className="mt-2 px-1 font-body text-[11px] text-white/40">No saved maps yet.</p>
+            <p className={`mt-2 px-1 font-body text-[11px] ${INK_MUTED}`}>No saved maps yet.</p>
           )}
           {savedShapes.map((shape) => (
             <div
               key={shape.id}
-              className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 ${
-                editingId === shape.id ? 'border-gold/60 bg-gold/10' : 'border-glass-border bg-white/5'
+              className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 transition-colors ${
+                editingId === shape.id ? 'border-[#7a3b1e] bg-[#7a3b1e]/10' : 'border-[#8a6d47]/30 hover:border-[#8a6d47]/60'
               }`}
             >
               <button
                 type="button"
                 onClick={() => loadShapeIntoCanvas(shape)}
-                className="min-w-0 flex-1 truncate text-left font-body text-xs text-white hover:text-gold"
+                className={`min-w-0 flex-1 truncate text-left font-body text-xs ${INK} hover:text-[#7a3b1e]`}
               >
                 {shape.name}
-                <span className="ml-1 text-white/40">({shape.cells.length})</span>
+                <span className={`ml-1 ${INK_MUTED}`}>({shape.cells.length})</span>
               </button>
               {pendingDeleteId === shape.id ? (
                 <button
@@ -268,7 +269,7 @@ export function BoardShapeEditor({
                   type="button"
                   onClick={() => setPendingDeleteId(shape.id)}
                   aria-label={`Delete ${shape.name}`}
-                  className="shrink-0 font-body text-xs text-white/40 hover:text-player-1"
+                  className={`shrink-0 font-body text-xs ${INK_MUTED} hover:text-player-1`}
                 >
                   ✕
                 </button>
@@ -278,8 +279,12 @@ export function BoardShapeEditor({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-auto rounded-xl border border-glass-border bg-board-navy/60 p-3">
-            <svg viewBox="-320 -280 640 560" className="mx-auto block h-auto w-full max-w-[680px]">
+          <div className="flex-1 overflow-hidden rounded-lg border border-[#8a6d47]/30 bg-[#f1e0be]/30 p-3">
+            <svg
+              viewBox="-320 -280 640 560"
+              preserveAspectRatio="xMidYMid meet"
+              className="mx-auto block h-full w-full max-w-[680px] object-contain"
+            >
               {COL_RANGE.flatMap((col) =>
                 ROW_RANGE.map((row) => {
                   const cell = { col, row }
@@ -294,9 +299,9 @@ export function BoardShapeEditor({
                       key={key}
                       points={hexPolygonPoints(cx, cy, HEX_PIXEL_RADIUS - 1.5)}
                       onClick={() => handleTileClick(cell)}
-                      className={`stroke-white/15 transition-colors ${mode === 'editing' ? 'cursor-pointer' : 'cursor-default'} ${
+                      className={`stroke-[#8a6d47]/30 transition-colors ${mode === 'editing' ? 'cursor-pointer' : 'cursor-default'} ${
                         !isSelected
-                          ? 'fill-white/5 hover:fill-white/15'
+                          ? 'fill-[#8a6d47]/5 hover:fill-[#8a6d47]/15'
                           : paintedBiome
                             ? ''
                             : 'fill-gold/80 hover:fill-gold'
@@ -310,7 +315,7 @@ export function BoardShapeEditor({
             </svg>
           </div>
 
-          <div className="mt-3 flex items-center justify-between font-body text-[11px] text-white/50">
+          <div className={`mt-3 flex items-center justify-between font-body text-[11px] ${INK_MUTED}`}>
             <span>{selected.size} tiles selected</span>
             {selected.size > 0 && !connected && (
               <span className="text-player-1">Not all connected — every tile needs a neighbor in the shape.</span>
@@ -319,7 +324,7 @@ export function BoardShapeEditor({
 
           {mode === 'editing' && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="font-body text-[11px] tracking-[0.1em] text-white/50 uppercase">Paint biome</span>
+              <span className={`font-body text-[11px] tracking-[0.1em] uppercase ${INK_MUTED}`}>Paint biome</span>
               {BIOME_PALETTE.map((biome) => (
                 <button
                   key={biome}
@@ -329,7 +334,7 @@ export function BoardShapeEditor({
                   aria-pressed={activeBrush === biome}
                   title={biome}
                   className={`h-6 w-6 rounded-full border-2 transition-transform ${
-                    activeBrush === biome ? 'scale-110 border-white' : 'border-white/30 hover:border-white/60'
+                    activeBrush === biome ? 'scale-110 border-[#7a3b1e]' : 'border-[#8a6d47]/40 hover:border-[#8a6d47]/70'
                   }`}
                   style={{ backgroundColor: BIOME_COLORS[biome] }}
                 />
@@ -341,8 +346,8 @@ export function BoardShapeEditor({
                 aria-pressed={activeBrush === 'erase'}
                 className={`rounded-lg border px-2 py-1 font-body text-[10px] tracking-[0.05em] uppercase transition-colors ${
                   activeBrush === 'erase'
-                    ? 'border-gold text-gold'
-                    : 'border-glass-border text-white/50 hover:text-white'
+                    ? 'border-[#7a3b1e] text-[#7a3b1e]'
+                    : `border-[#8a6d47]/40 ${INK_MUTED} hover:text-[#2b1810]`
                 }`}
               >
                 Erase
@@ -359,7 +364,7 @@ export function BoardShapeEditor({
                 placeholder="Name this shape"
                 aria-label="Shape name"
                 maxLength={30}
-                className="min-w-0 flex-1 rounded-lg border border-glass-border bg-white/5 px-3 py-2 font-body text-sm text-white placeholder:text-white/30 focus:border-gold/60 focus:outline-none"
+                className={`min-w-0 flex-1 ${PARCHMENT_INPUT}`}
               />
               <button
                 type="button"
@@ -367,7 +372,7 @@ export function BoardShapeEditor({
                   setSelected(new Set())
                   setPaintedBiomes(new Map())
                 }}
-                className="rounded-lg border border-glass-border bg-white/5 px-3 py-2 font-body text-[11px] tracking-[0.1em] text-white/60 uppercase transition-colors hover:border-player-1/50 hover:text-player-1"
+                className={`${PARCHMENT_BUTTON} px-3 py-2 font-body text-[11px] tracking-[0.1em] uppercase hover:text-player-1`}
               >
                 Clear
               </button>
@@ -378,7 +383,7 @@ export function BoardShapeEditor({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-glass-border bg-white/5 py-2.5 font-display text-sm font-semibold text-white transition-colors hover:border-white/30"
+              className={`${PARCHMENT_BUTTON} flex-1 py-2.5 font-display text-sm font-semibold uppercase`}
             >
               Cancel
             </button>
@@ -387,14 +392,14 @@ export function BoardShapeEditor({
                 <button
                   type="button"
                   onClick={() => setMode('editing')}
-                  className="flex-1 rounded-lg border border-gold/50 bg-white/5 py-2.5 font-display text-sm font-semibold text-gold transition-colors hover:border-gold"
+                  className={`${PARCHMENT_BUTTON} flex-1 py-2.5 font-display text-sm font-semibold uppercase`}
                 >
                   Edit
                 </button>
                 <button
                   type="button"
                   onClick={() => onSave(buildCurrentShape())}
-                  className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95"
+                  className={`${PARCHMENT_BUTTON} flex-1 py-2.5 font-display text-sm font-semibold uppercase`}
                 >
                   Use This Map
                 </button>
@@ -404,7 +409,7 @@ export function BoardShapeEditor({
                 type="button"
                 disabled={!canSave}
                 onClick={handleSaveShape}
-                className="flex-1 rounded-lg bg-gradient-to-b from-gold to-gold-deep py-2.5 font-display text-sm font-semibold text-board-navy transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                className={`${PARCHMENT_BUTTON} flex-1 py-2.5 font-display text-sm font-semibold uppercase disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 Save Shape
               </button>

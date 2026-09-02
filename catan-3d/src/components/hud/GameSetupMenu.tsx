@@ -318,7 +318,7 @@ export function GameSetupMenu({
               aria-pressed={playerCount === n}
               aria-label={`${n} player${n === 1 ? '' : 's'}`}
               style={{ fontSize: LAYOUT.playersNumberFontSizePx }}
-              className={`player-tile flex items-center justify-center font-display text-[#f1e0be] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
+              className={`player-tile room-code-font flex items-center justify-center font-bold text-[#f1e0be] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
                 playerCount === n ? 'is-selected' : ''
               }`}
             >
@@ -335,7 +335,7 @@ export function GameSetupMenu({
               aria-pressed={playerCount === n}
               aria-label={`${n} player${n === 1 ? '' : 's'}`}
               style={{ fontSize: LAYOUT.playersNumberFontSizePx }}
-              className={`player-tile flex items-center justify-center font-display text-[#f1e0be] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
+              className={`player-tile room-code-font flex items-center justify-center font-bold text-[#f1e0be] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
                 playerCount === n ? 'is-selected' : ''
               }`}
             >
